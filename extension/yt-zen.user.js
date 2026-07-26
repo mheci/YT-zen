@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YT-zen
 // @namespace    https://github.com/mheci/YT-zen
-// @version      3.1.1
+// @version      3.1.2
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      Unlicense
@@ -772,7 +772,7 @@
       ("undefined" != typeof GM_info &&
         GM_info.script &&
         GM_info.script.version) ||
-      "3.1.1",
+      "3.1.2",
     r = "https://sponsor.ajay.app",
     o = (() => {
       try {
@@ -5272,6 +5272,7 @@
     try {
       e.currentTime = p;
     } catch (e) {}
+    if (_isLiveStream()) return;
     try {
       e.playbackRate = 16;
     } catch (e) {}
@@ -5933,6 +5934,9 @@
           const e = ie.el();
           // Don't force speed on live streams (they need to stay at 1x)
           if (e && _isLiveStream()) return;
+          if (e && _isLiveStream()) return;
+          // Don't fight with Smart Speed: if Smart Speed is active, let it control rate
+          if (S.smartSpeedOn) return;
           e && Math.abs(e.playbackRate - t) > 0.01 && (e.playbackRate = t);
         };
       if ((a(), !S.speedRemember && 1 === S.speedDefault)) return;
@@ -6025,6 +6029,7 @@
                 isFinite(rec.r) &&
                 Math.abs((t.playbackRate || 1) - rec.r) > 0.01
               ) {
+                if (_isLiveStream()) return;
                 t.playbackRate = rec.r;
                 pe(
                   "Speed restored to " + rec.r + "x for this channel",
@@ -6100,6 +6105,7 @@
             const e = ie.el();
             e &&
               e.currentTime >= S.abB &&
+              !_isLiveStream() &&
               ((e.currentTime = S.abA), e.play().catch(() => {}));
           },
           a = () => {
@@ -6356,7 +6362,7 @@
         m.addEventListener("click", () => {
           try {
             const e = ie.el();
-            if (e) e.currentTime = ln.start;
+            if (e && !_isLiveStream()) e.currentTime = ln.start;
           } catch (e) {}
         });
         m.addEventListener("mouseenter", () => { m.style.background = "rgba(255,61,127,1)"; m.style.transform = "scaleY(1.3)"; });
@@ -6402,7 +6408,7 @@
         ts.addEventListener("click", () => {
           try {
             const e = ie.el();
-            if (e) e.currentTime = ln.start;
+            if (e && !_isLiveStream()) e.currentTime = ln.start;
           } catch (e) {}
         });
         const txt = document.createElement("span");
@@ -6421,7 +6427,7 @@
         row.addEventListener("click", () => {
           try {
             const e = ie.el();
-            if (e) e.currentTime = ln.start;
+            if (e && !_isLiveStream()) e.currentTime = ln.start;
           } catch (e) {}
         });
         _results.appendChild(row);
@@ -7822,10 +7828,14 @@
         if (!S.sleepTimerOn) return;
         const t = Math.max(1, Number(S.sleepTimerMin) || 30);
         e.addTimeout(() => {
-          (ie.pause(),
-            pe("Time’s up - pausing.", 2e3, "info"),
-            Ta("sleepTimerOn", !1));
+          const vid = ie.el();
+          if (vid && !vid.paused && !vid.ended) {
+            ie.pause();
+            pe("Sleep timer - pausing.", 2e3, "info");
+          }
+          Ta("sleepTimerOn", !1);
         }, 6e4 * t);
+        e.onNav(() => { Ta("sleepTimerOn", !1); });
       },
       settings(e) {
         e.appendChild(
@@ -10789,7 +10799,7 @@
               ev.preventDefault();
               ev.stopPropagation();
               try {
-                o.currentTime = Math.min(o.duration || 1e9, o.currentTime + s);
+                if (!_isLiveStream()) o.currentTime = Math.min(o.duration || 1e9, o.currentTime + s);
               } catch (e) {}
             },
             !0,
@@ -12252,17 +12262,27 @@
       keys: ["adaptiveThrottleOn"],
       apply(e) {
         if (!S.adaptiveThrottleOn) return;
+        let _batSessionStart = Date.now();
         const t = () => {
-          "hidden" === document.visibilityState &&
-            navigator.getBattery &&
+          // Only pause if tab has been hidden for at least 60 seconds
+          // and battery is critically low
+          if ("hidden" !== document.visibilityState) return;
+          if (Date.now() - _batSessionStart < 60000) return;
+          navigator.getBattery &&
             navigator
               .getBattery()
               .then((e) => {
-                !e.charging && e.level < 0.3 && ie.pause();
+                if (!e.charging && e.level < 0.15) {
+                  const vid = ie.el();
+                  if (vid && !vid.paused && !vid.ended && !_isLiveStream()) {
+                    ie.pause();
+                    pe("Battery critically low - paused to save power.", 3e3, "info");
+                  }
+                }
               })
               .catch(() => {});
         };
-        (e.addListener(document, "visibilitychange", t), e.addInterval(t, 1e4));
+        (e.addListener(document, "visibilitychange", t), e.addInterval(t, 3e4));
       },
       settings() {},
     }),
@@ -12769,7 +12789,7 @@
 
         };
         const PREF_KEYS = {
-          "f5": { label: "Autoplay", type: "enum", options: {"3.1.1": "Enabled", "30000": "Disabled"} },
+          "f5": { label: "Autoplay", type: "enum", options: {"3.1.2": "Enabled", "30000": "Disabled"} },
           "f6": { label: "Layout", type: "enum", options: {"4": "Material", "8": "Old"} },
           "al": { label: "Content Language", type: "text" },
           "gl": { label: "Country", type: "text" },
@@ -13382,7 +13402,7 @@
             .slice()
             .reverse()
             .find((e) => e.t < n - 1)),
-      r && (t.currentTime = r.t));
+      r && !_isLiveStream() && (t.currentTime = r.t));
   }
   async function Br(e) {
     const t = (function (e) {
@@ -18715,7 +18735,7 @@
                   t.addEventListener("click", () => {
                     try {
                       const t = ie.el();
-                      t && (t.currentTime = e.t);
+                      t && !_isLiveStream() && (t.currentTime = e.t);
                       const a = ie.api();
                       a && a.playVideo && a.playVideo();
                     } catch (e) {}
@@ -23919,7 +23939,7 @@ body.zen-mood-learn ytd-watch-flexy #secondary{display:none!important}
         mark.className = "zen-scene-mark";
         mark.style.left = ((t / duration) * 100).toFixed(2) + "%";
         mark.title = "Scene at " + ce(Math.floor(t));
-        mark.addEventListener("click", (ev) => { ev.stopPropagation(); const vid = ie.el(); if (vid) vid.currentTime = t; });
+        mark.addEventListener("click", (ev) => { ev.stopPropagation(); const vid = ie.el(); if (vid && !_isLiveStream()) vid.currentTime = t; });
         container.appendChild(mark);
       });
     };
@@ -24101,7 +24121,7 @@ body.zen-mood-learn ytd-watch-flexy #secondary{display:none!important}
   xa.register({ id: "parallel-player", name: "Parallel Player", summary: "Watch two videos side by side with synchronized playback.", masterKey: "parallelPlayerOn", keys: ["parallelPlayerOn"], apply(ctx) { if (!S.parallelPlayerOn) return; ZenEngine.injectCSS(); }, settings(en) { en.appendChild(Io("Enable Parallel Player", "parallelPlayerOn")); } });
 
   xa.register({ id: "video-dna", name: "Video DNA Timeline", summary: "Composite energy visualization overlaid on the progress bar. Click to seek.", masterKey: "videoDnaOn", keys: ["videoDnaOn"],
-    apply(ctx) { if (!S.videoDnaOn) return; ZenEngine.injectCSS(); let dnaEl = null; const build = () => { const vid = ie.el(); if (!vid || !vid.duration || !isFinite(vid.duration)) return; const progressBar = document.querySelector(".ytp-progress-bar-container"); if (!progressBar) return; if (dnaEl && dnaEl.parentNode) dnaEl.remove(); dnaEl = document.createElement("div"); dnaEl.id = "ytp-zen-dna"; const canvas = document.createElement("canvas"); canvas.width = 800; canvas.height = 18; dnaEl.appendChild(canvas); progressBar.style.position = "relative"; progressBar.appendChild(dnaEl); ZenPlayback.renderDNA(canvas, vid.duration); dnaEl.addEventListener("click", (ev) => { ev.stopPropagation(); const rect = dnaEl.getBoundingClientRect(); vid.currentTime = ((ev.clientX - rect.left) / rect.width) * vid.duration; }); }; ctx.addTimeout(build, 2500); ctx.onNav(() => ctx.addTimeout(build, 2500)); Yt["video-dna"].push(() => { if (dnaEl && dnaEl.parentNode) dnaEl.remove(); dnaEl = null; }); },
+    apply(ctx) { if (!S.videoDnaOn) return; ZenEngine.injectCSS(); let dnaEl = null; const build = () => { const vid = ie.el(); if (!vid || !vid.duration || !isFinite(vid.duration)) return; const progressBar = document.querySelector(".ytp-progress-bar-container"); if (!progressBar) return; if (dnaEl && dnaEl.parentNode) dnaEl.remove(); dnaEl = document.createElement("div"); dnaEl.id = "ytp-zen-dna"; const canvas = document.createElement("canvas"); canvas.width = 800; canvas.height = 18; dnaEl.appendChild(canvas); progressBar.style.position = "relative"; progressBar.appendChild(dnaEl); ZenPlayback.renderDNA(canvas, vid.duration); dnaEl.addEventListener("click", (ev) => { ev.stopPropagation(); if (_isLiveStream()) return; const rect = dnaEl.getBoundingClientRect(); vid.currentTime = ((ev.clientX - rect.left) / rect.width) * vid.duration; }); }; ctx.addTimeout(build, 2500); ctx.onNav(() => ctx.addTimeout(build, 2500)); Yt["video-dna"].push(() => { if (dnaEl && dnaEl.parentNode) dnaEl.remove(); dnaEl = null; }); },
     settings(en) { en.appendChild(Io("Enable Video DNA Timeline", "videoDnaOn")); } });
 
   xa.register({ id: "smart-speed", name: "Smart Speed", summary: "Automatically adjusts playback speed based on content density.", masterKey: "smartSpeedOn", keys: ["smartSpeedOn", "smartSpeedBase", "smartSpeedFast"],

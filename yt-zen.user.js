@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YT-zen
 // @namespace    https://github.com/mheci/YT-zen
-// @version      1.5.0
+// @version      1.5.1
 // @description  Clean, lightweight, and customizable client-side interface for YouTube.
 // @author       YT-zen Team
 // @license      Unlicense
@@ -22737,82 +22737,17 @@
         const e = ie.videoId();
         if (e) return St(e);
       },
-      stats: () => ({ saved: rt, skips: ot, segments: tt.length }),
-      health: Bt_health,
-
-      vote: (uuid, type) => Bt_voteSponsorTime(uuid, type || 1),
-      ignore: (uuid) => Bt_ignoreSegment(uuid),
-      unIgnore: (uuid) => Bt_unIgnoreSegment(uuid),
-      hideVideo: () => Bt_hideVideo(),
-      unHideVideo: () => Bt_unHideVideo(),
-      lockCategories: (cats) => Bt_lockCategories(cats),
-      setUsername: (name) => Bt_setUsername(name),
-      getUsername: () => Bt_getUsername(),
-      getUserInfo: () => Bt_getUserInfo(),
-
-      setSegOverride: (uuid, action) => {
-        let cur = {};
-        try {
-          cur = S.sbSegOverrides ? JSON.parse(S.sbSegOverrides) : {};
-        } catch (e) {
-          cur = {};
+      stats: () => SponsorBlockEngine.stats(),
+      categories: i,
+      options: Yi,
+      setCategoryAction: (catId, action) => {
+        if (catId in Yi) {
+          Ta("sb_" + catId + "_act", action);
         }
-        if (!action) delete cur[uuid];
-        else cur[uuid] = action;
-        Ta(
-          "sbSegOverrides",
-          Object.keys(cur).length ? JSON.stringify(cur) : "",
-        );
-        Bt_invalidateMarks();
       },
-      setChanOverride: (channelId, action) => {
-        let cur = {};
-        try {
-          cur = S.sbChanOverrides ? JSON.parse(S.sbChanOverrides) : {};
-        } catch (e) {
-          cur = {};
-        }
-        if (!action) delete cur[channelId];
-        else cur[channelId] = action;
-        Ta(
-          "sbChanOverrides",
-          Object.keys(cur).length ? JSON.stringify(cur) : "",
-        );
-        Bt_invalidateMarks();
-      },
-
-      setChapterRule: (channelId, pattern) => {
-        let cur = {};
-        try {
-          cur = S.sbChapterRules ? JSON.parse(S.sbChapterRules) : {};
-        } catch (e) {
-          cur = {};
-        }
-        if (!pattern) delete cur[channelId];
-        else cur[channelId] = pattern;
-        Ta(
-          "sbChapterRules",
-          Object.keys(cur).length ? JSON.stringify(cur) : "",
-        );
-      },
-
-      markA: () => {
-        const e = ie.el();
-        if (e) ((io = e.currentTime), Bt_renderSubmitAB());
-      },
-      markB: () => {
-        const e = ie.el();
-        if (e) ((co = e.currentTime), Bt_renderSubmitAB());
-      },
-      clearMarks: () => {
-        io = -1;
-        co = -1;
-        Bt_renderSubmitAB();
-      },
-      getAB: () => ({ a: io, b: co }),
-      server: Bt_serverUrl,
-      serverUrl: Bt_serverUrl,
-      categories: () => i.map((c) => c.id),
+      setCategoryEnabled: (catId, enabled) => {
+        Ta("sb_" + catId + "_en", !!enabled);
+      }
     },
     net: {
       summary: (e) => dr(e || "all"),

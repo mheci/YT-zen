@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YT-zen
 // @namespace    https://github.com/mheci/YT-zen
-// @version      3.5.0
+// @version      3.5.1
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      Unlicense
@@ -778,7 +778,7 @@
       ("undefined" != typeof GM_info &&
         GM_info.script &&
         GM_info.script.version) ||
-      "3.5.0",
+      "3.5.1",
     r = "https://sponsor.ajay.app",
     o = (() => {
       try {
@@ -1872,6 +1872,167 @@
       return (e.set(t, n), n);
     };
   }
+  const ZenResources = (() => {
+    "use strict";
+
+    // ─── BoundedCache ────────────────────────────────────────────────────────
+    // LRU Map with configurable max size. Oldest entries evicted on overflow.
+    // Tracks hit/miss stats for diagnostics.
+    class BoundedCache {
+      constructor(maxSize = 128, name = "cache") {
+        this._map = new Map();
+        this._max = Math.max(1, maxSize);
+        this._name = name;
+        this._hits = 0;
+        this._misses = 0;
+      }
+      get(key) {
+        if (!this._map.has(key)) { this._misses++; return undefined; }
+        this._hits++;
+        const val = this._map.get(key);
+        // LRU: move to end
+        this._map.delete(key);
+        this._map.set(key, val);
+        return val;
+      }
+      set(key, val) {
+        if (this._map.has(key)) this._map.delete(key);
+        this._map.set(key, val);
+        // Evict oldest if over capacity
+        while (this._map.size > this._max) {
+          const oldest = this._map.keys().next().value;
+          this._map.delete(oldest);
+        }
+      }
+      has(key) { return this._map.has(key); }
+      delete(key) { return this._map.delete(key); }
+      clear() { this._map.clear(); }
+      keys() { return this._map.keys(); }
+      values() { return this._map.values(); }
+      entries() { return this._map.entries(); }
+      forEach(fn) { this._map.forEach((v, k) => fn(v, k, this)); }
+      get size() { return this._map.size; }
+      stats() {
+        const total = this._hits + this._misses;
+        return { name: this._name, size: this._map.size, max: this._max, hits: this._hits, misses: this._misses, hitRate: total > 0 ? Math.round((this._hits / total) * 100) : 0 };
+      }
+    }
+
+    // ─── WeakElementCache ────────────────────────────────────────────────────
+    // WeakRef-based cache for DOM elements. Entries are automatically garbage
+    // collected when the DOM element is removed from the document.
+    // Uses FinalizationRegistry to clean up stale keys.
+    class WeakElementCache {
+      constructor(name = "weak-cache") {
+        this._map = new Map();
+        this._name = name;
+        this._cleaned = 0;
+        if (typeof FinalizationRegistry === "function") {
+          this._registry = new FinalizationRegistry((key) => {
+            this._map.delete(key);
+            this._cleaned++;
+          });
+        } else {
+          this._registry = null;
+        }
+      }
+      set(key, element) {
+        if (!element || typeof element !== "object") return;
+        // Clean up old entry for this key
+        const old = this._map.get(key);
+        if (old && this._registry) {
+          try { this._registry.unregister(old); } catch (_) {}
+        }
+        if (typeof WeakRef === "function") {
+          const ref = new WeakRef(element);
+          this._map.set(key, ref);
+          if (this._registry) {
+            try { this._registry.register(element, key, ref); } catch (_) {}
+          }
+        } else {
+          // Fallback: strong reference (less ideal but functional)
+          this._map.set(key, { deref: () => element });
+        }
+      }
+      get(key) {
+        const ref = this._map.get(key);
+        if (!ref) return null;
+        const el = ref.deref ? ref.deref() : null;
+        if (!el) {
+          this._map.delete(key);
+          this._cleaned++;
+          return null;
+        }
+        return el;
+      }
+      has(key) {
+        const el = this.get(key);
+        return el !== null;
+      }
+      delete(key) { this._map.delete(key); }
+      clear() { this._map.clear(); }
+      get size() { return this._map.size; }
+      stats() { return { name: this._name, size: this._map.size, cleaned: this._cleaned }; }
+    }
+
+    // ─── SharedObserver ──────────────────────────────────────────────────────
+    // Single MutationObserver on document.body that dispatches mutations to
+    // registered subscribers. Replaces per-feature observers (saves 10+ observers).
+    // Subscribers receive batched mutations at most once per animation frame.
+    const SharedObserver = (() => {
+      let observer = null;
+      const subscribers = new Map(); // id → { callback, options }
+      let pendingFlush = false;
+      let mutationBatch = [];
+      let nextId = 1;
+
+      const flush = () => {
+        pendingFlush = false;
+        const batch = mutationBatch;
+        mutationBatch = [];
+        for (const [, sub] of subscribers) {
+          try { sub.callback(batch); } catch (_) {}
+        }
+      };
+
+      const ensureObserver = () => {
+        if (observer) return;
+        if (!document.body) return;
+        observer = new MutationObserver((mutations) => {
+          mutationBatch.push(...mutations);
+          if (!pendingFlush) {
+            pendingFlush = true;
+            requestAnimationFrame(flush);
+          }
+        });
+        observer.observe(document.body, { childList: true, subtree: true });
+      };
+
+      const subscribe = (callback) => {
+        const id = nextId++;
+        subscribers.set(id, { callback });
+        ensureObserver();
+        return id;
+      };
+
+      const unsubscribe = (id) => {
+        subscribers.delete(id);
+        // Disconnect observer if no subscribers
+        if (subscribers.size === 0 && observer) {
+          observer.disconnect();
+          observer = null;
+        }
+      };
+
+      const stats = () => ({
+        subscribers: subscribers.size,
+        active: observer !== null,
+        pendingMutations: mutationBatch.length,
+      });
+
+      return { subscribe, unsubscribe, stats };
+    })();
+
   const oe = {
       vid: void 0,
       vidHref: "",
@@ -2010,6 +2171,7 @@
       },
       isAd: () => !!document.querySelector(".ad-showing,.ad-interrupting"),
     },
+
     de = new ZenResources.BoundedCache(512, "time-format");
   function sanitizeUrlForCSS(url) {
     if (!url || typeof url !== "string") return "";
@@ -12832,7 +12994,7 @@
 
         };
         const PREF_KEYS = {
-          "f5": { label: "Autoplay", type: "enum", options: {"3.5.0": "Enabled", "30000": "Disabled"} },
+          "f5": { label: "Autoplay", type: "enum", options: {"3.5.1": "Enabled", "30000": "Disabled"} },
           "f6": { label: "Layout", type: "enum", options: {"4": "Material", "8": "Old"} },
           "al": { label: "Content Language", type: "text" },
           "gl": { label: "Country", type: "text" },
@@ -24118,166 +24280,6 @@ body.zen-mood-learn ytd-watch-flexy #secondary{display:none!important}
   //    AbortGroup       — Grouped AbortController for feature-scoped cancellation
   // ═══════════════════════════════════════════════════════════════════════════
 
-  const ZenResources = (() => {
-    "use strict";
-
-    // ─── BoundedCache ────────────────────────────────────────────────────────
-    // LRU Map with configurable max size. Oldest entries evicted on overflow.
-    // Tracks hit/miss stats for diagnostics.
-    class BoundedCache {
-      constructor(maxSize = 128, name = "cache") {
-        this._map = new Map();
-        this._max = Math.max(1, maxSize);
-        this._name = name;
-        this._hits = 0;
-        this._misses = 0;
-      }
-      get(key) {
-        if (!this._map.has(key)) { this._misses++; return undefined; }
-        this._hits++;
-        const val = this._map.get(key);
-        // LRU: move to end
-        this._map.delete(key);
-        this._map.set(key, val);
-        return val;
-      }
-      set(key, val) {
-        if (this._map.has(key)) this._map.delete(key);
-        this._map.set(key, val);
-        // Evict oldest if over capacity
-        while (this._map.size > this._max) {
-          const oldest = this._map.keys().next().value;
-          this._map.delete(oldest);
-        }
-      }
-      has(key) { return this._map.has(key); }
-      delete(key) { return this._map.delete(key); }
-      clear() { this._map.clear(); }
-      keys() { return this._map.keys(); }
-      values() { return this._map.values(); }
-      entries() { return this._map.entries(); }
-      forEach(fn) { this._map.forEach((v, k) => fn(v, k, this)); }
-      get size() { return this._map.size; }
-      stats() {
-        const total = this._hits + this._misses;
-        return { name: this._name, size: this._map.size, max: this._max, hits: this._hits, misses: this._misses, hitRate: total > 0 ? Math.round((this._hits / total) * 100) : 0 };
-      }
-    }
-
-    // ─── WeakElementCache ────────────────────────────────────────────────────
-    // WeakRef-based cache for DOM elements. Entries are automatically garbage
-    // collected when the DOM element is removed from the document.
-    // Uses FinalizationRegistry to clean up stale keys.
-    class WeakElementCache {
-      constructor(name = "weak-cache") {
-        this._map = new Map();
-        this._name = name;
-        this._cleaned = 0;
-        if (typeof FinalizationRegistry === "function") {
-          this._registry = new FinalizationRegistry((key) => {
-            this._map.delete(key);
-            this._cleaned++;
-          });
-        } else {
-          this._registry = null;
-        }
-      }
-      set(key, element) {
-        if (!element || typeof element !== "object") return;
-        // Clean up old entry for this key
-        const old = this._map.get(key);
-        if (old && this._registry) {
-          try { this._registry.unregister(old); } catch (_) {}
-        }
-        if (typeof WeakRef === "function") {
-          const ref = new WeakRef(element);
-          this._map.set(key, ref);
-          if (this._registry) {
-            try { this._registry.register(element, key, ref); } catch (_) {}
-          }
-        } else {
-          // Fallback: strong reference (less ideal but functional)
-          this._map.set(key, { deref: () => element });
-        }
-      }
-      get(key) {
-        const ref = this._map.get(key);
-        if (!ref) return null;
-        const el = ref.deref ? ref.deref() : null;
-        if (!el) {
-          this._map.delete(key);
-          this._cleaned++;
-          return null;
-        }
-        return el;
-      }
-      has(key) {
-        const el = this.get(key);
-        return el !== null;
-      }
-      delete(key) { this._map.delete(key); }
-      clear() { this._map.clear(); }
-      get size() { return this._map.size; }
-      stats() { return { name: this._name, size: this._map.size, cleaned: this._cleaned }; }
-    }
-
-    // ─── SharedObserver ──────────────────────────────────────────────────────
-    // Single MutationObserver on document.body that dispatches mutations to
-    // registered subscribers. Replaces per-feature observers (saves 10+ observers).
-    // Subscribers receive batched mutations at most once per animation frame.
-    const SharedObserver = (() => {
-      let observer = null;
-      const subscribers = new Map(); // id → { callback, options }
-      let pendingFlush = false;
-      let mutationBatch = [];
-      let nextId = 1;
-
-      const flush = () => {
-        pendingFlush = false;
-        const batch = mutationBatch;
-        mutationBatch = [];
-        for (const [, sub] of subscribers) {
-          try { sub.callback(batch); } catch (_) {}
-        }
-      };
-
-      const ensureObserver = () => {
-        if (observer) return;
-        if (!document.body) return;
-        observer = new MutationObserver((mutations) => {
-          mutationBatch.push(...mutations);
-          if (!pendingFlush) {
-            pendingFlush = true;
-            requestAnimationFrame(flush);
-          }
-        });
-        observer.observe(document.body, { childList: true, subtree: true });
-      };
-
-      const subscribe = (callback) => {
-        const id = nextId++;
-        subscribers.set(id, { callback });
-        ensureObserver();
-        return id;
-      };
-
-      const unsubscribe = (id) => {
-        subscribers.delete(id);
-        // Disconnect observer if no subscribers
-        if (subscribers.size === 0 && observer) {
-          observer.disconnect();
-          observer = null;
-        }
-      };
-
-      const stats = () => ({
-        subscribers: subscribers.size,
-        active: observer !== null,
-        pendingMutations: mutationBatch.length,
-      });
-
-      return { subscribe, unsubscribe, stats };
-    })();
 
     // ─── SharedTicker ────────────────────────────────────────────────────────
     // Consolidated interval that runs all registered callbacks at their

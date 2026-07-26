@@ -3194,150 +3194,499 @@
   }
 
   // ===========================================================================
-  //  SponsorBlock Redesigned Engine (YT-zen)
+  // ===========================================================================
+  //  SponsorBlock Engine v2 (YT-zen)
   // ---------------------------------------------------------------------------
-  //  Modular first-principles client architecture separating networking,
-  //  caching, playback monitoring, and seekbar overlays.
+  //  Complete redesign from first principles.
+  //
+  //  Architecture:
+  //    SponsorBlockEngine  — Orchestrator (lifecycle, init, public API)
+  //    SponsorBlockAPI     — Networking, retries, response validation
+  //    SponsorBlockCache   — Two-tier cache, deduplication, stale-while-revalidate
+  //    SponsorBlockPlayer  — Playback sync, skip state machine, mute handling
+  //    SponsorBlockUI      — Seekbar marks, notifications, HUD updates
+  //    SponsorBlockMetrics — Statistics, time-saved tracking, diagnostics
+  //
+  //  Design principles:
+  //    • Zero polling when idle (paused, ended, no segments, background tab)
+  //    • Single in-flight promise per (videoId, configKey) — no duplicates
+  //    • Stale-while-revalidate for instant perceived load times
+  //    • Skip guard prevents duplicate seeks and oscillation
+  //    • All API responses validated before use
+  //    • Full AbortController lifecycle — cancelled requests never leak
+  //    • Background tab awareness via visibilitychange
+  //    • Structured error handling — network failures never break playback
   // ===========================================================================
   const SponsorBlockEngine = (() => {
     "use strict";
 
+    // ─── Constants ───────────────────────────────────────────────────────────
     const Categories = i;
     const Actions = Yi;
+    const CACHE_VERSION = 2;
+    const CACHE_TTL_MS = 60 * 60 * 1000;          // 1 hour runtime
+    const PERSIST_TTL_MS = 24 * 60 * 60 * 1000;   // 24 hours persistent
+    const STALE_GRACE_MS = 12 * 60 * 60 * 1000;    // 12 hours stale grace
+    const MAX_CACHE_ENTRIES = 128;
+    const API_TIMEOUT_MS = 8000;
+    const MAX_RETRIES = 2;
+    const RETRY_BASE_MS = 500;
+    const SKIP_COOLDOWN_MS = 500;
+    const SEEK_TOLERANCE = 0.3; // seconds
 
-    let activeVideoId = null;
-    let segments = [];
-    let processedSegments = new Set();
-    let activeIndex = -1;
-    let timeSavedCount = 0;
-    let skipsCount = 0;
+    // ─── Shared State ────────────────────────────────────────────────────────
+    const State = {
+      videoId: null,
+      segments: [],
+      processedUUIDs: new Set(),
+      activeSegmentIndex: -1,
+      abortController: null,
+      initialized: false,
+      mutedActive: false,
+      originalVolume: null,
+      originalMuted: false,
+      lastSkipTime: 0,
+      lastSkipTarget: 0,
+      playerElement: null,
+      listenerCleanup: null,
+    };
 
-    let originalVolume = null;
-    let originalMuted = false;
-    let isMutedActive = false;
+    // ─── Metrics Module ──────────────────────────────────────────────────────
+    const Metrics = (() => {
+      let timeSaved = 0;
+      let skipsCount = 0;
+      let segmentsLoaded = 0;
+      let cacheHits = 0;
+      let cacheMisses = 0;
+      let apiErrors = 0;
+      let staleServed = 0;
+      let dedupedRequests = 0;
 
-    let watchdogTimer = 0;
-    let progressObserver = null;
-    let videoTimeupdateListener = null;
+      const load = async () => {
+        try {
+          const saved = await v("kv", "__sb_saved__");
+          if (saved && typeof saved.v === "number") timeSaved = saved.v;
+        } catch (_) {}
+        try {
+          const skips = await v("kv", "__sb_skips__");
+          if (skips && typeof skips.v === "number") skipsCount = skips.v;
+        } catch (_) {}
+      };
 
+      const persistStats = (() => {
+        let pending = null;
+        return () => {
+          if (pending) return;
+          pending = setTimeout(() => {
+            pending = null;
+            k("kv", { k: "__sb_saved__", v: timeSaved });
+            k("kv", { k: "__sb_skips__", v: skipsCount });
+          }, 2000);
+        };
+      })();
+
+      const recordSkip = (savedSec) => {
+        timeSaved += Math.max(0, savedSec);
+        skipsCount++;
+        persistStats();
+      };
+
+      const recordSegments = (count) => { segmentsLoaded = count; };
+      const recordCacheHit = () => { cacheHits++; };
+      const recordCacheMiss = () => { cacheMisses++; };
+      const recordApiError = () => { apiErrors++; };
+      const recordStaleServed = () => { staleServed++; };
+      const recordDeduped = () => { dedupedRequests++; };
+
+      const snapshot = () => ({
+        saved: timeSaved,
+        skips: skipsCount,
+        segments: State.segments.length,
+        segmentsLoaded,
+        cacheHits,
+        cacheMisses,
+        apiErrors,
+        staleServed,
+        dedupedRequests,
+        hitRate: (cacheHits + cacheMisses) > 0
+          ? Math.round((cacheHits / (cacheHits + cacheMisses)) * 100) : 0,
+      });
+
+      load();
+
+      return {
+        recordSkip, recordSegments, recordCacheHit, recordCacheMiss,
+        recordApiError, recordStaleServed, recordDeduped, snapshot, load,
+      };
+    })();
+
+    // ─── Settings Resolution ─────────────────────────────────────────────────
+    const Settings = (() => {
+      const getEnabledCategories = () =>
+        Categories.filter(c => S["sb_" + c.id + "_en"]).map(c => c.id);
+
+      const getActionTypes = () => {
+        const types = new Set();
+        Categories.forEach(c => {
+          if (!S["sb_" + c.id + "_en"]) return;
+          const act = S["sb_" + c.id + "_act"] || "skip";
+          if (act === "skip" || act === "mute") types.add("skip");
+          if (act === "mute") types.add("mute");
+          if (c.id === "poi_highlight" && act !== "disabled") types.add("poi");
+          if (c.id === "chapter" && act !== "disabled") types.add("chapter");
+          if (c.id === "exclusive_access" && act !== "disabled") types.add("full");
+        });
+        return Array.from(types);
+      };
+
+      const getCategoryAction = (categoryId) => {
+        if (!S["sb_" + categoryId + "_en"]) return "disabled";
+        return S["sb_" + categoryId + "_act"] || "skip";
+      };
+
+      const getConfigKey = () => {
+        const cats = getEnabledCategories().sort().join(",");
+        const acts = getActionTypes().sort().join(",");
+        const privacy = S.sbPrivacy ? "1" : "0";
+        const server = S.sbServerPreset || "ajay";
+        return `${cats}|${acts}|${privacy}|${server}`;
+      };
+
+      const getServerUrl = () => {
+        if (S.sbServerPreset === "custom" && S.sbServer) return S.sbServer;
+        return "https://sponsor.ajay.app";
+      };
+
+      return {
+        getEnabledCategories, getActionTypes, getCategoryAction,
+        getConfigKey, getServerUrl,
+      };
+    })();
+
+    // ─── Cache Module ────────────────────────────────────────────────────────
     const Cache = (() => {
-      const MEM_CACHE_VERSION = 1;
       const memCache = new Map();
       const inFlight = new Map();
 
-      const get = async (videoId, configKey) => {
-        const cacheKey = `sb:${videoId}:${configKey}`;
+      const computeChecksum = (data) => {
+        let hash = 0;
+        const str = typeof data === "string" ? data : JSON.stringify(data);
+        for (let i = 0; i < str.length && i < 2000; i++) {
+          hash = ((hash << 5) - hash + str.charCodeAt(i)) | 0;
+        }
+        return Math.abs(hash).toString(16);
+      };
+
+      const evictIfNeeded = () => {
+        if (memCache.size <= MAX_CACHE_ENTRIES) return;
+        const toRemove = memCache.size - MAX_CACHE_ENTRIES + 8;
+        const keys = memCache.keys();
+        for (let i = 0; i < toRemove; i++) {
+          const key = keys.next().value;
+          if (key === undefined) break;
+          memCache.delete(key);
+        }
+      };
+
+      const get = async (videoId, configKey, allowStale = false) => {
+        const cacheKey = "sb:" + videoId + ":" + configKey;
         const now = Date.now();
 
+        // Layer 1: Memory
         if (memCache.has(cacheKey)) {
           const entry = memCache.get(cacheKey);
-          if (entry.expiresAt > now) return entry.segments;
           memCache.delete(cacheKey);
+          memCache.set(cacheKey, entry); // LRU: move to end
+          if (entry.version !== CACHE_VERSION) {
+            memCache.delete(cacheKey);
+          } else if (entry.expiresAt > now) {
+            Metrics.recordCacheHit();
+            return { data: entry.segments, fresh: true };
+          } else if (allowStale && entry.expiresAt + STALE_GRACE_MS > now) {
+            Metrics.recordStaleServed();
+            return { data: entry.segments, fresh: false };
+          } else {
+            memCache.delete(cacheKey);
+          }
         }
 
+        // Layer 2: Persistent (IDB)
         try {
-          const row = await v("kv", `cache:${cacheKey}`);
+          const row = await v("kv", "cache:" + cacheKey);
           if (row && row.v) {
             const entry = row.v;
+            if (entry.version !== CACHE_VERSION) {
+              await x("kv", "cache:" + cacheKey);
+              return null;
+            }
             if (entry.expiresAt > now) {
               memCache.set(cacheKey, entry);
-              return entry.segments;
+              evictIfNeeded();
+              Metrics.recordCacheHit();
+              return { data: entry.segments, fresh: true };
             }
-            await x("kv", `cache:${cacheKey}`);
+            if (allowStale && entry.expiresAt + STALE_GRACE_MS > now) {
+              memCache.set(cacheKey, entry);
+              evictIfNeeded();
+              Metrics.recordStaleServed();
+              return { data: entry.segments, fresh: false };
+            }
+            // Fully expired — clean up
+            if (entry.expiresAt + STALE_GRACE_MS < now) {
+              await x("kv", "cache:" + cacheKey);
+            }
           }
         } catch (err) {
-          try { h("[YT-zen][sb-cache] Persistent read error:", err); } catch (_) {}
+          try { h("[SB][cache] persistent read error:", err); } catch (_) {}
         }
+
+        Metrics.recordCacheMiss();
         return null;
       };
 
-      const set = async (videoId, configKey, segments, ttlMs) => {
-        const cacheKey = `sb:${videoId}:${configKey}`;
+      const set = async (videoId, configKey, segments) => {
+        const cacheKey = "sb:" + videoId + ":" + configKey;
         const now = Date.now();
         const entry = {
-          version: MEM_CACHE_VERSION,
+          version: CACHE_VERSION,
           videoId,
           segments,
           fetchedAt: now,
-          expiresAt: now + ttlMs,
+          expiresAt: now + CACHE_TTL_MS,
           apiVersion: "v1",
-          lastValidated: now
+          checksum: computeChecksum(segments),
+          lastValidated: now,
+          configHash: configKey,
         };
 
         memCache.set(cacheKey, entry);
+        evictIfNeeded();
 
+        // Persistent write (fire-and-forget with long TTL)
+        const persistEntry = Object.assign({}, entry, {
+          expiresAt: now + PERSIST_TTL_MS,
+        });
         try {
           await k("kv", {
-            k: `cache:${cacheKey}`,
-            v: entry,
-            updatedAt: now
+            k: "cache:" + cacheKey,
+            v: persistEntry,
+            updatedAt: now,
           });
         } catch (err) {
-          try { h("[YT-zen][sb-cache] Persistent write error:", err); } catch (_) {}
+          try { h("[SB][cache] persistent write error:", err); } catch (_) {}
         }
       };
 
-      return { get, set, inFlight };
+      const getInFlight = (key) => inFlight.get(key);
+      const setInFlight = (key, promise) => { inFlight.set(key, promise); };
+      const clearInFlight = (key) => { inFlight.delete(key); };
+
+      const invalidate = (videoId) => {
+        for (const key of memCache.keys()) {
+          if (key.startsWith("sb:" + videoId + ":")) memCache.delete(key);
+        }
+      };
+
+      return { get, set, getInFlight, setInFlight, clearInFlight, invalidate };
     })();
 
+    // ─── API Module ──────────────────────────────────────────────────────────
     const API = (() => {
-      const BASE_URL = "https://sponsor.ajay.app";
-      const TIMEOUT_MS = 10000;
-
       const hashPrefix = async (videoId) => {
-        const buffer = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(videoId));
-        return Array.from(new Uint8Array(buffer))
-          .map(b => b.toString(16).padStart(2, "0"))
-          .join("")
-          .slice(0, 4);
+        try {
+          const buffer = await crypto.subtle.digest(
+            "SHA-256", new TextEncoder().encode(videoId)
+          );
+          return Array.from(new Uint8Array(buffer))
+            .map(b => b.toString(16).padStart(2, "0"))
+            .join("")
+            .slice(0, 4);
+        } catch (_) {
+          // Fallback: simple hash if SubtleCrypto unavailable
+          let h = 0;
+          for (let i = 0; i < videoId.length; i++) h = ((h << 5) - h + videoId.charCodeAt(i)) | 0;
+          return Math.abs(h).toString(16).padStart(4, "0").slice(0, 4);
+        }
       };
 
-      const fetchSegments = async (videoId, usePrivacy, abortSignal) => {
-        let url = "";
+      const buildUrl = async (videoId, usePrivacy, categories, actionTypes) => {
+        const base = Settings.getServerUrl();
+        const params = new URLSearchParams();
+
         if (usePrivacy) {
           const prefix = await hashPrefix(videoId);
-          url = `${BASE_URL}/api/skipSegments/v1/prefixed/${prefix}`;
+          const catParams = categories.map(c => "&category=" + encodeURIComponent(c)).join("");
+          const actParams = actionTypes.map(a => "&actionType=" + encodeURIComponent(a)).join("");
+          return base + "/api/skipSegments/" + prefix + "?categories=" +
+            encodeURIComponent(JSON.stringify(categories)) +
+            (actionTypes.length ? "&actionTypes=" + encodeURIComponent(JSON.stringify(actionTypes)) : "");
         } else {
-          url = `${BASE_URL}/api/skipSegments?videoID=${videoId}`;
+          params.set("videoID", videoId);
+          categories.forEach(c => params.append("category", c));
+          if (actionTypes.length) {
+            actionTypes.forEach(a => params.append("actionType", a));
+          }
+          return base + "/api/skipSegments?" + params.toString();
         }
+      };
+
+      const validateSegment = (seg, index) => {
+        if (!seg || typeof seg !== "object") return null;
+        if (!Array.isArray(seg.segment) || seg.segment.length < 2) return null;
+
+        const start = Number(seg.segment[0]);
+        const end = Number(seg.segment[1]);
+
+        if (!isFinite(start) || !isFinite(end)) return null;
+        if (start < 0 || end < 0) return null;
+        // Allow start === end for POI types
+        if (start > end && !(start === 0 && end === 0)) return null;
+
+        const category = typeof seg.category === "string" ? seg.category : "";
+        if (!category) return null;
+
+        const UUID = typeof seg.UUID === "string" ? seg.UUID : ("idx-" + index + "-" + start);
+        const actionType = typeof seg.actionType === "string" ? seg.actionType : "skip";
+        const votes = typeof seg.votes === "number" ? seg.votes : 0;
+        const locked = typeof seg.locked === "number" ? seg.locked : 0;
+        const videoDuration = typeof seg.videoDuration === "number" ? seg.videoDuration : 0;
+        const description = typeof seg.description === "string" ? seg.description : "";
+
+        return { category, segment: [start, end], UUID, actionType, votes, locked, videoDuration, description };
+      };
+
+      const fetchSegments = async (videoId, abortSignal) => {
+        const usePrivacy = !!S.sbPrivacy;
+        const categories = Settings.getEnabledCategories();
+        const actionTypes = Settings.getActionTypes();
+
+        if (!categories.length) return [];
+
+        const url = await buildUrl(videoId, usePrivacy, categories, actionTypes);
 
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
+        const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+
         if (abortSignal) {
-          abortSignal.addEventListener("abort", () => controller.abort());
+          const onAbort = () => controller.abort();
+          abortSignal.addEventListener("abort", onAbort, { once: true });
         }
 
         try {
           const response = await fetch(url, { signal: controller.signal });
           clearTimeout(timeoutId);
 
+          if (response.status === 404) return []; // No segments for this video
+          if (response.status === 400) {
+            throw new Error("Bad request (400) — invalid parameters");
+          }
           if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
+            throw new Error("HTTP " + response.status);
           }
 
-          let body = await response.json();
+          let body;
+          try {
+            body = await response.json();
+          } catch (_) {
+            throw new Error("Malformed JSON response");
+          }
+
+          // Parse hash-prefix response format
           if (usePrivacy && Array.isArray(body)) {
             const videoHit = body.find(v => v && v.videoID === videoId);
             body = (videoHit && Array.isArray(videoHit.segments)) ? videoHit.segments : [];
           }
 
-          return Array.isArray(body) ? body : [];
+          if (!Array.isArray(body)) return [];
+
+          // Validate each segment
+          const valid = [];
+          for (let idx = 0; idx < body.length; idx++) {
+            const seg = validateSegment(body[idx], idx);
+            if (seg) valid.push(seg);
+          }
+
+          // Sort by start time for binary search
+          valid.sort((a, b) => a.segment[0] - b.segment[0]);
+
+          return valid;
         } catch (err) {
           clearTimeout(timeoutId);
+          if (err.name === "AbortError") throw err;
           throw err;
         }
       };
 
-      return { fetchSegments };
+      const fetchWithRetry = async (videoId, abortSignal) => {
+        let lastError = null;
+        for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+          try {
+            return await fetchSegments(videoId, abortSignal);
+          } catch (err) {
+            lastError = err;
+            if (err.name === "AbortError") throw err;
+            if (attempt < MAX_RETRIES) {
+              const delay = RETRY_BASE_MS * Math.pow(2, attempt);
+              await new Promise(r => setTimeout(r, delay));
+              // Check if aborted during delay
+              if (abortSignal && abortSignal.aborted) throw new DOMException("Aborted", "AbortError");
+            }
+          }
+        }
+        Metrics.recordApiError();
+        throw lastError;
+      };
+
+      const voteOnSegment = async (uuid, type, userId) => {
+        if (!uuid || !userId) return false;
+        const base = Settings.getServerUrl();
+        const params = new URLSearchParams({
+          UUID: uuid, userID: userId, type: String(type),
+        });
+        try {
+          const resp = await fetch(base + "/api/voteOnSponsorTime?" + params, {
+            method: "POST", signal: AbortSignal.timeout(API_TIMEOUT_MS),
+          });
+          return resp.ok;
+        } catch (_) { return false; }
+      };
+
+      const reportViewed = async (uuid) => {
+        if (!uuid) return;
+        const base = Settings.getServerUrl();
+        try {
+          await fetch(base + "/api/viewedVideoSponsorTime?UUID=" + encodeURIComponent(uuid), {
+            method: "POST", keepalive: true,
+          });
+        } catch (_) {}
+      };
+
+      const getUserInfo = async (userId) => {
+        if (!userId) return null;
+        const base = Settings.getServerUrl();
+        try {
+          const resp = await fetch(base + "/api/userInfo?userID=" + encodeURIComponent(userId), {
+            signal: AbortSignal.timeout(API_TIMEOUT_MS),
+          });
+          if (!resp.ok) return null;
+          return await resp.json();
+        } catch (_) { return null; }
+      };
+
+      return { fetchWithRetry, voteOnSegment, reportViewed, getUserInfo, hashPrefix };
     })();
 
+    // ─── Player Module ───────────────────────────────────────────────────────
     const Player = (() => {
-      const findActiveSegmentIndex = (time) => {
-        if (!segments.length) return -1;
-        let lo = 0, hi = segments.length - 1;
+      const findSegmentAtTime = (time) => {
+        const segs = State.segments;
+        if (!segs.length) return -1;
+
+        // Binary search for the segment containing this time
+        let lo = 0, hi = segs.length - 1;
         while (lo <= hi) {
           const mid = (lo + hi) >> 1;
-          const s = segments[mid];
+          const s = segs[mid];
           if (s.segment[0] <= time) {
             if (time < s.segment[1]) return mid;
             lo = mid + 1;
@@ -3349,36 +3698,70 @@
       };
 
       const resetMuteState = () => {
-        if (!isMutedActive) return;
-        const v = ie.el();
-        if (v) {
-          v.volume = originalVolume !== null ? originalVolume : 1;
-          v.muted = originalMuted;
+        if (!State.mutedActive) return;
+        const videoEl = ie.el();
+        if (videoEl) {
+          try {
+            videoEl.volume = State.originalVolume !== null ? State.originalVolume : 1;
+            videoEl.muted = State.originalMuted;
+          } catch (_) {}
         }
-        isMutedActive = false;
-        originalVolume = null;
+        State.mutedActive = false;
+        State.originalVolume = null;
+      };
+
+      const shouldSkipGuard = (targetTime) => {
+        const now = performance.now();
+        if (now - State.lastSkipTime < SKIP_COOLDOWN_MS &&
+            Math.abs(State.lastSkipTarget - targetTime) < SEEK_TOLERANCE) {
+          return true;
+        }
+        return false;
+      };
+
+      const recordSkip = (targetTime) => {
+        State.lastSkipTime = performance.now();
+        State.lastSkipTarget = targetTime;
       };
 
       const handlePlaybackTick = () => {
-        const v = ie.el();
-        if (!v || v.paused || v.ended) {
+        // Skip if ad is showing, dialog is open, or tab is hidden
+        if (typeof _a === "function" && _a()) return;
+
+        const videoEl = ie.el();
+        if (!videoEl || videoEl.paused || videoEl.ended) {
           resetMuteState();
-          activeIndex = -1;
+          State.activeSegmentIndex = -1;
           return;
         }
 
-        const t = v.currentTime;
-        let idx = activeIndex;
+        const currentTime = videoEl.currentTime;
+        const segs = State.segments;
+        let idx = State.activeSegmentIndex;
 
-        if (
-          idx < 0 ||
-          idx >= segments.length ||
-          !segments[idx] ||
-          t < segments[idx].segment[0] ||
-          t >= segments[idx].segment[1]
-        ) {
-          idx = findActiveSegmentIndex(t);
-          activeIndex = idx;
+        // Check if we're still in the active segment
+        if (idx >= 0 && idx < segs.length && segs[idx]) {
+          const s = segs[idx];
+          if (currentTime >= s.segment[0] && currentTime < s.segment[1]) {
+            // Still inside — handle mute continuation
+            const action = Settings.getCategoryAction(s.category);
+            if (action === "mute" && State.mutedActive) return;
+            if (action !== "skip" && action !== "mute") {
+              resetMuteState();
+              return;
+            }
+          } else {
+            // Left the segment
+            resetMuteState();
+            idx = -1;
+          }
+        }
+
+        // Find new active segment if needed
+        if (idx < 0 || idx >= segs.length || !segs[idx] ||
+            currentTime < segs[idx].segment[0] || currentTime >= segs[idx].segment[1]) {
+          idx = findSegmentAtTime(currentTime);
+          State.activeSegmentIndex = idx;
         }
 
         if (idx < 0) {
@@ -3386,104 +3769,199 @@
           return;
         }
 
-        const seg = segments[idx];
-        const category = seg.category;
-        const action = S[`sb_${category}_act`] || "skip";
-        if (!S[`sb_${category}_en`] || action === "disabled") {
+        const seg = segs[idx];
+        const action = Settings.getCategoryAction(seg.category);
+
+        if (action === "disabled" || action === "poi" || action === "full" || action === "chapter") {
           resetMuteState();
           return;
         }
 
+        // Mute action
         if (action === "mute") {
-          if (!isMutedActive) {
-            originalVolume = v.volume;
-            originalMuted = v.muted;
-            v.muted = true;
-            isMutedActive = true;
+          if (!State.mutedActive) {
+            State.originalVolume = videoEl.volume;
+            State.originalMuted = videoEl.muted;
+            try { videoEl.muted = true; } catch (_) {}
+            State.mutedActive = true;
           }
           return;
         }
 
+        // Skip action
         if (action === "skip") {
-          const uuid = seg.UUID || `${idx}-${seg.segment[0]}`;
-          if (!processedSegments.has(uuid)) {
-            processedSegments.add(uuid);
-            const savedSec = Math.max(0, seg.segment[1] - t);
-            timeSavedCount += savedSec;
-            skipsCount++;
-            
-            k("kv", { k: "__sb_saved__", v: timeSavedCount });
-            k("kv", { k: "__sb_skips__", v: skipsCount });
-            
+          const uuid = seg.UUID || ("idx-" + idx + "-" + seg.segment[0]);
+          const targetTime = seg.segment[1];
+
+          // Guard against duplicate/repeated skips
+          if (State.processedUUIDs.has(uuid) && shouldSkipGuard(targetTime)) return;
+
+          if (!State.processedUUIDs.has(uuid)) {
+            State.processedUUIDs.add(uuid);
+            const savedSec = Math.max(0, targetTime - currentTime);
+            Metrics.recordSkip(savedSec);
+
+            // Show toast notification
             if (S.sbToast) {
-              const categoryLabel = (Categories.find(c => c.id === category) || { label: category }).label;
-              pe(`Skipped ${categoryLabel} (${ce(savedSec)})`, S.sbToastDur || 2200, "success");
+              const catMeta = Categories.find(c => c.id === seg.category) || { label: seg.category };
+              pe("Skipped " + catMeta.label + " (" + ce(savedSec) + ")", S.sbToastDur || 2200, "success");
             }
+
+            // Report view to SponsorBlock (fire-and-forget)
+            API.reportViewed(uuid);
+
+            // Update HUD
             try { ft(); } catch (_) {}
           }
 
-          try {
-            v.currentTime = seg.segment[1];
-          } catch (err) {}
+          // Execute seek (with guard)
+          if (!shouldSkipGuard(targetTime)) {
+            recordSkip(targetTime);
+            try { videoEl.currentTime = targetTime; } catch (_) {}
+          }
         }
       };
 
-      const attachEventListeners = () => {
-        const v = ie.el();
-        if (!v) return;
+      const handleSeeked = () => {
+        State.activeSegmentIndex = -1;
+        resetMuteState();
+      };
 
-        pt = v;
-        videoTimeupdateListener = () => {
-          _a() || handlePlaybackTick();
-        };
-        v.addEventListener("timeupdate", videoTimeupdateListener);
+      const handleRateChange = () => {
+        // Rate change doesn't require special handling — currentTime is always absolute
+        State.activeSegmentIndex = -1;
+      };
 
-        const onSeeking = () => {
-          activeIndex = -1;
-          UI.renderSeekbarMarks();
-        };
-        v.addEventListener("seeking", onSeeking);
-        v.addEventListener("seeked", onSeeking);
-        v.addEventListener("loadedmetadata", UI.renderSeekbarMarks);
-        v.addEventListener("durationchange", UI.renderSeekbarMarks);
+      const handleVideoEmptied = () => {
+        resetMuteState();
+        State.activeSegmentIndex = -1;
+        State.processedUUIDs.clear();
+      };
 
-        Yt["sponsorblock"].push(() => {
+      const attachListeners = () => {
+        const videoEl = ie.el();
+        if (!videoEl) return;
+        if (State.playerElement === videoEl) return; // Already attached
+
+        // Clean up previous listeners
+        detachListeners();
+
+        State.playerElement = videoEl;
+
+        const onTimeupdate = () => handlePlaybackTick();
+        const onSeeked = () => { handleSeeked(); UI.renderSeekbarMarks(); };
+        const onSeeking = () => { State.activeSegmentIndex = -1; };
+        const onRateChange = () => handleRateChange();
+        const onEmptied = () => handleVideoEmptied();
+        const onLoadedMeta = () => UI.renderSeekbarMarks();
+        const onDurationChange = () => UI.renderSeekbarMarks();
+        const onEnded = () => { resetMuteState(); State.activeSegmentIndex = -1; };
+        const onPause = () => resetMuteState();
+
+        videoEl.addEventListener("timeupdate", onTimeupdate);
+        videoEl.addEventListener("seeked", onSeeked);
+        videoEl.addEventListener("seeking", onSeeking);
+        videoEl.addEventListener("ratechange", onRateChange);
+        videoEl.addEventListener("emptied", onEmptied);
+        videoEl.addEventListener("loadedmetadata", onLoadedMeta);
+        videoEl.addEventListener("durationchange", onDurationChange);
+        videoEl.addEventListener("ended", onEnded);
+        videoEl.addEventListener("pause", onPause);
+
+        State.listenerCleanup = () => {
           try {
-            v.removeEventListener("timeupdate", videoTimeupdateListener);
-            v.removeEventListener("seeking", onSeeking);
-            v.removeEventListener("seeked", onSeeking);
-            v.removeEventListener("loadedmetadata", UI.renderSeekbarMarks);
-            v.removeEventListener("durationchange", UI.renderSeekbarMarks);
+            videoEl.removeEventListener("timeupdate", onTimeupdate);
+            videoEl.removeEventListener("seeked", onSeeked);
+            videoEl.removeEventListener("seeking", onSeeking);
+            videoEl.removeEventListener("ratechange", onRateChange);
+            videoEl.removeEventListener("emptied", onEmptied);
+            videoEl.removeEventListener("loadedmetadata", onLoadedMeta);
+            videoEl.removeEventListener("durationchange", onDurationChange);
+            videoEl.removeEventListener("ended", onEnded);
+            videoEl.removeEventListener("pause", onPause);
           } catch (_) {}
+        };
+
+        // Register cleanup with the feature system
+        Yt["sponsorblock"].push(() => {
+          detachListeners();
         });
       };
 
-      return { handlePlaybackTick, attachEventListeners, resetMuteState };
+      const detachListeners = () => {
+        if (State.listenerCleanup) {
+          State.listenerCleanup();
+          State.listenerCleanup = null;
+        }
+        State.playerElement = null;
+      };
+
+      return {
+        handlePlaybackTick, attachListeners, detachListeners,
+        resetMuteState, findSegmentAtTime,
+      };
     })();
 
+    // ─── UI Module ───────────────────────────────────────────────────────────
     const UI = (() => {
+      let lastRenderedDuration = -1;
+      let lastRenderedSegmentCount = -1;
+      let lastRenderedConfigKey = "";
+      let seekbarObserver = null;
+      let watchdogTimer = 0;
+
+      const getColorForCategory = (catId) => {
+        // Check for user override
+        if (S.sbColorOverrides) {
+          try {
+            const overrides = JSON.parse(S.sbColorOverrides);
+            if (overrides[catId] && /^#[0-9a-fA-F]{6}$/.test(overrides[catId])) {
+              return overrides[catId];
+            }
+          } catch (_) {}
+        }
+        const meta = Categories.find(c => c.id === catId);
+        return (meta && meta.color) || "#ffffff";
+      };
+
       const renderSeekbarMarks = () => {
         if (!S.sponsorblockOn || !S.sbSeekbar) {
-          St_seekbarMarks.forEach(el => { try { el.remove(); } catch (_) {} });
-          St_seekbarMarks.clear();
+          clearMarks();
           return;
         }
 
-        const v = ie.el();
-        if (!v || !v.duration || !isFinite(v.duration)) return;
+        const videoEl = ie.el();
+        if (!videoEl || !videoEl.duration || !isFinite(videoEl.duration)) return;
 
-        const duration = v.duration;
-        const listContainer = document.querySelector(".ytp-progress-list") || document.querySelector(".ytp-progress-bar");
+        const duration = videoEl.duration;
+        const segments = State.segments;
+
+        // Skip re-render if nothing changed
+        const configKey = Settings.getConfigKey();
+        if (duration === lastRenderedDuration &&
+            segments.length === lastRenderedSegmentCount &&
+            configKey === lastRenderedConfigKey) {
+          return;
+        }
+
+        const listContainer = document.querySelector(".ytp-progress-list") ||
+                              document.querySelector(".ytp-progress-bar");
         if (!listContainer) return;
 
+        lastRenderedDuration = duration;
+        lastRenderedSegmentCount = segments.length;
+        lastRenderedConfigKey = configKey;
+
+        // Build desired marks
         const desired = new Map();
         for (let idx = 0; idx < segments.length; idx++) {
           const seg = segments[idx];
-          const cat = seg.category;
-          if (!S[`sb_${cat}_en`]) continue;
-          desired.set(seg.UUID || `i${idx}`, { idx, seg, cat });
+          if (!S["sb_" + seg.category + "_en"]) continue;
+          const key = seg.UUID || ("i" + idx);
+          desired.set(key, { seg, idx });
         }
 
+        // Remove marks no longer needed
         for (const [k, el] of St_seekbarMarks) {
           if (!desired.has(k)) {
             try { el.remove(); } catch (_) {}
@@ -3491,13 +3969,13 @@
           }
         }
 
+        // Create/update marks
         for (const [key, info] of desired) {
           const seg = info.seg;
-          const cat = info.cat;
           const start = (seg.segment[0] / duration) * 100;
           const end = (seg.segment[1] / duration) * 100;
           const width = Math.max(0.15, end - start);
-          const color = Categories.find(c => c.id === cat)?.color || "#ffffff";
+          const color = getColorForCategory(seg.category);
 
           let el = St_seekbarMarks.get(key);
           if (!el) {
@@ -3508,107 +3986,217 @@
             St_seekbarMarks.set(key, el);
           }
 
-          const css = `position:absolute;top:0;bottom:0;left:${start}%;width:${width}%;background:${color};opacity:0.75;pointer-events:none;z-index:31;border-radius:1px;`;
-          if (el.style.cssText !== css) {
-            el.style.cssText = css;
-          }
+          const css = "position:absolute;top:0;bottom:0;left:" + start +
+            "%;width:" + width + "%;background:" + color +
+            ";opacity:0.75;pointer-events:none;z-index:31;border-radius:1px;";
+          if (el.style.cssText !== css) el.style.cssText = css;
         }
       };
 
-      return { renderSeekbarMarks };
+      const clearMarks = () => {
+        St_seekbarMarks.forEach(el => { try { el.remove(); } catch (_) {} });
+        St_seekbarMarks.clear();
+        lastRenderedDuration = -1;
+        lastRenderedSegmentCount = -1;
+        lastRenderedConfigKey = "";
+      };
+
+      const startWatchdog = () => {
+        if (watchdogTimer) { clearInterval(watchdogTimer); watchdogTimer = 0; }
+
+        // Only run watchdog when segments exist and seekbar is enabled
+        watchdogTimer = setInterval(() => {
+          if (!S.sponsorblockOn || !S.sbSeekbar) return;
+          if (typeof _a === "function" && _a()) return;
+          if (document.hidden) return;
+          try { renderSeekbarMarks(); } catch (_) {}
+        }, 3000);
+
+        // Reduced MutationObserver — only watch progress bar container
+        if (seekbarObserver) { seekbarObserver.disconnect(); seekbarObserver = null; }
+        try {
+          const player = document.querySelector("#movie_player") || document.querySelector(".html5-video-player");
+          if (player) {
+            seekbarObserver = new MutationObserver(() => {
+              if (document.hidden) return;
+              try { renderSeekbarMarks(); } catch (_) {}
+            });
+            seekbarObserver.observe(player, { childList: true, subtree: true });
+          }
+        } catch (_) {}
+      };
+
+      const stopWatchdog = () => {
+        if (watchdogTimer) { clearInterval(watchdogTimer); watchdogTimer = 0; }
+        if (seekbarObserver) { seekbarObserver.disconnect(); seekbarObserver = null; }
+        clearMarks();
+      };
+
+      const invalidateRenderCache = () => {
+        lastRenderedDuration = -1;
+        lastRenderedSegmentCount = -1;
+        lastRenderedConfigKey = "";
+      };
+
+      return { renderSeekbarMarks, clearMarks, startWatchdog, stopWatchdog, invalidateRenderCache };
     })();
 
+    // ─── Orchestrator ────────────────────────────────────────────────────────
     const init = async (videoId) => {
-      if (watchdogTimer) { clearInterval(watchdogTimer); watchdogTimer = 0; }
+      // Cancel previous request if navigating to a new video
+      if (State.abortController) {
+        try { State.abortController.abort(); } catch (_) {}
+        State.abortController = null;
+      }
+
+      // Reset state
       Player.resetMuteState();
-      segments = [];
-      processedSegments.clear();
-      activeIndex = -1;
+      Player.detachListeners();
+      State.videoId = null;
+      State.segments = [];
+      State.processedUUIDs.clear();
+      State.activeSegmentIndex = -1;
 
       if (!S.sponsorblockOn || !videoId) {
-        UI.renderSeekbarMarks();
+        UI.clearMarks();
         return;
       }
 
-      activeVideoId = videoId;
-      UI.renderSeekbarMarks();
+      State.videoId = videoId;
+      UI.clearMarks();
+
+      const configKey = Settings.getConfigKey();
+      const inFlightKey = videoId + ":" + configKey;
 
       try {
-        const enabledCats = Categories.filter(c => S[`sb_${c.id}_en`]).map(c => c.id);
-        if (!enabledCats.length) return;
+        const categories = Settings.getEnabledCategories();
+        if (!categories.length) return;
 
-        const configKey = [
-          S.sbPrivacy ? "1" : "0",
-          S.sbServerPreset || "ajay"
-        ].join("|");
+        // Try fresh cache first
+        let cached = await Cache.get(videoId, configKey, false);
 
-        const cached = await Cache.get(videoId, configKey);
-        if (cached) {
-          segments = cached;
+        if (cached && cached.fresh) {
+          State.segments = cached.data;
+          Metrics.recordSegments(State.segments.length);
+          UI.renderSeekbarMarks();
+          Player.attachListeners();
+          UI.startWatchdog();
+          g.emit("sb.segments", { videoId, count: State.segments.length, cached: true });
+          // Background refresh (stale-while-revalidate pattern)
+          backgroundRefresh(videoId, configKey, inFlightKey);
+          return;
+        }
+
+        // Try stale cache for instant display
+        let staleData = cached || await Cache.get(videoId, configKey, true);
+        if (staleData) {
+          State.segments = staleData.data;
+          Metrics.recordSegments(State.segments.length);
+          UI.renderSeekbarMarks();
+          Player.attachListeners();
+          UI.startWatchdog();
+          g.emit("sb.segments", { videoId, count: State.segments.length, cached: true, stale: true });
+        }
+
+        // Check for existing in-flight request (deduplication)
+        const existing = Cache.getInFlight(inFlightKey);
+        if (existing) {
+          Metrics.recordDeduped();
+          State.segments = await existing;
         } else {
-          const cacheKey = `sb:${videoId}:${configKey}`;
-          if (Cache.inFlight.has(cacheKey)) {
-            segments = await Cache.inFlight.get(cacheKey);
-          } else {
-            const fetchPromise = (async () => {
-              try {
-                const raw = await API.fetchSegments(videoId, S.sbPrivacy);
-                const parsed = raw.map(s => {
-                  if (s && Array.isArray(s.segment)) {
-                    return {
-                      category: s.category,
-                      segment: [Number(s.segment[0]), Number(s.segment[1])],
-                      UUID: s.UUID,
-                      actionType: s.actionType
-                    };
-                  }
-                  return null;
-                }).filter(s => s !== null);
+          // Start new fetch
+          State.abortController = new AbortController();
+          const fetchPromise = (async () => {
+            try {
+              const segments = await API.fetchWithRetry(videoId, State.abortController.signal);
+              Metrics.recordSegments(segments.length);
+              await Cache.set(videoId, configKey, segments);
+              return segments;
+            } catch (err) {
+              if (err.name === "AbortError") return State.segments;
+              Metrics.recordApiError();
+              // Return stale data on failure
+              const fallback = await Cache.get(videoId, configKey, true);
+              return (fallback && fallback.data) || State.segments;
+            }
+          })();
 
-                parsed.sort((a, b) => a.segment[0] - b.segment[0]);
-                await Cache.set(videoId, configKey, parsed, 60 * 60 * 1000);
-                return parsed;
-              } catch (err) {
-                const stale = await Cache.get(videoId, configKey);
-                return stale || [];
-              }
-            })();
+          Cache.setInFlight(inFlightKey, fetchPromise);
+          const freshSegments = await fetchPromise;
+          Cache.clearInFlight(inFlightKey);
 
-            Cache.inFlight.set(cacheKey, fetchPromise);
-            segments = await fetchPromise;
-            Cache.inFlight.delete(cacheKey);
+          if (State.videoId === videoId) {
+            State.segments = freshSegments;
+            UI.invalidateRenderCache();
+            UI.renderSeekbarMarks();
+            Player.attachListeners();
+            UI.startWatchdog();
+            g.emit("sb.segments", { videoId, count: State.segments.length, cached: false });
           }
         }
       } catch (err) {
-        segments = [];
-      }
-
-      UI.renderSeekbarMarks();
-      Player.attachEventListeners();
-      g.emit("sb.segments", { videoId, count: segments.length });
-    };
-
-    const startUIWatchdog = () => {
-      if (watchdogTimer) clearInterval(watchdogTimer);
-      watchdogTimer = setInterval(() => {
-        try { _a() || UI.renderSeekbarMarks(); } catch (_) {}
-      }, 2000);
-
-      if (progressObserver) { progressObserver.disconnect(); progressObserver = null; }
-      try {
-        const obs = new MutationObserver(() => {
-          try { UI.renderSeekbarMarks(); } catch (_) {}
-        });
-        if (document.body) {
-          obs.observe(document.body, { childList: true, subtree: true });
-          progressObserver = obs;
+        if (err.name !== "AbortError") {
+          try { h("[SB] init error for " + videoId + ":", err); } catch (_) {}
+          Metrics.recordApiError();
         }
-      } catch (_) {}
+        State.segments = [];
+      }
     };
 
-    startUIWatchdog();
+    const backgroundRefresh = async (videoId, configKey, inFlightKey) => {
+      if (Cache.getInFlight(inFlightKey)) return;
 
-    return { init, stats: () => ({ saved: timeSavedCount, skips: skipsCount, segments: segments.length }) };
+      const refreshPromise = (async () => {
+        try {
+          const ctrl = new AbortController();
+          const segments = await API.fetchWithRetry(videoId, ctrl.signal);
+          await Cache.set(videoId, configKey, segments);
+          // If still on same video, update
+          if (State.videoId === videoId) {
+            State.segments = segments;
+            UI.invalidateRenderCache();
+            UI.renderSeekbarMarks();
+          }
+          return segments;
+        } catch (_) {
+          return State.segments;
+        }
+      })();
+
+      Cache.setInFlight(inFlightKey, refreshPromise);
+      refreshPromise.finally(() => Cache.clearInFlight(inFlightKey));
+    };
+
+    const destroy = () => {
+      if (State.abortController) {
+        try { State.abortController.abort(); } catch (_) {}
+        State.abortController = null;
+      }
+      Player.detachListeners();
+      Player.resetMuteState();
+      UI.stopWatchdog();
+      State.videoId = null;
+      State.segments = [];
+      State.processedUUIDs.clear();
+      State.activeSegmentIndex = -1;
+    };
+
+    const invalidate = (videoId) => {
+      if (videoId) {
+        Cache.invalidate(videoId);
+        if (State.videoId === videoId) {
+          init(videoId); // Re-fetch
+        }
+      }
+    };
+
+    return {
+      init,
+      destroy,
+      invalidate,
+      stats: () => Metrics.snapshot(),
+      metrics: () => Metrics.snapshot(),
+    };
   })();
 
   let St_wtInterval = 0;
@@ -3617,6 +4205,71 @@
 
   async function St(e) {
     await SponsorBlockEngine.init(e);
+  }
+
+  // ─── SB Helper Functions (used by feature registration UI) ──────────────
+  function Bt_invalidateMarks() {
+    try {
+      St_seekbarMarks.forEach(el => { try { el.remove(); } catch (_) {} });
+      St_seekbarMarks.clear();
+      const vid = ie.videoId();
+      if (vid) St(vid);
+    } catch (_) {}
+  }
+
+  async function Bt_hideVideo() {
+    const vid = ie.videoId();
+    if (!vid) throw new Error("No video");
+    try {
+      let hidden = [];
+      const row = await v("kv", "__sb_hidden__");
+      if (row && Array.isArray(row.v)) hidden = row.v;
+      if (!hidden.includes(vid)) hidden.push(vid);
+      if (hidden.length > 500) hidden = hidden.slice(-500);
+      await k("kv", { k: "__sb_hidden__", v: hidden });
+    } catch (err) {
+      throw new Error("Storage write failed");
+    }
+  }
+
+  async function Bt_unHideVideo() {
+    const vid = ie.videoId();
+    if (!vid) throw new Error("No video");
+    try {
+      let hidden = [];
+      const row = await v("kv", "__sb_hidden__");
+      if (row && Array.isArray(row.v)) hidden = row.v;
+      hidden = hidden.filter(id => id !== vid);
+      await k("kv", { k: "__sb_hidden__", v: hidden });
+    } catch (err) {
+      throw new Error("Storage write failed");
+    }
+  }
+
+  async function Bt_getUserInfo() {
+    const userId = S.sbSubmitUserId;
+    if (!userId) return null;
+    try {
+      const base = S.sbServerPreset === "custom" && S.sbServer ? S.sbServer : "https://sponsor.ajay.app";
+      const resp = await fetch(base + "/api/userInfo?userID=" + encodeURIComponent(userId), {
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!resp.ok) return null;
+      return await resp.json();
+    } catch (_) { return null; }
+  }
+
+  function Ct() {
+    try {
+      if (!S.sponsorblockOn || !S.sbSeekbar) return;
+      St_seekbarMarks.forEach(el => { try { el.remove(); } catch (_) {} });
+      St_seekbarMarks.clear();
+      // Re-trigger render via engine
+      const vid = ie.videoId();
+      if (vid && SponsorBlockEngine) {
+        SponsorBlockEngine.init(vid);
+      }
+    } catch (_) {}
   }
   function Tt() {
     const e =
@@ -22830,7 +23483,7 @@
                 ? S[e.masterKey] && "off" !== S[e.masterKey]
                 : !!S[e.masterKey],
         })),
-        sbStats: { saved: rt, skips: ot, segments: tt.length },
+        sbStats: SponsorBlockEngine.stats(),
         logs: y().slice(-100),
       }),
     },

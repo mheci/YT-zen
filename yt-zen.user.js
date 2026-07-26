@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YT-zen
 // @namespace    https://github.com/mheci/YT-zen
-// @version      3.1.2
+// @version      3.2.0
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      Unlicense
@@ -772,7 +772,7 @@
       ("undefined" != typeof GM_info &&
         GM_info.script &&
         GM_info.script.version) ||
-      "3.1.2",
+      "3.2.0",
     r = "https://sponsor.ajay.app",
     o = (() => {
       try {
@@ -1144,11 +1144,7 @@
         unifiedHeatmapShowChapters: !0,
         unifiedHeatmapShowReplays: !0,
 
-        dataMinimizationOn: !1,
-        dataMinBlockStats: !0,
-        dataMinBlockPagead: !0,
-        dataMinBlockLogEvent: !0,
-        dataMinAllowHeartbeat: !0,
+
         sbSubmitOn: !1,
         sbSubmitUserId: "",
         inVideoSearchOn: !1,
@@ -11560,258 +11556,7 @@
       ur && (ur.remove(), (ur = null)));
   }
 
-  let _dm = null;
 
-  if (typeof __pristineFetch__ !== "undefined") {
-    let _dm_installed = false;
-    let _dm_active = false; 
-    const _dm_stats = { dropped: 0, lastUrl: "", byHost: {} };
-
-    function _dm_shouldDrop(url, cfg) {
-      if (!url) return false;
-      let h = "";
-      try {
-        h = new URL(String(url), location.href).host;
-      } catch (e) {
-        return false;
-      }
-      const hl = h.toLowerCase();
-
-      const isTracker =
-        hl === "doubleclick.net" ||
-        hl.endsWith(".doubleclick.net") ||
-        hl === "googleadservices.com" ||
-        hl.endsWith(".googleadservices.com") ||
-        hl === "googlesyndication.com" ||
-        hl.endsWith(".googlesyndication.com") ||
-        hl === "google-analytics.com" ||
-        hl.endsWith(".google-analytics.com") ||
-        hl === "analytics.google.com" ||
-        hl.endsWith(".analytics.google.com");
-      if (isTracker) return true;
-
-      const isYT = /(^|\.)youtube\.com$/.test(hl) || hl === "youtube.com";
-      if (!isYT) return false;
-
-      let p = url;
-      const qIdx = p.indexOf("?");
-      if (qIdx >= 0) p = p.slice(0, qIdx);
-      const protoIdx = p.indexOf("://");
-      if (protoIdx >= 0) p = p.slice(protoIdx + 3);
-      const hostIdx = p.indexOf("/");
-      p = hostIdx >= 0 ? p.slice(hostIdx) : "/";
-
-      if (cfg.blockStats) {
-        if (
-          p.indexOf("/api/stats/") === 0 ||
-          p.indexOf("/youtubei/v1/client_screen_ping") === 0
-        ) return true;
-      }
-      if (cfg.blockLogEvent) {
-        if (
-          p === "/youtubei/v1/log_event" ||
-          p === "/youtubei/v1/log_interaction" ||
-          p === "/youtubei/v1/feedback" ||
-          p === "/youtubei/v1/att/get"
-        ) return true;
-      }
-      if (cfg.blockPagead) {
-        if (
-          p.indexOf("/pagead/") === 0 ||
-          p === "/ptracking" ||
-          p === "/get_midroll_info" ||
-          p === "/generate_204" ||
-          p.indexOf("/youtubei/v1/ads_engagement") === 0 ||
-          p.indexOf("/youtubei/v1/ads/") === 0
-        )
-          return true;
-        if (p.indexOf("/desktop_polymer/") === 0 && p.indexOf("/log") >= 0)
-          return true;
-      }
-
-      if (!cfg.allowHeartbeat) {
-        if (p === "/s/player/heartbeat") return true;
-        if (p.indexOf("/youtubei/v1/heartbeat") === 0) return true;
-      }
-      return false;
-    }
-
-    function _dm_makeResponse() {
-      try {
-        if (typeof Response === "function")
-          return new Response(null, {
-            status: 204,
-            statusText: "No Content",
-          });
-      } catch (e) {}
-      return {
-        ok: true,
-        status: 204,
-        statusText: "No Content",
-        text: () => Promise.resolve(""),
-        json: () => Promise.resolve({}),
-        body: null,
-        headers: new Map(),
-        url: "",
-      };
-    }
-
-    function _dm_fetch() {
-      const args = arguments;
-      const cfg = _dm_activeConfig();
-      let url = "";
-      try {
-        url =
-          args[0] && typeof args[0] === "object" && "url" in args[0]
-            ? args[0].url
-            : String(args[0] || "");
-      } catch (e) {}
-      if (cfg && _dm_shouldDrop(url, cfg)) {
-
-        try {
-          g.emit("net.blocked", { url, by: "data-minimization" });
-        } catch (e) {}
-        return Promise.resolve(_dm_makeResponse());
-      }
-      return __pristineFetch__.apply(this, args);
-    }
-
-    function _dm_activeConfig() {
-      if (!_dm_active) return null;
-      return {
-        blockStats: !!S.dataMinBlockStats,
-        blockPagead: !!S.dataMinBlockPagead,
-        blockLogEvent: !!S.dataMinBlockLogEvent,
-        allowHeartbeat: !!S.dataMinAllowHeartbeat,
-      };
-    }
-    function _dm_refresh() {
-      _dm_active = !!S.dataMinimizationOn;
-    }
-
-    function _dm_installOnce() {
-      if (_dm_installed) return;
-      _dm_installed = true;
-      try {
-        e.fetch = _dm_fetch;
-      } catch (err) {
-        m("dm fetch wrap", err);
-      }
-      try {
-        const _origOpen = __pristineXHROpen__;
-        const _origSend = __pristineXHRSend__;
-        XMLHttpRequest.prototype.open = function (method, url) {
-          this.__ytpDmUrl = url;
-          return _origOpen.apply(this, arguments);
-        };
-        XMLHttpRequest.prototype.send = function () {
-          const cfg = _dm_activeConfig();
-          const u = this.__ytpDmUrl;
-          if (cfg && _dm_shouldDrop(u, cfg)) {
-
-            const xhr = this;
-            Promise.resolve().then(() => {
-              try {
-                Object.defineProperty(xhr, "readyState", {
-                  get: () => 4,
-                });
-                Object.defineProperty(xhr, "status", {
-                  get: () => 200,
-                });
-                Object.defineProperty(xhr, "statusText", {
-                  get: () => "OK",
-                });
-                Object.defineProperty(xhr, "responseText", {
-                  get: () => "",
-                });
-                Object.defineProperty(xhr, "response", {
-                  get: () => "",
-                });
-              } catch (e) {}
-              try {
-                xhr.dispatchEvent(new Event("load"));
-                xhr.dispatchEvent(new Event("loadend"));
-              } catch (e) {}
-              try {
-                g.emit("net.blocked", { url: u, by: "data-minimization" });
-              } catch (e) {}
-            });
-            return; 
-          }
-          return _origSend.apply(this, arguments);
-        };
-      } catch (err) {
-        m("dm xhr wrap", err);
-      }
-      try {
-        navigator.sendBeacon = function (url, data) {
-          const cfg = _dm_activeConfig();
-          if (cfg && _dm_shouldDrop(url, cfg)) {
-            try {
-              g.emit("net.blocked", { url, by: "data-minimization" });
-            } catch (e) {}
-            return true; 
-          }
-          return __pristineBeacon__.apply(this, arguments);
-        };
-      } catch (err) {
-        m("dm beacon wrap", err);
-      }
-    }
-    _dm_installOnce();
-    _dm_refresh();
-
-    g.on("net.blocked", (e) => {
-      if (e && e.by === "data-minimization") {
-        _dm_stats.dropped++;
-        _dm_stats.lastUrl = e.url;
-        try {
-          const host = (() => {
-            try {
-              return new URL(String(e.url), location.href).host;
-            } catch (e2) {
-              return "";
-            }
-          })();
-          if (host)
-            _dm_stats.byHost[host] = (_dm_stats.byHost[host] || 0) + 1;
-        } catch (e2) {}
-      }
-    });
-
-    _dm = {
-      refresh: _dm_refresh,
-      stats: () => Object.assign({}, _dm_stats),
-      shouldDrop: (u) => {
-        const cfg = _dm_activeConfig();
-        return cfg ? _dm_shouldDrop(u, cfg) : false;
-      },
-      endpoints: () => ({
-        stats: [
-          "/api/stats/watchtime",
-          "/api/stats/playback",
-          "/api/stats/qoe",
-          "/api/stats/ads",
-          "/api/stats/att_get",
-        ],
-        logEvent: ["/youtubei/v1/log_event"],
-        pagead: [
-          "/pagead/*",
-          "/ptracking",
-          "/get_midroll_info",
-          "/generate_204",
-          "googleads.g.doubleclick.net/pagead/*",
-        ],
-        heartbeat: ["/s/player/heartbeat", "/youtubei/v1/heartbeat*"],
-      }),
-    };
-
-    try {
-      g.on("cfg.changed", ({ key: k }) => {
-        if (k === "dataMinimizationOn") _dm_refresh();
-      });
-    } catch (e) {}
-  }
   try {
     (window.addEventListener(
       "pagehide",
@@ -12789,7 +12534,7 @@
 
         };
         const PREF_KEYS = {
-          "f5": { label: "Autoplay", type: "enum", options: {"3.1.2": "Enabled", "30000": "Disabled"} },
+          "f5": { label: "Autoplay", type: "enum", options: {"3.2.0": "Enabled", "30000": "Disabled"} },
           "f6": { label: "Layout", type: "enum", options: {"4": "Material", "8": "Old"} },
           "al": { label: "Content Language", type: "text" },
           "gl": { label: "Country", type: "text" },
@@ -22707,42 +22452,7 @@
       clear: () => rr(),
       fmt: or,
     },
-    dataMin: {
-      on: () => !!S.dataMinimizationOn,
-      enable: () => Ta("dataMinimizationOn", !0),
-      disable: () => Ta("dataMinimizationOn", !1),
-      toggle: () => Ta("dataMinimizationOn", !S.dataMinimizationOn),
-      stats: () =>
-        _dm
-          ? _dm.stats()
-          : { dropped: 0, lastUrl: "", byHost: {} },
-      shouldDrop: (u) => (_dm ? _dm.shouldDrop(u) : false),
-      endpoints: () =>
-        _dm
-          ? _dm.endpoints()
-          : {
-              stats: [],
-              logEvent: [],
-              pagead: [],
-              heartbeat: [],
-            },
-      config: () => ({
-        on: !!S.dataMinimizationOn,
-        blockStats: !!S.dataMinBlockStats,
-        blockPagead: !!S.dataMinBlockPagead,
-        blockLogEvent: !!S.dataMinBlockLogEvent,
-        allowHeartbeat: !!S.dataMinAllowHeartbeat,
-      }),
-      setBlock: (key, val) => {
-        const allowed = [
-          "dataMinBlockStats",
-          "dataMinBlockPagead",
-          "dataMinBlockLogEvent",
-          "dataMinAllowHeartbeat",
-        ];
-        if (allowed.indexOf(key) >= 0) Ta(key, !!val);
-      },
-    },
+
     perf: {
       enableFps: (e) => Ta("fpsCounterOn", !!e),
       enableBuffer: (e) => Ta("bufferHealthOn", !!e),

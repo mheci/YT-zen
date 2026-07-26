@@ -773,7 +773,7 @@
       ("undefined" != typeof GM_info &&
         GM_info.script &&
         GM_info.script.version) ||
-      "1.6.0",
+      "1.6.1",
     r = "https://sponsor.ajay.app",
     o = (() => {
       try {
@@ -1947,6 +1947,35 @@
       isAd: () => !!document.querySelector(".ad-showing,.ad-interrupting"),
     },
     de = new Map();
+  function sanitizeUrlForCSS(url) {
+    if (!url || typeof url !== "string") return "";
+    try {
+      // Only allow safe URL schemes for CSS background-image
+      const trimmed = url.trim();
+      if (/^(https?:|data:image\/|blob:)/i.test(trimmed)) {
+        // Remove characters that could break out of CSS url() context
+        return trimmed.replace(/['"\\()\n\r]/g, "");
+      }
+      return "";
+    } catch (_) { return ""; }
+  }
+  function ft() {
+    // SB HUD update — refreshes the on-screen sponsorship status box
+    try {
+      const hud = document.getElementById("ytp-sb-hud");
+      if (!hud) return;
+      if (!S.sponsorblockOn || !S.sbHud) {
+        hud.style.display = "none";
+        return;
+      }
+      hud.style.display = "";
+      const stats = SponsorBlockEngine.stats();
+      const saved = stats.saved || 0;
+      const segs = stats.segments || 0;
+      hud.textContent = "SB: " + segs + " seg" + (segs !== 1 ? "s" : "") +
+        " | " + ce(Math.floor(saved)) + " saved";
+    } catch (_) {}
+  }
   function ce(e) {
     e = Math.floor(Math.max(0, Number(e) || 0));
     const t = de.get(e);
@@ -4196,6 +4225,7 @@
       invalidate,
       stats: () => Metrics.snapshot(),
       metrics: () => Metrics.snapshot(),
+      getSegments: () => State.segments.slice(),
     };
   })();
 
@@ -7308,7 +7338,6 @@
             (nt = 0),
             kt(),
             vt(),
-            (tt = []),
             (at = null),
             void wt()
           );
@@ -19322,8 +19351,8 @@
         }
       }
     }
-    if (S.unifiedHeatmapShowSB && void 0 !== tt && tt && tt.length)
-      for (const e of tt) {
+    if (S.unifiedHeatmapShowSB && typeof SponsorBlockEngine !== "undefined")
+      for (const e of SponsorBlockEngine.getSegments()) {
         if (!e || !e.segment) continue;
         const a = e.category;
         if (a && !1 === S["sb_" + a + "_en"]) continue;
@@ -19365,316 +19394,6 @@
         }
       } catch (e) {}
   }
-  xa.register({
-    id: "unified-heatmap",
-    name: "Seekbar Overlay",
-    summary:
-      "Combine the most-replayed heatmap, SponsorBlock segments, and chapter markers into one helpful overlay on the seekbar.",
-    masterKey: "unifiedHeatmapOn",
-    keys: [
-      "unifiedHeatmapOn",
-      "unifiedHeatmapShowSB",
-      "unifiedHeatmapShowChapters",
-      "unifiedHeatmapShowReplays",
-    ],
-    apply(e) {
-      if (!S.unifiedHeatmapOn) return void ro();
-      no();
-      for (const t of [400, 1200, 2800]) e.addTimeout(no, t);
-      e.onNav(() => {
-        for (const t of [600, 1500, 3500]) e.addTimeout(no, t);
-      });
-      const t = ie.el();
-      t &&
-        (e.addListener(t, "loadedmetadata", no),
-        e.addListener(t, "durationchange", no));
-      const a = g.on("sb.segments", no);
-      Yt["unified-heatmap"].push(a);
-      const n = document.querySelector("#movie_player") || document.body;
-      (n &&
-        e.addObserver(
-          n,
-          ee(() => {
-            !document.querySelector("#ytp-uhm-svg") &&
-              (S.unifiedHeatmapShowReplays ||
-                S.unifiedHeatmapShowSB ||
-                S.unifiedHeatmapShowChapters) &&
-              no();
-          }, 400),
-          { childList: !0, subtree: !0 },
-        ),
-        Yt["unified-heatmap"].push(ro));
-    },
-    settings(e) {
-      (e.appendChild(
-        Io(
-          "Show most-replayed section graph (orange)",
-          "unifiedHeatmapShowReplays",
-        ),
-      ),
-        e.appendChild(
-          Io(
-            "Show SponsorBlock segments (color-coded)",
-            "unifiedHeatmapShowSB",
-          ),
-        ),
-        e.appendChild(
-          Io("Show chapter dividers (white)", "unifiedHeatmapShowChapters"),
-        ),
-        e.appendChild(Eo([Oo("Re-render now", no, "primary")])));
-    },
-  });
-  let io = -1,
-    co = -1;
-
-  let St_submitABOverlay = null;
-  function Bt_renderSubmitAB() {
-    if (!S.sbSubmitOn) {
-      if (St_submitABOverlay) {
-        St_submitABOverlay.remove();
-        St_submitABOverlay = null;
-      }
-      return;
-    }
-    if (io < 0 && co < 0) {
-      if (St_submitABOverlay) {
-        St_submitABOverlay.remove();
-        St_submitABOverlay = null;
-      }
-      return;
-    }
-    const list = document.querySelector(".ytp-progress-list") || document.querySelector(".ytp-progress-bar");
-    if (!list) return;
-    const v = ie.el();
-    if (!v || !v.duration || !isFinite(v.duration)) return;
-    if (!St_submitABOverlay) {
-      St_submitABOverlay = document.createElement("div");
-      St_submitABOverlay.className = "ytp-sb-submit-marker";
-      St_submitABOverlay.style.cssText =
-        "position:absolute;top:0;bottom:0;pointer-events:none;z-index:33";
-    }
-    if (St_submitABOverlay.parentNode !== list) list.appendChild(St_submitABOverlay);
-    const a = io >= 0 ? (io / v.duration) * 100 : 0;
-    const b = co >= 0 ? (co / v.duration) * 100 : 0;
-    const lo = Math.min(a, b);
-    const hi = Math.max(a, b);
-    const widthPct = Math.max(0, hi - lo);
-    St_submitABOverlay.style.left = lo + "%";
-    St_submitABOverlay.style.width = widthPct + "%";
-    St_submitABOverlay.style.background = "rgba(255,61,127,0.18)";
-  }
-  xa.register({
-    id: "sb-submit",
-    name: "Submit Sponsorship Segments",
-    summary:
-      "Help the community by marking sponsorship sections and sharing them. Choose categories like Sponsor, Self-promo, Intro, or Outro.",
-    masterKey: "sbSubmitOn",
-    keys: ["sbSubmitOn", "sbSubmitUserId"],
-    apply(e) {
-      if (!S.sbSubmitOn) return;
-
-      const v = ie.el();
-      if (v) {
-        e.addListener(v, "timeupdate", Bt_renderSubmitAB);
-        e.addListener(v, "durationchange", Bt_renderSubmitAB);
-      }
-      e.onNav(() => {
-        St_submitABOverlay &&
-          (St_submitABOverlay.remove(), (St_submitABOverlay = null));
-      });
-    },
-    settings(e) {
-      const t = To("div", "ytp-sbsub-panel");
-      (e.appendChild(t),
-        (function (e) {
-          e.replaceChildren();
-          const t = Oo("Set A (start)", () => {
-              const e = ie.el();
-              e &&
-                ((io = e.currentTime), p(), pe("A = " + ce(io), 1200, "info"));
-            }),
-            a = Oo("Set B (end)", () => {
-              const e = ie.el();
-              e &&
-                ((co = e.currentTime), p(), pe("B = " + ce(co), 1200, "info"));
-            }),
-            o = Oo("Clear A/B", () => {
-              ((io = -1), (co = -1), p());
-            });
-          e.appendChild(Eo([t, a, o]));
-          const d = To("div", "ytp-sbsub-status");
-          e.appendChild(d);
-          const c = document.createElement("select");
-          ((c.className = "ytp-sel"),
-            i.forEach((e) => {
-              const t = document.createElement("option");
-              ((t.value = e.id), (t.textContent = e.label), c.appendChild(t));
-            }),
-            (c.value = "sponsor"),
-            e.appendChild(Lo("Category", c)));
-          const s = document.createElement("select");
-          ((s.className = "ytp-sel"),
-            [
-              ["skip", "Skip"],
-              ["mute", "Mute"],
-              ["poi", "Point-of-interest"],
-              ["full", "Full video (sponsor entirely)"],
-            ].forEach(([e, t]) => {
-              const a = document.createElement("option");
-              ((a.value = e), (a.textContent = t), s.appendChild(a));
-            }),
-            (s.value = "skip"),
-            e.appendChild(Lo("Action", s)));
-          const l = Oo(
-            "Submit segment to SponsorBlock",
-            async () => {
-              if (io < 0 || co < 0)
-                pe("Pick a start point and an end point first.", 1500, "error");
-              else {
-                ((l.disabled = !0), (l.textContent = "Submitting…"));
-                try {
-                  await (async function (e, t, a, o) {
-                    if (!S.sponsorblockOn)
-                      return void pe(
-                        "Turn on SponsorBlock first.",
-                        1800,
-                        "error",
-                      );
-                    const i = ie.videoId();
-                    if (!i)
-                      return void pe("Open a video first.", 1500, "error");
-                    if (!(t > e))
-                      return void pe(
-                        "The end point needs to come after the start point.",
-                        1800,
-                        "error",
-                      );
-                    let d = S.sbSubmitUserId;
-                    if (!d || d.length < 30) {
-                      const e = new Uint8Array(32);
-                      (crypto.getRandomValues(e),
-                        (d = Array.from(e)
-                          .map((e) => e.toString(16).padStart(2, "0"))
-                          .join("")),
-                        Ta("sbSubmitUserId", d));
-                    }
-                    const c = (S.sbServer || r).replace(/\/$/, ""),
-                      s = {
-                        videoID: i,
-                        userID: d,
-                        userAgent: "YT-zen Userscript/" + n,
-                        segments: [
-                          {
-                            segment: [e, t],
-                            category: a,
-                            actionType: o || "skip",
-                          },
-                        ],
-                        service: "YouTube",
-                        videoDuration:
-                          ie.el() && isFinite(ie.el().duration)
-                            ? ie.el().duration
-                            : 0,
-                      };
-                    try {
-                      const n = c + "/api/skipSegments";
-                      let r;
-                      if ("function" == typeof GM_xmlhttpRequest)
-                        r = await new Promise((e, t) => {
-                          GM_xmlhttpRequest({
-                            method: "POST",
-                            url: n,
-                            headers: { "Content-Type": "application/json" },
-                            data: JSON.stringify(s),
-                            timeout: 15e3,
-                            onload: (t) =>
-                              e({
-                                ok: t.status >= 200 && t.status < 300,
-                                status: t.status,
-                                text: t.responseText,
-                              }),
-                            onerror: t,
-                            ontimeout: () => t(new Error("timeout")),
-                          });
-                        });
-                      else {
-                        const e = await fetch(n, {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify(s),
-                        });
-                        r = {
-                          ok: e.ok,
-                          status: e.status,
-                          text: await e.text(),
-                        };
-                      }
-                      if (r.ok) {
-                        (pe(
-                          "[ok] Submitted " + a + " " + ce(e) + "->" + ce(t),
-                          2500,
-                          "success",
-                        ),
-                          yt.clear());
-                        const n = ie.videoId();
-                        return (n && setTimeout(() => St(n), 1500), !0);
-                      }
-                      return (
-                        pe(
-                          "Couldn’t send it: " +
-                            (409 === r.status
-                              ? "Duplicate (already submitted)"
-                              : 403 === r.status
-                                ? "Forbidden (rate-limited or banned)"
-                                : 400 === r.status
-                                  ? "Invalid (check times)"
-                                  : "HTTP " + r.status),
-                          3e3,
-                          "error",
-                        ),
-                        h("sb submit", r.status, r.text),
-                        !1
-                      );
-                    } catch (e) {
-                      return (
-                        pe("Something went wrong: " + e.message, 2500, "error"),
-                        m("sb submit", e),
-                        !1
-                      );
-                    }
-                  })(io, co, c.value, s.value);
-                } finally {
-                  ((l.disabled = !1),
-                    (l.textContent = "Submit segment to SponsorBlock"));
-                }
-              }
-            },
-            "primary",
-          );
-          function p() {
-            const e = io >= 0 ? ce(io) : "-",
-              t = co >= 0 ? ce(co) : "-",
-              a = io >= 0 && co > io;
-            ((d.textContent =
-              "A: " +
-              e +
-              "   B: " +
-              t +
-              (a ? "   (duration " + ce(co - io) + ")" : "")),
-              (d.style.color = a ? "#5fc" : "#888"));
-          }
-          (e.appendChild(Eo([l])),
-            e.appendChild(
-              To(
-                "div",
-                "ytp-hist-note",
-                "Submitted segments are sent to the community database. A unique contributor ID is created automatically and saved in your settings. If a section has already been submitted by someone else, or if your submissions are limited, a message will let you know.",
-              ),
-            ),
-            p());
-        })(t));
-    },
-  });
   xa.register({
       id: "block-yt-ai",
       name: "Hide YouTube AI Features",
@@ -23282,28 +23001,7 @@
       needHotkeyOptIn: !0,
       run: () => Er(1),
     },
-    {
-      id: "sbSubmitA",
-      label: "SB Submit: mark A",
-      def: "Shift+Alt+KeyA",
-      gated: "sbSubmitOn",
-      run: () => {
-        const e = ie.el();
-        e &&
-          ((io = e.currentTime), pe("SB submit A = " + ce(io), 1200, "info"));
-      },
-    },
-    {
-      id: "sbSubmitB",
-      label: "SB Submit: mark B",
-      def: "Shift+Alt+KeyB",
-      gated: "sbSubmitOn",
-      run: () => {
-        const e = ie.el();
-        e &&
-          ((co = e.currentTime), pe("SB submit B = " + ce(co), 1200, "info"));
-      },
-    },
+
   ];
   function Qo(e) {
     const t = S.hotkeyMap || {};

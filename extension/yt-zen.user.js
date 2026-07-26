@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YT-zen
 // @namespace    https://github.com/mheci/YT-zen
-// @version      1.4.0
+// @version      1.5.0
 // @description  Clean, lightweight, and customizable client-side interface for YouTube.
 // @author       YT-zen Team
 // @license      Unlicense
@@ -3193,731 +3193,430 @@
       g.emit("bookmarks.changed"));
   }
 
-  let tt = [],
-    at = null,
-    nt = 0,
-    rt = 0,
-    ot = 0,
-    it = new Set(),
-    dt = !1,
-    ct = null,
-    st = !1,
-    lt = null,
-    pt = null,
-    ut = null,
-    ht = null,
-    mt = 0,
-    St_wtInterval = 0,
-    St_progObs = null;
+  // ===========================================================================
+  //  SponsorBlock Redesigned Engine (YT-zen)
+  // ---------------------------------------------------------------------------
+  //  Modular first-principles client architecture separating networking,
+  //  caching, playback monitoring, and seekbar overlays.
+  // ===========================================================================
+  const SponsorBlockEngine = (() => {
+    "use strict";
 
-  let St_perCat = {};
+    const Categories = i;
+    const Actions = Yi;
 
-  let St_perCatSaved = {};
+    let activeVideoId = null;
+    let segments = [];
+    let processedSegments = new Set();
+    let activeIndex = -1;
+    let timeSavedCount = 0;
+    let skipsCount = 0;
 
-  let St_lastFetch = 0,
-    St_lastErr = null,
-    St_segmentsRaw = 0;
+    let originalVolume = null;
+    let originalMuted = false;
+    let isMutedActive = false;
 
-  let St_backoff = 0,
-    St_cacheTTLms = 60 * 60 * 1000; 
+    let watchdogTimer = 0;
+    let progressObserver = null;
+    let videoTimeupdateListener = null;
 
-  const yt = (function () {
-    const e = new Map();
-    return {
-      get(t) {
-        if (!e.has(t)) return;
-        const a = e.get(t);
-        return (e.delete(t), e.set(t, a), a);
-      },
-      set(t, a) {
-        if ((e.has(t) && e.delete(t), e.set(t, a), e.size > 64)) {
-          const t = e.keys().next().value;
-          e.delete(t);
+    const Cache = (() => {
+      const MEM_CACHE_VERSION = 1;
+      const memCache = new Map();
+      const inFlight = new Map();
+
+      const get = async (videoId, configKey) => {
+        const cacheKey = `sb:${videoId}:${configKey}`;
+        const now = Date.now();
+
+        if (memCache.has(cacheKey)) {
+          const entry = memCache.get(cacheKey);
+          if (entry.expiresAt > now) return entry.segments;
+          memCache.delete(cacheKey);
         }
-      },
-      delete(t) {
-        e.delete(t);
-      },
-      clear() {
-        e.clear();
-      },
-      get size() {
-        return e.size;
-      },
-    };
-  })();
 
-  const gt = re();
-
-  async function Bt_videoHash(e) {
-    const t = await crypto.subtle.digest(
-      "SHA-256",
-      new TextEncoder().encode(e),
-    );
-    return Array.from(new Uint8Array(t))
-      .map((e) => e.toString(16).padStart(2, "0"))
-      .join("")
-      .slice(0, 4);
-  }
-
-  function Bt_serverUrl() {
-    const preset = S.sbServerPreset || "ajay";
-    const hit = Zi.find((e) => e.id === preset);
-    if (hit && hit.url) return hit.url.replace(/\/$/, "");
-    return (S.sbServer || r).replace(/\/$/, "");
-  }
-
-  function Bt_buildUrl(e, hash) {
-    const n = Bt_serverUrl();
-    const enabledCats = i
-      .filter((c) => S["sb_" + c.id + "_en"])
-      .map((c) => c.id);
-    if (!enabledCats.length) return null;
-    const params = [];
-    enabledCats.forEach((c) => params.push("category=" + encodeURIComponent(c)));
-    if (S.sbMinVotes) params.push("minVotes=" + encodeURIComponent(S.sbMinVotes));
-    if (S.sbMinViews) params.push("minViews=" + encodeURIComponent(S.sbMinViews));
-    if (S.sbMaxViews) params.push("maxViews=" + encodeURIComponent(S.sbMaxViews));
-    if (S.sbIncludeLocked) params.push("locked=1");
-    if (S.sbIncludeHidden) params.push("hidden=1");
-    if (S.sbIncludeIgnored) params.push("ignored=1");
-    if (S.sbTrimUUIDs) params.push("trimUUIDs=1");
-    params.push("service=YouTube");
-    if (S.sbPrivacy) {
-      return n + "/api/skipSegments/" + hash + "?" + params.join("&");
-    }
-    return (
-      n + "/api/skipSegments?videoID=" + encodeURIComponent(e) + "&" + params.join("&")
-    );
-  }
-
-  function Bt_filterSegments(segments) {
-    if (!Array.isArray(segments)) return [];
-    const minV = Number(S.sbMinVotes) || 0;
-    const minVi = Number(S.sbMinViews) || 0;
-    const maxVi = Number(S.sbMaxViews) || 0;
-    const includeLocked = !!S.sbIncludeLocked;
-    const includeHidden = !!S.sbIncludeHidden;
-    const includeIgnored = !!S.sbIncludeIgnored;
-    const out = [];
-    for (const s of segments) {
-      if (!s || !Array.isArray(s.segment) || s.segment.length !== 2) continue;
-      if (!isFinite(s.segment[0]) || !isFinite(s.segment[1])) continue;
-      if (s.segment[1] <= s.segment[0]) continue;
-      if ((s.votes || 0) < minV) continue;
-      if (minVi && (s.views || 0) < minVi) continue;
-      if (maxVi && (s.views || 0) > maxVi) continue;
-      if (!includeLocked && s.locked) continue;
-      if (!includeHidden && s.hidden) continue;
-
-      if (!includeIgnored && (s.shadowIgnored || s.ignored)) continue;
-
-      out.push(s);
-    }
-    return out;
-  }
-
-  function Bt_resolveAction(seg, channelId) {
-    const segOverride = (St_segOverrides || {})[seg.UUID];
-    if (segOverride) return segOverride;
-    const chanOverride = channelId && (St_chanOverrides || {})[channelId];
-    if (chanOverride) return chanOverride;
-    const userCfg = S["sb_" + seg.category + "_act"];
-    if (userCfg && userCfg !== "skip") return userCfg;
-
-    if (seg.actionType && seg.actionType !== "skip") return seg.actionType;
-    return "skip";
-  }
-
-  let St_segOverrides = null,
-    St_chanOverrides = null,
-    St_segOvRaw = "",
-    St_chanOvRaw = "",
-    St_colorOverrides = null,
-    St_colorOvRaw = "",
-    St_chapterRules = null,
-    St_chapterRulesRaw = "";
-  function Bt_loadOverrides() {
-    const sRaw = S.sbSegOverrides || "";
-    const cRaw = S.sbChanOverrides || "";
-    if (sRaw !== St_segOvRaw) {
-      try {
-        St_segOverrides = sRaw ? JSON.parse(sRaw) : {};
-      } catch (e) {
-        St_segOverrides = {};
-      }
-      St_segOvRaw = sRaw;
-    }
-    if (cRaw !== St_chanOvRaw) {
-      try {
-        St_chanOverrides = cRaw ? JSON.parse(cRaw) : {};
-      } catch (e) {
-        St_chanOverrides = {};
-      }
-      St_chanOvRaw = cRaw;
-    }
-    const colRaw = S.sbColorOverrides || "";
-    if (colRaw !== St_colorOvRaw) {
-      try {
-        St_colorOverrides = colRaw ? JSON.parse(colRaw) : {};
-      } catch (e) {
-        St_colorOverrides = {};
-      }
-      St_colorOvRaw = colRaw;
-    }
-    const chRaw = S.sbChapterRules || "";
-    if (chRaw !== St_chapterRulesRaw) {
-      try {
-        St_chapterRules = chRaw ? JSON.parse(chRaw) : {};
-      } catch (e) {
-        St_chapterRules = {};
-      }
-      St_chapterRulesRaw = chRaw;
-    }
-  }
-
-  function Bt_color(catId) {
-    Bt_loadOverrides();
-    const ov = St_colorOverrides && St_colorOverrides[catId];
-    if (ov && /^#[0-9a-fA-F]{3,6}$/.test(ov)) return ov;
-    const def = i.find((c) => c.id === catId);
-    return def ? def.color : "#fff";
-  }
-
-  function Bt_health() {
-    return {
-      lastFetch: St_lastFetch,
-      lastErr: St_lastErr,
-      backoff: St_backoff,
-      segments: St_segmentsRaw,
-      perCategory: Object.assign({}, St_perCat),
-      perCategorySaved: Object.assign({}, St_perCatSaved),
-      cacheSize: yt.size,
-    };
-  }
-
-  function ft() {
-    if (!S.sponsorblockOn) {
-      lt && (lt.remove(), (lt = null));
-      return;
-    }
-    if (!S.sbHud) {
-      lt && (lt.remove(), (lt = null));
-      return;
-    }
-    if (!lt && document.body) {
-      lt = document.createElement("div");
-      lt.id = "ytp-sb-hud";
-      document.body.appendChild(lt);
-    }
-    if (!lt) return;
-    if (S.sbHudStatus) {
-      const health = Bt_health();
-      const top = Object.entries(health.perCategory)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 3)
-        .map(([k, v]) => k + " " + v)
-        .join("  ");
-      const topSaved = Object.entries(health.perCategorySaved)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 3)
-        .map(([k, v]) => k + " " + ce(v))
-        .join("  ");
-      const ago =
-        health.lastFetch > 0
-          ? Math.max(0, Math.floor((Date.now() - health.lastFetch) / 1000)) + "s ago"
-          : "never";
-      const errBit = health.lastErr ? "  err " + health.lastErr : "";
-      const ftTextExt = "SB " + ce(rt) + " · " + ot + " skips\nserver: " + ago + errBit + "\n" + (top ? "top: " + top + "  saved: " + ce(0) + "\n" : "") + (topSaved ? "saved: " + topSaved : "");
-      if (lt.textContent !== ftTextExt) lt.textContent = ftTextExt;
-    } else {
-      const ftTextMinimal = "SB " + ce(rt) + " - " + ot + " skips";
-      if (lt.textContent !== ftTextMinimal) lt.textContent = ftTextMinimal;
-    }
-  }
-
-  function bt(e, t) {
-    document.body &&
-      (ht ||
-        ((ht = document.createElement("div")),
-        (ht.id = "ytp-sb-ov"),
-        document.body.appendChild(ht)),
-      (ht.textContent = e + " - " + ce(t) + " left"));
-  }
-  function vt() {
-    ht && (ht.remove(), (ht = null));
-  }
-
-  function kt() {
-    if (!dt) return;
-    const e = ie.el();
-    e && ((e.volume = null != ct ? ct : 1), (e.muted = st));
-    dt = !1;
-    ct = null;
-    st = !1;
-  }
-
-  function Bt_findActive(t) {
-    if (!tt.length) return -1;
-    let lo = 0,
-      hi = tt.length - 1,
-      best = -1;
-    while (lo <= hi) {
-      const mid = (lo + hi) >> 1;
-      const s = tt[mid];
-      if (s.segment[0] <= t) {
-        if (t < s.segment[1]) return mid;
-        best = mid;
-        lo = mid + 1;
-      } else {
-        hi = mid - 1;
-      }
-    }
-    return -1;
-  }
-
-  function Bt_findNext(t) {
-    if (!tt.length) return -1;
-    let lo = 0,
-      hi = tt.length - 1,
-      best = -1;
-    while (lo <= hi) {
-      const mid = (lo + hi) >> 1;
-      const s = tt[mid];
-      if (s.segment[0] > t) {
-        best = mid;
-        hi = mid - 1;
-      } else {
-        lo = mid + 1;
-      }
-    }
-    return best;
-  }
-
-  function Bt_sortSegments() {
-    tt.sort((a, b) => a.segment[0] - b.segment[0]);
-  }
-
-  const _voteInFlight = new Set();
-  let St_activeIdx = -1;
-  let St_lastTickTime = -1;
-  function xt() {
-    const e = ie.el();
-    if (!e || e.paused || e.ended) {
-      kt();
-      St_activeIdx = -1;
-      return;
-    }
-    if (!tt.length) {
-      St_activeIdx = -1;
-      return;
-    }
-    const t = e.currentTime;
-
-    const upNextSec = Number(S.sbUpNextSec) || 0;
-    if (upNextSec > 0) {
-      const next = Bt_findNext(t);
-      if (next >= 0) {
-        const s = tt[next];
-        const delta = s.segment[0] - t;
-        if (delta > 0 && delta <= upNextSec) {
-          Bt_showUpNext(s, delta);
-        } else {
-          Bt_hideUpNext();
-        }
-      } else {
-        Bt_hideUpNext();
-      }
-    } else {
-      Bt_hideUpNext();
-    }
-
-    let idx = St_activeIdx;
-    if (
-      idx < 0 ||
-      idx >= tt.length ||
-      !tt[idx] ||
-      t < tt[idx].segment[0] ||
-      t >= tt[idx].segment[1]
-    ) {
-      idx = Bt_findActive(t);
-      St_activeIdx = idx;
-    }
-    if (idx < 0) {
-      kt();
-      vt();
-      return;
-    }
-    const n = tt[idx];
-    const r = n.category;
-    if (!S["sb_" + r + "_en"] || S["sb_" + r + "_act"] === "disabled") return;
-    Bt_loadOverrides();
-
-    const channelId = St_currentChannelId;
-    const action = Bt_resolveAction(n, channelId);
-    const isMute = action === "mute";
-    if (isMute) {
-      if (!dt) {
-        ct = e.volume;
-        st = e.muted;
-        e.muted = !0;
-        dt = !0;
-      }
-
-      if (n.UUID && it.has(n.UUID)) return;
-      it.add(n.UUID || ("seg-" + idx + "-" + n.segment[0]));
-      const mutedSaved = Math.max(0, n.segment[1] - t);
-      St_perCat[r] = (St_perCat[r] || 0) + 1;
-      St_perCatSaved[r] = (St_perCatSaved[r] || 0) + mutedSaved;
-      bt(
-        (i.find((x) => x.id === r) || { label: r }).label,
-        n.segment[1] - t,
-      );
-      return;
-    }
-
-    if (n.actionType === "poi" || n.actionType === "chapter") return;
-    const alreadyCounted = n.UUID && it.has(n.UUID);
-    if (!alreadyCounted) {
-      it.add(n.UUID || ("seg-" + idx + "-" + n.segment[0]));
-      const a = Math.max(0, n.segment[1] - t);
-      rt += a;
-      ot++;
-      St_perCat[r] = (St_perCat[r] || 0) + 1;
-      St_perCatSaved[r] = (St_perCatSaved[r] || 0) + a;
-      k("kv", { k: "__sb_saved__", v: rt });
-      k("kv", { k: "__sb_skips__", v: ot });
-      ft();
-      if (S.sbToast) {
-        const label = (i.find((x) => x.id === r) || { label: r }).label;
-        pe("Skipped " + label + " (" + ce(a) + ")", S.sbToastDur || 2200, "success");
-      }
-
-      try {
-        Bt_viewedSponsorTime(n.UUID);
-      } catch (e2) {}
-    }
-    try {
-      e.currentTime = n.segment[1];
-    } catch (e2) {}
-  }
-
-  let St_currentChannelId = "";
-  function Bt_recordChannelOnce() {
-    if (St_currentChannelId) return;
-    St_currentChannelId = Ne() || "";
-  }
-
-  let St_upNextEl = null;
-  let St_upNextHideAt = 0;
-  function Bt_showUpNext(seg, deltaSec) {
-    if (!document.body) return;
-    if (!St_upNextEl) {
-      St_upNextEl = document.createElement("div");
-      St_upNextEl.id = "ytp-sb-next";
-      St_upNextEl.style.cssText =
-        "position:fixed;right:12px;bottom:80px;z-index:2147483636;background:rgba(20,22,28,.5);color:#eef;border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:6px 12px;font:11px/1.3 ui-monospace,SFMono-Regular,Consolas,monospace;backdrop-filter:blur(18px) saturate(160%);-webkit-backdrop-filter:blur(18px) saturate(160%);box-shadow:0 6px 20px rgba(0,0,0,.4);display:flex;align-items:center;gap:8px;transition:opacity .25s,transform .25s;opacity:0;transform:translateY(6px);";
-      const dot = document.createElement("span");
-      dot.style.cssText =
-        "display:inline-block;width:8px;height:8px;border-radius:50%;";
-      St_upNextEl.appendChild(dot);
-      St_upNextEl._dot = dot;
-      const lbl = document.createElement("span");
-      St_upNextEl.appendChild(lbl);
-      St_upNextEl._lbl = lbl;
-      document.body.appendChild(St_upNextEl);
-    }
-    const color = Bt_color(seg.category);
-    St_upNextEl._dot.style.background = color;
-    St_upNextEl._dot.style.boxShadow = "0 0 6px " + color;
-    const label = (i.find((x) => x.id === seg.category) || { label: seg.category })
-      .label;
-    St_upNextEl._lbl.textContent =
-      label + " in " + Math.max(0, Math.round(deltaSec)) + "s";
-    St_upNextEl.style.opacity = "1";
-    St_upNextEl.style.transform = "translateY(0)";
-    St_upNextHideAt = Date.now() + 4000;
-  }
-  function Bt_hideUpNext() {
-    if (!St_upNextEl) return;
-    if (Date.now() < St_upNextHideAt) return;
-    St_upNextEl.style.opacity = "0";
-    St_upNextEl.style.transform = "translateY(6px)";
-  }
-
-  let St_seekbarMarks = new Map(); 
-  function sanitizeUrlForCSS(url) {
-    if (!url || typeof url !== "string") return "";
-    if (!/^https?:\/\//.test(url)) return "";
-    if (/[()\s]/.test(url)) return "";
-    return url;
-  }
-  function wt() {
-    if (!S.sponsorblockOn || !S.sbSeekbar) {
-
-      St_seekbarMarks.forEach((el) => {
         try {
-          el.remove();
-        } catch (e) {}
-      });
-      St_seekbarMarks.clear();
-      return;
-    }
-    Bt_loadOverrides();
-    const t = ie.el();
-    if (!t || !t.duration || !isFinite(t.duration)) return;
-    const a = t.duration;
-    const list = document.querySelector(".ytp-progress-list") || document.querySelector(".ytp-progress-bar");
-    if (!list) {
-
-      return;
-    }
-
-    const desired = new Map();
-    for (let i2 = 0; i2 < tt.length; i2++) {
-      const seg = tt[i2];
-      const cat = seg.category;
-      if (!S["sb_" + cat + "_en"]) continue;
-      const key = seg.UUID || "i" + i2;
-      desired.set(key, { idx: i2, seg, cat });
-    }
-
-    for (const [k, el] of St_seekbarMarks) {
-      if (!desired.has(k)) {
-        try {
-          el.remove();
-        } catch (e) {}
-        St_seekbarMarks.delete(k);
-      }
-    }
-
-    for (const [key, info] of desired) {
-      const seg = info.seg;
-      const cat = info.cat;
-      const isPoi = seg.actionType === "poi" || seg.actionType === "chapter";
-      const start = (seg.segment[0] / a) * 100;
-      const end = (seg.segment[1] / a) * 100;
-      const widthPct = Math.max(0.15, end - start);
-      const color = Bt_color(cat);
-      const label = (i.find((x) => x.id === cat) || { label: cat }).label;
-      const title =
-        label +
-        " " +
-        ce(seg.segment[0]) +
-        " - " +
-        ce(seg.segment[1]) +
-        " (" +
-        Math.round(seg.segment[1] - seg.segment[0]) +
-        "s)";
-      let el = St_seekbarMarks.get(key);
-      if (!el) {
-        el = document.createElement("div");
-        el.dataset.sbKey = key;
-        el.className = "ytp-sb-mark" + (isPoi ? " ytp-sb-poi" : "");
-        el.title = title;
-        list.appendChild(el);
-        St_seekbarMarks.set(key, el);
-      } else if (el.title !== title) {
-        el.title = title;
-      }
-
-      const css =
-        isPoi
-          ? "position:absolute;top:0;bottom:0;left:" +
-            start +
-            "%;width:3px;margin-left:-1.5px;background:" +
-            color +
-            ";opacity:.95;pointer-events:none;z-index:32;border-radius:1px;box-shadow:0 0 4px " +
-            color +
-            ";"
-          : "position:absolute;top:0;bottom:0;left:" +
-            start +
-            "%;width:" +
-            widthPct +
-            "%;background:" +
-            color +
-            ";opacity:.75;pointer-events:none;z-index:31;border-radius:1px;";
-      if (el.style.cssText !== css) el.style.cssText = css;
-    }
-  }
-
-  function Ct() {
-    clearTimeout(mt);
-    const delay = Math.max(120, Math.min(2000, Number(S.sbRepaintMs) || 600));
-    mt = setTimeout(wt, delay);
-  }
-
-  function Bt_invalidateMarks() {
-    St_seekbarMarks.forEach((el) => {
-      try {
-        el.remove();
-      } catch (e) {}
-    });
-    St_seekbarMarks.clear();
-    wt();
-  }
-
-
-
-  async function St(e) {
-    if ((nt && (clearInterval(nt), (nt = 0)), pt && ut)) {
-      try {
-        pt.removeEventListener("timeupdate", ut);
-      } catch (e) {}
-      pt = null;
-      ut = null;
-    }
-    if (St_wtInterval) {
-      try { clearInterval(St_wtInterval); } catch (e) {}
-      St_wtInterval = 0;
-    }
-    if (St_progObs) {
-      try { St_progObs.disconnect(); } catch (e) {}
-      St_progObs = null;
-    }
-    tt = [];
-    it = new Set();
-    St_activeIdx = -1;
-    St_perCat = {};
-    St_perCatSaved = {};
-    St_currentChannelId = "";
-    Bt_hideUpNext();
-    at = e;
-    kt();
-    vt();
-    Bt_invalidateMarks();
-    if (!S.sponsorblockOn) return;
-    Bt_recordChannelOnce();
-    try {
-      const newSegs = await (async function (e) {
-        const enabledCats = i
-          .filter((c) => S["sb_" + c.id + "_en"])
-          .map((c) => c.id);
-        if (!enabledCats.length) return [];
-
-        const filterKey = [
-
-          S.sbServerPreset || "ajay",
-          S.sbServer || "",
-          S.sbPrivacy ? 1 : 0,
-          S.sbMinVotes || 0,
-          S.sbMinViews || 0,
-          S.sbMaxViews || 0,
-          S.sbIncludeLocked ? 1 : 0,
-          S.sbIncludeHidden ? 1 : 0,
-          S.sbIncludeIgnored ? 1 : 0,
-          S.sbTrimUUIDs ? 1 : 0,
-        ].join("|");
-        const ck = "sb:" + e + "|" + enabledCats.join(",") + "|" + filterKey;
-
-        const cachedSegments = await YtpCache.get(ck, { source: "idb" });
-        if (cachedSegments) {
-          return cachedSegments;
-        }
-
-        let hash = null;
-        if (S.sbPrivacy) hash = await Bt_videoHash(e);
-        const url = Bt_buildUrl(e, hash);
-        if (!url) return [];
-        return await gt("sb:" + ck, async () => {
-          try {
-            const r = await he(url);
-            if (!r.ok) {
-
-              if (r.status === 429 || r.status >= 500) {
-                St_backoff = Math.min(5, St_backoff + 1);
-              } else {
-                St_backoff = 0;
-              }
-              St_lastErr = "HTTP " + r.status;
-              St_lastFetch = Date.now();
-              const stale = await YtpCache.get(ck, { source: "idb", allowExpired: true });
-              return stale || [];
+          const row = await v("kv", `cache:${cacheKey}`);
+          if (row && row.v) {
+            const entry = row.v;
+            if (entry.expiresAt > now) {
+              memCache.set(cacheKey, entry);
+              return entry.segments;
             }
-            let body = await r.json();
-            if (S.sbPrivacy) {
-
-              if (Array.isArray(body)) {
-                const hit = body.find(
-                  (p) => p && p.videoID && p.videoID === e,
-                );
-                body = hit && Array.isArray(hit.segments) ? hit.segments : [];
-              } else {
-                body = [];
-              }
-            }
-            const filtered = Bt_filterSegments(body || []);
-            St_backoff = Math.max(0, St_backoff - 1);
-            St_lastErr = null;
-            St_lastFetch = Date.now();
-            St_segmentsRaw = filtered.length;
-            const currentTtl = St_cacheTTLms * Math.pow(2, St_backoff);
-            await YtpCache.set(ck, filtered, currentTtl, { source: "idb" });
-            return filtered;
-          } catch (e2) {
-            St_lastErr = String((e2 && e2.message) || e2);
-            St_lastFetch = Date.now();
-            const stale = await YtpCache.get(ck, { source: "idb", allowExpired: true });
-            return stale || [];
+            await x("kv", `cache:${cacheKey}`);
           }
-        });
-      })(e);
-      tt = newSegs;
-      Bt_sortSegments();
-    } catch (e) {
-      tt = [];
-    }
-    ft();
-    Bt_invalidateMarks();
-    g.emit("sb.segments", { videoId: e, count: tt.length });
-    const t = ie.el();
-    if (t) {
-      pt = t;
-      ut = () => {
-        _a() || xt();
+        } catch (err) {
+          try { h("[YT-zen][sb-cache] Persistent read error:", err); } catch (_) {}
+        }
+        return null;
       };
-      t.addEventListener("timeupdate", ut);
-      
-      // Reset active index on user seeking to force re-evaluation instantly!
-      const onSeeking = () => {
-        St_activeIdx = -1;
-        wt(); // Redraw seekbar marks immediately on seek
-      };
-      t.addEventListener("seeking", onSeeking);
-      t.addEventListener("seeked", onSeeking);
-      t.addEventListener("loadedmetadata", wt);
-      t.addEventListener("durationchange", wt);
-      
-      Yt["sponsorblock"].push(() => {
-        try {
-          t.removeEventListener("seeking", onSeeking);
-          t.removeEventListener("seeked", onSeeking);
-          t.removeEventListener("loadedmetadata", wt);
-          t.removeEventListener("durationchange", wt);
-        } catch (_) {}
-      });
-    } else {
-      nt = setInterval(() => {
-        _a() || document.hidden || xt();
-      }, 500);
-    }
 
-    try {
-      wt();
-      St_wtInterval = setInterval(() => {
-        try { _a() || wt(); } catch (e) {}
+      const set = async (videoId, configKey, segments, ttlMs) => {
+        const cacheKey = `sb:${videoId}:${configKey}`;
+        const now = Date.now();
+        const entry = {
+          version: MEM_CACHE_VERSION,
+          videoId,
+          segments,
+          fetchedAt: now,
+          expiresAt: now + ttlMs,
+          apiVersion: "v1",
+          lastValidated: now
+        };
+
+        memCache.set(cacheKey, entry);
+
+        try {
+          await k("kv", {
+            k: `cache:${cacheKey}`,
+            v: entry,
+            updatedAt: now
+          });
+        } catch (err) {
+          try { h("[YT-zen][sb-cache] Persistent write error:", err); } catch (_) {}
+        }
+      };
+
+      return { get, set, inFlight };
+    })();
+
+    const API = (() => {
+      const BASE_URL = "https://sponsor.ajay.app";
+      const TIMEOUT_MS = 10000;
+
+      const hashPrefix = async (videoId) => {
+        const buffer = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(videoId));
+        return Array.from(new Uint8Array(buffer))
+          .map(b => b.toString(16).padStart(2, "0"))
+          .join("")
+          .slice(0, 4);
+      };
+
+      const fetchSegments = async (videoId, usePrivacy, abortSignal) => {
+        let url = "";
+        if (usePrivacy) {
+          const prefix = await hashPrefix(videoId);
+          url = `${BASE_URL}/api/skipSegments/v1/prefixed/${prefix}`;
+        } else {
+          url = `${BASE_URL}/api/skipSegments?videoID=${videoId}`;
+        }
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
+        if (abortSignal) {
+          abortSignal.addEventListener("abort", () => controller.abort());
+        }
+
+        try {
+          const response = await fetch(url, { signal: controller.signal });
+          clearTimeout(timeoutId);
+
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+          }
+
+          let body = await response.json();
+          if (usePrivacy && Array.isArray(body)) {
+            const videoHit = body.find(v => v && v.videoID === videoId);
+            body = (videoHit && Array.isArray(videoHit.segments)) ? videoHit.segments : [];
+          }
+
+          return Array.isArray(body) ? body : [];
+        } catch (err) {
+          clearTimeout(timeoutId);
+          throw err;
+        }
+      };
+
+      return { fetchSegments };
+    })();
+
+    const Player = (() => {
+      const findActiveSegmentIndex = (time) => {
+        if (!segments.length) return -1;
+        let lo = 0, hi = segments.length - 1;
+        while (lo <= hi) {
+          const mid = (lo + hi) >> 1;
+          const s = segments[mid];
+          if (s.segment[0] <= time) {
+            if (time < s.segment[1]) return mid;
+            lo = mid + 1;
+          } else {
+            hi = mid - 1;
+          }
+        }
+        return -1;
+      };
+
+      const resetMuteState = () => {
+        if (!isMutedActive) return;
+        const v = ie.el();
+        if (v) {
+          v.volume = originalVolume !== null ? originalVolume : 1;
+          v.muted = originalMuted;
+        }
+        isMutedActive = false;
+        originalVolume = null;
+      };
+
+      const handlePlaybackTick = () => {
+        const v = ie.el();
+        if (!v || v.paused || v.ended) {
+          resetMuteState();
+          activeIndex = -1;
+          return;
+        }
+
+        const t = v.currentTime;
+        let idx = activeIndex;
+
+        if (
+          idx < 0 ||
+          idx >= segments.length ||
+          !segments[idx] ||
+          t < segments[idx].segment[0] ||
+          t >= segments[idx].segment[1]
+        ) {
+          idx = findActiveSegmentIndex(t);
+          activeIndex = idx;
+        }
+
+        if (idx < 0) {
+          resetMuteState();
+          return;
+        }
+
+        const seg = segments[idx];
+        const category = seg.category;
+        const action = S[`sb_${category}_act`] || "skip";
+        if (!S[`sb_${category}_en`] || action === "disabled") {
+          resetMuteState();
+          return;
+        }
+
+        if (action === "mute") {
+          if (!isMutedActive) {
+            originalVolume = v.volume;
+            originalMuted = v.muted;
+            v.muted = true;
+            isMutedActive = true;
+          }
+          return;
+        }
+
+        if (action === "skip") {
+          const uuid = seg.UUID || `${idx}-${seg.segment[0]}`;
+          if (!processedSegments.has(uuid)) {
+            processedSegments.add(uuid);
+            const savedSec = Math.max(0, seg.segment[1] - t);
+            timeSavedCount += savedSec;
+            skipsCount++;
+            
+            k("kv", { k: "__sb_saved__", v: timeSavedCount });
+            k("kv", { k: "__sb_skips__", v: skipsCount });
+            
+            if (S.sbToast) {
+              const categoryLabel = (Categories.find(c => c.id === category) || { label: category }).label;
+              pe(`Skipped ${categoryLabel} (${ce(savedSec)})`, S.sbToastDur || 2200, "success");
+            }
+            try { ft(); } catch (_) {}
+          }
+
+          try {
+            v.currentTime = seg.segment[1];
+          } catch (err) {}
+        }
+      };
+
+      const attachEventListeners = () => {
+        const v = ie.el();
+        if (!v) return;
+
+        pt = v;
+        videoTimeupdateListener = () => {
+          _a() || handlePlaybackTick();
+        };
+        v.addEventListener("timeupdate", videoTimeupdateListener);
+
+        const onSeeking = () => {
+          activeIndex = -1;
+          UI.renderSeekbarMarks();
+        };
+        v.addEventListener("seeking", onSeeking);
+        v.addEventListener("seeked", onSeeking);
+        v.addEventListener("loadedmetadata", UI.renderSeekbarMarks);
+        v.addEventListener("durationchange", UI.renderSeekbarMarks);
+
+        Yt["sponsorblock"].push(() => {
+          try {
+            v.removeEventListener("timeupdate", videoTimeupdateListener);
+            v.removeEventListener("seeking", onSeeking);
+            v.removeEventListener("seeked", onSeeking);
+            v.removeEventListener("loadedmetadata", UI.renderSeekbarMarks);
+            v.removeEventListener("durationchange", UI.renderSeekbarMarks);
+          } catch (_) {}
+        });
+      };
+
+      return { handlePlaybackTick, attachEventListeners, resetMuteState };
+    })();
+
+    const UI = (() => {
+      const renderSeekbarMarks = () => {
+        if (!S.sponsorblockOn || !S.sbSeekbar) {
+          St_seekbarMarks.forEach(el => { try { el.remove(); } catch (_) {} });
+          St_seekbarMarks.clear();
+          return;
+        }
+
+        const v = ie.el();
+        if (!v || !v.duration || !isFinite(v.duration)) return;
+
+        const duration = v.duration;
+        const listContainer = document.querySelector(".ytp-progress-list") || document.querySelector(".ytp-progress-bar");
+        if (!listContainer) return;
+
+        const desired = new Map();
+        for (let idx = 0; idx < segments.length; idx++) {
+          const seg = segments[idx];
+          const cat = seg.category;
+          if (!S[`sb_${cat}_en`]) continue;
+          desired.set(seg.UUID || `i${idx}`, { idx, seg, cat });
+        }
+
+        for (const [k, el] of St_seekbarMarks) {
+          if (!desired.has(k)) {
+            try { el.remove(); } catch (_) {}
+            St_seekbarMarks.delete(k);
+          }
+        }
+
+        for (const [key, info] of desired) {
+          const seg = info.seg;
+          const cat = info.cat;
+          const start = (seg.segment[0] / duration) * 100;
+          const end = (seg.segment[1] / duration) * 100;
+          const width = Math.max(0.15, end - start);
+          const color = Categories.find(c => c.id === cat)?.color || "#ffffff";
+
+          let el = St_seekbarMarks.get(key);
+          if (!el) {
+            el = document.createElement("div");
+            el.dataset.sbKey = key;
+            el.className = "ytp-sb-mark";
+            listContainer.appendChild(el);
+            St_seekbarMarks.set(key, el);
+          }
+
+          const css = `position:absolute;top:0;bottom:0;left:${start}%;width:${width}%;background:${color};opacity:0.75;pointer-events:none;z-index:31;border-radius:1px;`;
+          if (el.style.cssText !== css) {
+            el.style.cssText = css;
+          }
+        }
+      };
+
+      return { renderSeekbarMarks };
+    })();
+
+    const init = async (videoId) => {
+      if (watchdogTimer) { clearInterval(watchdogTimer); watchdogTimer = 0; }
+      Player.resetMuteState();
+      segments = [];
+      processedSegments.clear();
+      activeIndex = -1;
+
+      if (!S.sponsorblockOn || !videoId) {
+        UI.renderSeekbarMarks();
+        return;
+      }
+
+      activeVideoId = videoId;
+      UI.renderSeekbarMarks();
+
+      try {
+        const enabledCats = Categories.filter(c => S[`sb_${c.id}_en`]).map(c => c.id);
+        if (!enabledCats.length) return;
+
+        const configKey = [
+          S.sbPrivacy ? "1" : "0",
+          S.sbServerPreset || "ajay"
+        ].join("|");
+
+        const cached = await Cache.get(videoId, configKey);
+        if (cached) {
+          segments = cached;
+        } else {
+          const cacheKey = `sb:${videoId}:${configKey}`;
+          if (Cache.inFlight.has(cacheKey)) {
+            segments = await Cache.inFlight.get(cacheKey);
+          } else {
+            const fetchPromise = (async () => {
+              try {
+                const raw = await API.fetchSegments(videoId, S.sbPrivacy);
+                const parsed = raw.map(s => {
+                  if (s && Array.isArray(s.segment)) {
+                    return {
+                      category: s.category,
+                      segment: [Number(s.segment[0]), Number(s.segment[1])],
+                      UUID: s.UUID,
+                      actionType: s.actionType
+                    };
+                  }
+                  return null;
+                }).filter(s => s !== null);
+
+                parsed.sort((a, b) => a.segment[0] - b.segment[0]);
+                await Cache.set(videoId, configKey, parsed, 60 * 60 * 1000);
+                return parsed;
+              } catch (err) {
+                const stale = await Cache.get(videoId, configKey);
+                return stale || [];
+              }
+            })();
+
+            Cache.inFlight.set(cacheKey, fetchPromise);
+            segments = await fetchPromise;
+            Cache.inFlight.delete(cacheKey);
+          }
+        }
+      } catch (err) {
+        segments = [];
+      }
+
+      UI.renderSeekbarMarks();
+      Player.attachEventListeners();
+      g.emit("sb.segments", { videoId, count: segments.length });
+    };
+
+    const startUIWatchdog = () => {
+      if (watchdogTimer) clearInterval(watchdogTimer);
+      watchdogTimer = setInterval(() => {
+        try { _a() || UI.renderSeekbarMarks(); } catch (_) {}
       }, 2000);
 
+      if (progressObserver) { progressObserver.disconnect(); progressObserver = null; }
       try {
         const obs = new MutationObserver(() => {
-          try { wt(); } catch (e) {}
+          try { UI.renderSeekbarMarks(); } catch (_) {}
         });
         if (document.body) {
           obs.observe(document.body, { childList: true, subtree: true });
-          St_progObs = obs;
+          progressObserver = obs;
         }
-      } catch (e) {}
-    } catch (e) {}
+      } catch (_) {}
+    };
+
+    startUIWatchdog();
+
+    return { init, stats: () => ({ saved: timeSavedCount, skips: skipsCount, segments: segments.length }) };
+  })();
+
+  let St_wtInterval = 0;
+  let St_progObs = null;
+  let St_seekbarMarks = new Map();
+
+  async function St(e) {
+    await SponsorBlockEngine.init(e);
   }
   function Tt() {
     const e =

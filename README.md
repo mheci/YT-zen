@@ -4,43 +4,116 @@ Clean, lightweight, and customizable client-side interface for YouTube.
 
 ## Overview
 
-YT-zen is a browser extension that improves your YouTube viewing experience by removing clutter, preventing data tracking, and providing advanced player and interface customizability. It runs entirely locally on your machine with no external network requests or remote dependencies.
+YT-zen is a browser userscript and extension that transforms YouTube into a personalized viewing platform. It runs entirely locally in your browser with no external network requests, no remote dependencies, and no data collection. Every feature is independently toggleable and designed to coexist without conflicts.
 
-## Key Features
+## Features
 
-* **Ad and Tracking Prevention**: Block advertisements, promotional scripts, and user tracking requests before they can load, without interrupting video playback.
-* **Video Segment Skipping**: Automatically skips sponsored segments, intro music, non-essential reminders, and end screens using timing data, or skips them manually with a hotkey.
-* **Layout Cleanup (Remove Shorts)**: Cleans up the YouTube interface by hiding Shorts videos from the home feed, sub lists, and sidebars, and redirects Shorts video links directly to the standard video player.
-* **Automatic Video Resume**: Remembers your exact watch position for recently played videos and offers a button to continue playback from where you left off.
-* **Compact Mode Layout**: Shrinks empty whitespace, margins, paddings, and list heights across YouTube so that more videos and comments fit on your screen.
-* **Custom Appearance Themes**: Choose from light and dark color schemes, adjust layout accent highlights, or apply glass-style window designs.
-* **Performance Control**: Prevents browser tab lag and memory growth during long browsing sessions by automatically cleaning up background timers and page observers.
+### Content Discovery
+
+- **SponsorBlock Integration** — Skip sponsored segments, intros, outros, and interaction reminders using community-sourced timing data. Supports all 5 SponsorBlock action types (skip, mute, highlight, chapter, full-video label) with per-category configuration.
+- **Time Machine Feed** — Surface videos from your subscriptions uploaded on this date in previous years.
+- **Small Creator Spotlight** — Discovery feed for channels below a configurable subscriber threshold.
+- **Anti-Recommendation Engine** — Break filter bubbles by surfacing content from adjacent interest spaces.
+- **Before It Blew Up** — Find videos gaining momentum based on view velocity relative to channel size.
+
+### Playback & Navigation
+
+- **Scene Jumper** — Auto-detect scene transitions using Web Audio silence analysis. Click markers to jump.
+- **Smart Speed** — Automatically adjust playback speed based on audio content density (speech vs silence vs music).
+- **Video DNA Timeline** — Composite energy visualization overlaid on the progress bar.
+- **Parallel Player** — Watch two videos side by side with synchronized playback.
+- **Smart Watch Queue** — Intelligent queue with priority ordering, time estimates, and session planning.
+- **Automatic Video Resume** — Remember exact watch positions and offer to continue playback.
+- **AB Loop** — Set start and end points for repeated playback of a video segment.
+
+### Layout & Interface
+
+- **Mood-Based Layouts** — Switch between Focus, Browse, Background, and Learn layouts with one click.
+- **Adaptive Thumbnail Density** — Thumbnails resize based on content type.
+- **Living Sidebar** — Context-aware sidebar that adapts to the current page.
+- **Inline Video Previews** — Rich hover cards with channel stats and metadata.
+- **Remove Shorts** — Hide Shorts from feeds, sidebars, and search results. Redirect Shorts links to the standard player.
+
+### Search & Filtering
+
+- **Channel Blocker** — Full uBlock Origin cosmetic filter interpreter. Supports `:has()`, `:has-text()`, `:matches-path()`, `:is()`, and all standard CSS selectors. Paste community filter lists directly.
+- **Search Remix** — One-click search filter presets (duration, date, quality, format).
+- **Credibility Layer** — Context signals on search results (reach level, age badges).
+- **Vibe Search** — Natural language search that translates to YouTube filter parameters.
+- **Outdated Content Detector** — Flags broken description links and age badges on old videos.
+
+### Personalization
+
+- **Watch Genome** — Transparent preference model tracking topics, length, channels, and style. Shows compatibility scores on thumbnails.
+- **Curated Collections** — Themed video collections with descriptions and progress tracking.
+- **Session Memory** — Remembers browsing context (recent searches, watched videos) across sessions.
+- **Time Budget Manager** — Set a session time budget with visual progress tracking.
+
+### Performance & Privacy
+
+- **Performance Mode** — Three-tier optimization engine: CSS containment, lazy thumbnails with IntersectionObserver, comment virtualization, GPU layer management, memory trimming, network prefetching, font optimization, and background tab throttling.
+- **Resource Efficiency** — Bounded LRU caches with automatic eviction, WeakRef-based DOM element caching, shared MutationObserver, consolidated interval timers, tracked blob URLs with automatic revocation, and grouped AbortControllers.
 
 ## Installation
 
-1. Install a userscript manager such as Tampermonkey or Violentmonkey in your browser.
-2. Click the [Userscript Installation Link](https://github.com/mheci/YT-zen/releases/latest/download/yt-zen.user.js).
-3. Confirm the installation, then open YouTube in a new tab.
+### Userscript (Recommended)
+
+1. Install a userscript manager: [Tampermonkey](https://www.tampermonkey.net/), [Violentmonkey](https://violentmonkey.github.io/), or [Greasemonkey](https://www.greasespot.net/).
+2. Click the [installation link](https://github.com/mheci/YT-zen/releases/latest/download/yt-zen.user.js).
+3. Confirm the installation, then open YouTube.
+
+### Browser Extension
+
+Download the `extension/` folder from the repository and load it as an unpacked extension in Chrome (`chrome://extensions` → Developer mode → Load unpacked) or Firefox (`about:debugging` → Load Temporary Add-on).
 
 ## Keyboard Shortcuts
 
-| Keybind | Action Description |
+| Keybind | Action |
 |---|---|
-| **Alt+Y** | Open or close the settings dashboard panel |
-| **?** (Shift+/) | Open or close the keyboard shortcut cheat sheet |
-| **Ctrl+Shift+K** | Open the quick command palette search bar |
-| **KeyK** / **Space** | Play or pause video playback |
-| **KeyM** | Mute or unmute audio |
-| **Comma (,)** / **Period (.)** | Decrease or increase video playback speed |
-| **Digit0** | Reset playback speed to normal 1x |
-| **ArrowLeft** / **ArrowRight** | Seek backward 5 seconds / forward 5 seconds |
-| **KeyJ** / **KeyL** | Seek backward 10 seconds / forward 10 seconds |
-| **Shift+W** | Force-mark the current video as fully watched |
+| **Alt+Y** | Open/close settings dashboard |
+| **Ctrl+Shift+K** | Open command palette |
+| **Shift+W** | Force-mark video as watched |
+| **Shift+S** | Stop playback and reset position |
 
-## Interface Customization
+## Architecture
 
-The Compact Mode setting can be enabled directly on the layout tab of the settings panel (`Alt+Y`). This option dynamically reduces the top navigation bar height, sidebar Guide margins, Home feed grid gutters, Watch page actions spacing, and Comment vertical paddings, allowing more content to remain visible without reducing readable text sizes.
+YT-zen is built on a modular feature registration system where each feature:
+
+- Registers via `xa.register()` with a unique ID, settings keys, and lifecycle hooks
+- Uses the `ctx` object for managed timers, intervals, observers, and event listeners
+- Cleans up automatically when disabled via the `Yt[]` teardown array
+- Degrades gracefully when APIs or browser capabilities are unavailable
+
+Shared subsystems include:
+
+- **SponsorBlockEngine** — 7-module architecture (API, Cache, Player, UI, Metrics, Settings, Orchestrator)
+- **ZenEngine** — Core orchestrator with CSS injection, IDB stores, fetch deduplication
+- **ZenDiscovery** — Feed infrastructure, video scoring, relevance ranking
+- **ZenPlayback** — Web Audio analysis, scene detection, adaptive speed
+- **ZenSearch** — Filter templates, natural language translation, credibility analysis
+- **ZenSession** — Genome profiling, session memory, collections, time budgeting
+- **ZenLayout** — Mood profiles, adaptive density, sidebar management
+- **ZenQueue** — Priority queue with reordering strategies
+- **UBlockEngine** — uBlock Origin cosmetic filter interpreter
+- **ZenResources** — Memory safety layer (bounded caches, weak refs, shared observers, tracked blob URLs, abort groups)
+
+## Resource Efficiency
+
+Memory safety and CPU efficiency are first-class concerns:
+
+- **BoundedCache** — All Map-based caches use LRU eviction with configurable max sizes (time format: 512, thumbnails: 64, SB segments: 128)
+- **WeakElementCache** — DOM element caches use WeakRef with FinalizationRegistry for automatic garbage collection
+- **SharedObserver** — Single MutationObserver on `document.body` dispatches to subscribers, replacing 10+ per-feature observers
+- **SharedTicker** — Consolidated interval timer replaces multiple `setInterval` calls, pauses when tab is hidden
+- **TrackedBlobURL** — All `createObjectURL` calls are tracked and automatically revoked after 30 minutes or on page unload
+- **AbortGroup** — Feature-scoped AbortControllers enable bulk cancellation on feature disable
+- **DeferredTask** — Non-critical DOM operations use `requestIdleCallback` with `setTimeout` fallback
+- **Periodic cleanup** — Memory pool maintenance, blob URL revocation, and cache eviction run every 30 seconds
+
+## Contributing
+
+This project is developed and maintained by mheci.
 
 ## License
 
-This is free and unencumbered software released into the public domain under the Unlicense license.
+This is free and unencumbered software released into the public domain under the [Unlicense](https://unlicense.org/).

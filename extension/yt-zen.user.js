@@ -773,7 +773,7 @@
       ("undefined" != typeof GM_info &&
         GM_info.script &&
         GM_info.script.version) ||
-      "1.6.2",
+      "1.7.0",
     r = "https://sponsor.ajay.app",
     o = (() => {
       try {
@@ -784,24 +784,38 @@
     })(),
 
     i = [
-      { id: "sponsor", label: "Sponsor", color: "#00d400" },
-      { id: "selfpromo", label: "Self-Promo", color: "#ffff00" },
-      { id: "interaction", label: "Interaction", color: "#cc00ff" },
-      { id: "intro", label: "Intro", color: "#00ffff" },
-      { id: "outro", label: "Endcards", color: "#0202ed" },
-      { id: "preview", label: "Preview", color: "#008fd6" },
-      { id: "music_offtopic", label: "Non-Music", color: "#ff9900" },
-      { id: "poi_highlight", label: "Highlight", color: "#ff1684" },
-      { id: "filler", label: "Filler", color: "#7300ab" },
-      { id: "exclusive_access", label: "Exclusive", color: "#008a5c" },
-      { id: "chapter", label: "Chapter", color: "#ffffff" },
-      { id: "hook", label: "Hook", color: "#ff6f00" },
+      { id: "sponsor", label: "Sponsor", color: "#00d400",
+        desc: "Paid promotions, paid referrals, and direct advertisements" },
+      { id: "selfpromo", label: "Unpaid/Self Promotion", color: "#ffff00",
+        desc: "Self-promotion, merchandise plugs, and channel shoutouts" },
+      { id: "interaction", label: "Interaction Reminder", color: "#cc00ff",
+        desc: "Subscribe, like, comment, and follow reminders" },
+      { id: "intro", label: "Intermission/Intro", color: "#00ffff",
+        desc: "Opening animations, intros, and recurring transitions" },
+      { id: "outro", label: "Endcards/Credits", color: "#0202ed",
+        desc: "End screens, credits, and closing callouts" },
+      { id: "preview", label: "Preview/Recap", color: "#008fd6",
+        desc: "Previews, recaps, and hooks before the main content" },
+      { id: "hook", label: "Hook", color: "#ff6f00",
+        desc: "Attention-grabbing teaser at the very start of a video" },
+      { id: "filler", label: "Filler/Tangent", color: "#7300ab",
+        desc: "Off-topic tangents and filler not needed to understand the main content" },
+      { id: "music_offtopic", label: "Non-Music Section", color: "#ff9900",
+        desc: "Non-music sections in music videos (spoken parts, intros)" },
+      { id: "poi_highlight", label: "Highlight", color: "#ff1684",
+        desc: "The most interesting or important moment in the video" },
+      { id: "exclusive_access", label: "Exclusive Access", color: "#008a5c",
+        desc: "Entire video is only available to paying members or subscribers" },
+      { id: "chapter", label: "Chapter", color: "#ffffff",
+        desc: "Community-defined chapter markers with titles" },
     ],
 
     Yi = {
       skip: "Skip",
       mute: "Mute",
-      info: "Display Only",
+      poi: "Jump to highlight",
+      chapter: "Show chapters",
+      full: "Label only",
       disabled: "Off",
     },
 
@@ -826,7 +840,9 @@
 
           const defEn = !1;
           const defAct =
-            t.id === "poi_highlight" || t.id === "chapter" ? "poi" : "skip";
+            t.id === "poi_highlight" ? "poi" :
+            t.id === "chapter" ? "chapter" :
+            t.id === "exclusive_access" ? "full" : "skip";
           e["sb_" + t.id + "_en"] = defEn;
           e["sb_" + t.id + "_act"] = defAct;
         }),
@@ -3359,11 +3375,13 @@
         Categories.forEach(c => {
           if (!S["sb_" + c.id + "_en"]) return;
           const act = S["sb_" + c.id + "_act"] || "skip";
-          if (act === "skip" || act === "mute") types.add("skip");
-          if (act === "mute") types.add("mute");
-          if (c.id === "poi_highlight" && act !== "disabled") types.add("poi");
-          if (c.id === "chapter" && act !== "disabled") types.add("chapter");
-          if (c.id === "exclusive_access" && act !== "disabled") types.add("full");
+          if (act === "skip") types.add("skip");
+          if (act === "mute") { types.add("skip"); types.add("mute"); }
+          if (act === "poi") types.add("poi");
+          if (act === "chapter") types.add("chapter");
+          if (act === "full") types.add("full");
+          // When disabled we still may want to fetch for display; include skip as fallback
+          if (act === "disabled" && c.id !== "exclusive_access") types.add("skip");
         });
         return Array.from(types);
       };
@@ -3801,7 +3819,28 @@
         const seg = segs[idx];
         const action = Settings.getCategoryAction(seg.category);
 
-        if (action === "disabled" || action === "poi" || action === "full" || action === "chapter") {
+        if (action === "disabled") {
+          resetMuteState();
+          return;
+        }
+
+        // POI: show toast notification at the highlight point
+        if (action === "poi") {
+          const uuid = seg.UUID || ("poi-" + idx + "-" + seg.segment[0]);
+          if (!State.processedUUIDs.has(uuid)) {
+            State.processedUUIDs.add(uuid);
+            if (S.sbToast) {
+              const catMeta = Categories.find(c => c.id === seg.category) || { label: seg.category };
+              const desc = seg.description || catMeta.label;
+              pe(desc + " at " + ce(seg.segment[0]), S.sbToastDur || 2200, "info");
+            }
+          }
+          resetMuteState();
+          return;
+        }
+
+        // Chapter and full: display-only, no playback action
+        if (action === "chapter" || action === "full") {
           resetMuteState();
           return;
         }
@@ -7428,9 +7467,12 @@
             n = "sb_" + e2.id + "_act",
             r = To("span", "ytp-cat-dot");
           r.style.background = e2.color;
+          if (e2.desc) r.title = e2.desc;
           const o = To("div", "ytp-row");
           o.appendChild(r);
-          o.appendChild(To("span", "ytp-lbl", e2.label));
+          const lbl = To("span", "ytp-lbl", e2.label);
+          if (e2.desc) lbl.title = e2.desc;
+          o.appendChild(lbl);
           o.appendChild(Bo(a));
           o.appendChild(Po(n, Yi));
           const sw = document.createElement("input");

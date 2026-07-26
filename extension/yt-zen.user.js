@@ -773,7 +773,7 @@
       ("undefined" != typeof GM_info &&
         GM_info.script &&
         GM_info.script.version) ||
-      "1.7.0",
+      "1.8.0",
     r = "https://sponsor.ajay.app",
     o = (() => {
       try {
@@ -3604,12 +3604,12 @@
 
       const fetchSegments = async (videoId, abortSignal) => {
         const usePrivacy = !!S.sbPrivacy;
-        const categories = Settings.getEnabledCategories();
-        const actionTypes = Settings.getActionTypes();
+        // Always fetch ALL categories and action types so segments persist in cache
+        // even when the user toggles categories on/off later
+        const allCategories = Categories.map(c => c.id);
+        const allActionTypes = ["skip", "mute", "poi", "chapter", "full"];
 
-        if (!categories.length) return [];
-
-        const url = await buildUrl(videoId, usePrivacy, categories, actionTypes);
+        const url = await buildUrl(videoId, usePrivacy, allCategories, allActionTypes);
 
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
@@ -6039,34 +6039,6 @@
       settings() {},
     }),
     xa.register({
-      id: "smart-quality",
-      name: "Smart Quality",
-      summary: "Use a higher quality on Wi-Fi and a lower one on mobile data.",
-      masterKey: "smartQualityOn",
-      keys: ["smartQualityOn", "smartQualityWifi", "smartQualityCell"],
-      apply(e) {
-        if (!S.smartQualityOn) return;
-        const t = () => {
-          if (S.privacyShieldOn) return;
-          const e = navigator.connection || {};
-          let t =
-            "cellular" === e.type || e.saveData
-              ? S.smartQualityCell
-              : S.smartQualityWifi;
-          const a = ie.levels();
-          if ((a.length && -1 === a.indexOf(t) && (t = a[0]), t))
-            try {
-              ie.setQuality(t);
-            } catch (e) {}
-        };
-        (t(), e.onNav(() => e.addTimeout(t, 1500)), e.addTimeout(t, 1500));
-      },
-      settings(e) {
-        (e.appendChild(Ro("Wifi quality", "smartQualityWifi", d)),
-          e.appendChild(Ro("Cellular quality", "smartQualityCell", d)));
-      },
-    }),
-    xa.register({
       id: "auto-hd",
       name: "Always Use My Preferred Quality",
       summary: "Sets every video to the quality you picked, every time.",
@@ -6241,28 +6213,6 @@
             return col;
           })("Hotkey to open search", "inVideoSearchHotkey"),
         );
-      },
-    }),
-
-    xa.register({
-      id: "skip-intro",
-      name: "Skip Intro",
-      summary:
-        "Automatically jump past the intro of every new video by the number of seconds you choose.",
-      masterKey: "skipIntroOn",
-      keys: ["skipIntroOn", "skipIntroSec"],
-      apply(e) {
-        if (!S.skipIntroOn) return;
-        const t = () => {
-          const e = Number(S.skipIntroSec) || 0;
-          if (e <= 0) return;
-          const t = ie.el();
-          t && t.currentTime < e && t.currentTime < 2 && (t.currentTime = e);
-        };
-        (t(), e.onNav(() => e.addTimeout(t, 1500)));
-      },
-      settings(e) {
-        e.appendChild(No("Seconds", "skipIntroSec", 0, 300, 1, (e) => e + "s"));
       },
     }));
 
@@ -7248,100 +7198,6 @@
       settings() {},
     }),
     xa.register({
-      id: "ad-mute",
-      name: "Mute Ads",
-      summary: "Mute the sound during ads.",
-      masterKey: "adMute",
-      keys: ["adMute"],
-      apply(e) {
-        if (!S.adMute) {
-          const e = ie.el();
-          return void (
-            e &&
-            null != e.__ytpAdMuteSaved &&
-            ((e.muted = e.__ytpAdMuteSaved), delete e.__ytpAdMuteSaved)
-          );
-        }
-        const t = () => {
-            const e = ie.el();
-            e &&
-              (ie.isAd()
-                ? null == e.__ytpAdMuteSaved &&
-                  ((e.__ytpAdMuteSaved = e.muted), (e.muted = !0))
-                : null != e.__ytpAdMuteSaved &&
-                  ((e.muted = e.__ytpAdMuteSaved), delete e.__ytpAdMuteSaved));
-          },
-          a = () => {
-            const a = ie.api();
-            a &&
-              e.addObserver(a, t, {
-                attributes: !0,
-                attributeFilter: ["class"],
-              });
-          };
-        (a(),
-          e.onNav(() => e.addTimeout(a, 1500)),
-          e.addInterval(t, 2e3, { pauseWhenHidden: !1 }),
-          Yt["ad-mute"].push(() => {
-            const e = ie.el();
-            e &&
-              null != e.__ytpAdMuteSaved &&
-              ((e.muted = e.__ytpAdMuteSaved), delete e.__ytpAdMuteSaved);
-          }));
-      },
-      settings() {},
-    }),
-    xa.register({
-      id: "ad-speed",
-      name: "Speed Through Ads",
-      summary:
-        "Fast-forwards unskippable ads at 16× speed so they finish quickly.",
-      masterKey: "adSpeed",
-      keys: ["adSpeed"],
-      apply(e) {
-        if (!S.adSpeed) {
-          const e = ie.el();
-          return void (
-            e &&
-            null != e.__ytpAdSpeedSaved &&
-            ((e.playbackRate = e.__ytpAdSpeedSaved), delete e.__ytpAdSpeedSaved)
-          );
-        }
-        const t = () => {
-            const e = ie.el();
-            e &&
-              (ie.isAd()
-                ? (null == e.__ytpAdSpeedSaved &&
-                    (e.__ytpAdSpeedSaved = e.playbackRate),
-                  16 !== e.playbackRate && (e.playbackRate = 16),
-                  isFinite(e.duration) &&
-                    e.duration > 0 &&
-                    e.currentTime < e.duration - 0.5 &&
-                    (e.currentTime = e.duration - 0.3))
-                : null != e.__ytpAdSpeedSaved &&
-                  ((e.playbackRate = e.__ytpAdSpeedSaved),
-                  delete e.__ytpAdSpeedSaved));
-          },
-          a = () => {
-            const a = ie.api();
-            if (!a) return;
-            e.addObserver(a, t, { attributes: !0, attributeFilter: ["class"] });
-            const n = ie.el();
-            n && e.addListener(n, "timeupdate", t);
-          };
-        (a(),
-          e.onNav(() => e.addTimeout(a, 1500)),
-          Yt["ad-speed"].push(() => {
-            const e = ie.el();
-            e &&
-              null != e.__ytpAdSpeedSaved &&
-              ((e.playbackRate = e.__ytpAdSpeedSaved),
-              delete e.__ytpAdSpeedSaved);
-          }));
-      },
-      settings() {},
-    }),
-    xa.register({
       id: "sponsorblock",
       name: "SponsorBlock",
       summary:
@@ -7821,18 +7677,6 @@
       },
     }),
     xa.register({
-      id: "timestamp-bookmarks",
-      name: "Timestamp Bookmarks",
-      summary:
-        "Save spots in a video to come back to later. Press B to bookmark the current moment.",
-      masterKey: "bookmarksOn",
-      keys: ["bookmarksOn"],
-      apply() {},
-      settings(e) {
-        e.appendChild(Eo([Oo("Bookmark now", et, "primary")]));
-      },
-    }),
-    xa.register({
       id: "pip-button",
       name: "Floating Pop-out Window",
       summary:
@@ -8151,20 +7995,6 @@
     "compactUI",
     "ytd-watch-metadata{font-size:13px!important}#title h1{font-size:18px!important}#secondary{font-size:12px!important}",
   ),
-    xa.register({
-      id: "custom-css",
-      name: "Custom Styles",
-      summary:
-        "Add your own styling rules to customize how any part of YouTube looks.",
-      masterKey: "customCSSOn",
-      keys: ["customCSSOn", "customCSS"],
-      apply(e) {
-        S.customCSSOn && S.customCSS && e.addStyle(S.customCSS);
-      },
-      settings(e) {
-        e.appendChild(Ho("Styling rules", "customCSS", "body { }"));
-      },
-    }),
     xa.register({
       id: "video-filters",
       name: "Video Filters",
@@ -8696,31 +8526,6 @@
       },
     }),
     xa.register({
-      id: "shorts-behavior-bundle",
-      name: "Shorts Behaviour",
-      summary:
-        "Customize how Shorts work: open them in the standard video player instead, mute them automatically, or hide the comments panel.",
-      masterKey: "_bundleShortsBehavior",
-      keys: ["redirectShortsOn", "shortsAutoMuteOn", "shortsHideCommentsOn"],
-      isOn: () =>
-        on(["redirectShortsOn", "shortsAutoMuteOn", "shortsHideCommentsOn"]),
-      apply() {},
-      settings(e) {
-        (e.appendChild(
-          rn("Open Shorts in the standard video player", "redirectShortsOn"),
-        ),
-          e.appendChild(
-            rn("Mute videos automatically on Shorts pages", "shortsAutoMuteOn"),
-          ),
-          e.appendChild(
-            rn(
-              "Hide the comments panel on Shorts pages",
-              "shortsHideCommentsOn",
-            ),
-          ));
-      },
-    }),
-    xa.register({
       id: "playlist-tweaks-bundle",
       name: "Playlist Tweaks",
       summary:
@@ -8860,26 +8665,6 @@
           Ho("Keywords (one per line)", "keywordFilterList", "keyword"),
         );
       },
-    }),
-    xa.register({
-      id: "watch-later-quick",
-      name: "Watch Later Shortcut",
-      summary:
-        "Press Alt+W to add or remove the current video from your Watch Later list.",
-      masterKey: "watchLaterQuick",
-      keys: ["watchLaterQuick"],
-      apply() {},
-      settings() {},
-    }),
-    xa.register({
-      id: "subscribe-shortcut",
-      name: "Subscribe Shortcut",
-      summary:
-        "Press Alt+U to subscribe or unsubscribe from the current channel.",
-      masterKey: "subscribeShortcut",
-      keys: ["subscribeShortcut"],
-      apply() {},
-      settings() {},
     }),
     xa.register({
       id: "idle-dim",
@@ -9933,90 +9718,6 @@
     },
   }),
     xa.register({
-      id: "data-minimization",
-      name: "Data Minimization (Kill YouTube Telemetry)",
-      summary:
-        "When ON, completely kills YouTube's outbound telemetry, playback stats, ad-event beacons, and DoubleClick / pagead tracking without breaking playback. None of these requests gate the video stream, so the player keeps running while Google stops receiving the data.",
-      masterKey: "dataMinimizationOn",
-      keys: [
-        "dataMinimizationOn",
-        "dataMinBlockStats",
-        "dataMinBlockPagead",
-        "dataMinBlockLogEvent",
-        "dataMinAllowHeartbeat",
-      ],
-      isOn: () => !!S.dataMinimizationOn,
-      apply() {
-
-        try {
-          g.emit("dm.toggle", { on: !!S.dataMinimizationOn });
-        } catch (e) {}
-      },
-      settings(t) {
-        const _r = (label, key, desc) => {
-          const row = Io(label, key);
-
-          try {
-            const c = row.parentElement;
-            if (c && !c.querySelector(".ytp-dm-note")) {
-              const n = To(
-                "div",
-                "ytp-dm-note",
-                desc || "",
-              );
-              n.style.cssText =
-                "font-size:10.5px;color:#888;line-height:1.4;margin:-2px 0 6px 0;padding:0 4px;";
-              c.appendChild(n);
-            }
-          } catch (e) {}
-          t.appendChild(row);
-        };
-        _r(
-          "Block /api/stats/* (watchtime, playback, qoe, ads)",
-          "dataMinBlockStats",
-          "Drops the playback-statistics beacons YouTube fires throughout a video. No playback impact.",
-        );
-        _r(
-          "Block /pagead/* and DoubleClick (ad tracking)",
-          "dataMinBlockPagead",
-          "Drops impression/conversion pings to DoubleClick and YouTube's own /pagead/* endpoints. No playback impact.",
-        );
-        _r(
-          "Block /youtubei/v1/log_event (engagement log)",
-          "dataMinBlockLogEvent",
-          "Drops the generic engagement log. No playback impact.",
-        );
-        _r(
-          "Allow player heartbeat (recommended)",
-          "dataMinAllowHeartbeat",
-          "Heartbeat is what YouTube uses to keep the stream alive. Keep ON unless you want to risk stalled-playback errors.",
-        );
-
-        const counter = To("div", "ytp-dm-counter");
-        counter.style.cssText =
-          "margin-top:8px;padding:6px 9px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:6px;font:11px ui-monospace,monospace;color:#9aa;";
-        const render = () => {
-          let s = { dropped: 0 };
-          try {
-            if (e.YTPlus && e.YTPlus.dataMin) s = e.YTPlus.dataMin.stats();
-          } catch (e2) {}
-          counter.textContent =
-            "Dropped telemetry calls this session: " + (s.dropped || 0);
-        };
-        render();
-        const onBlock = () => render();
-        const off = g.on("net.blocked", onBlock);
-
-        const _cleanup = () => {
-          try {
-            off();
-          } catch (e) {}
-        };
-
-        t.appendChild(counter);
-      },
-    }),
-    xa.register({
       id: "stats-overlay",
       name: "Playback Performance Overlay",
       summary:
@@ -10548,286 +10249,6 @@
       },
     }),
     xa.register({
-      id: "video-stats-overlay",
-      name: "Video Stats Overlay",
-      summary:
-        "Show the current video bitrate, codec, resolution, color depth, and HDR status. Includes a small sparkline of bitrate over the last minute.",
-      masterKey: "videoStatsOn",
-      keys: ["videoStatsOn", "videoStatsPos"],
-      apply(e) {
-        let t = null;
-        let a = null;
-        const samples = [];
-        const SAMPLE_HZ = 4;
-        const SAMPLE_SECONDS = 60;
-        const MAX_SAMPLES = SAMPLE_HZ * SAMPLE_SECONDS;
-        const i = () => {
-          if (!S.videoStatsOn) return;
-          const p = S.videoStatsPos || "bl";
-          if (t) {
-            if (t.dataset.pos !== p) {
-              (t.dataset.pos = p),
-                (t.className = "ytp-vstats-box ytp-vstats-" + p),
-                (t.style.top = "tl" === p || "tr" === p ? "8px" : ""),
-                (t.style.bottom = "bl" === p || "br" === p ? "48px" : ""),
-                (t.style.left = "tl" === p || "bl" === p ? "8px" : ""),
-                (t.style.right = "tr" === p || "br" === p ? "8px" : "");
-            }
-            return;
-          }
-          if (!document.body) return;
-          (t = document.createElement("div")),
-            (t.id = "ytp-vstats-box"),
-            (t.className = "ytp-vstats-box ytp-vstats-" + p),
-            (t.dataset.pos = p),
-            (t.style.cssText =
-              "position:fixed;z-index:2147483635;padding:6px 10px;background:rgba(20,22,28,.82);color:#ddd;border:1px solid rgba(255,255,255,.14);border-radius:8px;font:10.5px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);pointer-events:none;min-width:200px;box-shadow:0 6px 20px rgba(0,0,0,.45)"),
-            ("tl" === p || "tr" === p) && (t.style.top = "8px"),
-            ("bl" === p || "br" === p) && (t.style.bottom = "48px"),
-            ("tl" === p || "bl" === p) && (t.style.left = "8px"),
-            ("tr" === p || "br" === p) && (t.style.right = "8px"),
-            (a = document.createElement("canvas")),
-            (a.width = 180),
-            (a.height = 24),
-            (a.style.cssText = "display:block;margin-top:4px;width:100%;height:24px;background:rgba(0,0,0,.35);border-radius:3px"),
-            t.appendChild(document.createElement("div")),
-            t.appendChild(a),
-            document.body.appendChild(t);
-        };
-        const d = () => {
-          if (!S.videoStatsOn) return;
-          if (!Xt.visible) return void (mainTimer = setTimeout(d, 500));
-          i();
-          if (!t) return void (mainTimer = setTimeout(d, 500));
-          const v = ie.el && ie.el();
-          if (!v) {
-            t.firstChild.textContent = "no video";
-            drawSparkline([]);
-            return void (mainTimer = setTimeout(d, 500));
-          }
-          const stats = gatherStats(v);
-          t.firstChild.textContent = formatStats(stats);
-          drawSparkline(samples);
-          mainTimer = setTimeout(d, 250);
-        };
-        const sampleTick = () => {
-          if (!S.videoStatsOn) return;
-          const v = ie.el && ie.el();
-          if (v) {
-            try {
-              pushSample(gatherStats(v));
-            } catch (e) {}
-          }
-          sampleTimer = setTimeout(sampleTick, 1e3 / SAMPLE_HZ);
-        };
-        let mainTimer = null;
-        let sampleTimer = null;
-        const start = () => {
-          if (mainTimer || sampleTimer) return;
-          sampleTimer = setTimeout(sampleTick, 1e3 / SAMPLE_HZ);
-          mainTimer = setTimeout(d, 250);
-        };
-        const stop = () => {
-          mainTimer && (clearTimeout(mainTimer), (mainTimer = null));
-          sampleTimer && (clearTimeout(sampleTimer), (sampleTimer = null));
-          if (t) {
-            try {
-              t.remove();
-            } catch (e) {}
-            (t = null), (a = null);
-          }
-          samples.length = 0;
-        };
-        const gatherStats = (v) => {
-          const out = {
-            width: v.videoWidth || 0,
-            height: v.videoHeight || 0,
-            duration: isFinite(v.duration) ? v.duration : 0,
-            currentTime: v.currentTime || 0,
-            playbackRate: v.playbackRate || 1,
-            paused: v.paused,
-            ended: v.ended,
-            bitrateKbps: 0,
-            codec: "—",
-            color: "—",
-            hdr: false,
-            qualityLabel: "—",
-          };
-          try {
-            const q = v.getVideoPlaybackQuality && v.getVideoPlaybackQuality();
-            if (q) {
-              out.framesDecoded = q.totalVideoFrames || 0;
-              out.framesDropped = q.droppedVideoFrames || 0;
-            }
-          } catch (e) {}
-          try {
-            if ("webkitDecodedFrameCount" in v) out.framesDecoded = v.webkitDecodedFrameCount || 0;
-            if ("webkitDroppedFrameCount" in v) out.framesDropped = v.webkitDroppedFrameCount || 0;
-          } catch (e) {}
-          try {
-            if (out.currentTime > 0.5) {
-              const player = ie.api && ie.api();
-              if (player && typeof player.getStatsForNerds === "function") {
-                const s = player.getStatsForNerds();
-                if (s) {
-                  if (s.videoBitrate) out.bitrateKbps = Math.round(Number(s.videoBitrate) / 1e3);
-                  if (s.videoFormat || s.videoCodec) out.codec = s.videoFormat || s.videoCodec;
-                  if (s.colorTransfer || s.colorSpace) out.color = (s.colorTransfer || s.colorSpace) + (s.colorPrimaries ? " / " + s.colorPrimaries : "");
-                  if (s.hdr === "HDR" || s.hdr === true || /hdr/i.test(String(s.hdr || ""))) out.hdr = true;
-                }
-              }
-              if (!out.bitrateKbps && v.webkitVideoDecodedByteCount && out.currentTime > 0) {
-                const bytes = v.webkitVideoDecodedByteCount;
-                out.bitrateKbps = Math.round((bytes * 8) / out.currentTime / 1e3);
-              }
-            }
-          } catch (e) {}
-          try {
-            if (out.hdr === false && v.colorSpace) {
-              out.hdr = /rec.?2020|pq|hlg/i.test(String(v.colorSpace)) || v.highDynamicRange === true;
-            }
-          } catch (e) {}
-          try {
-            const player = ie.api && ie.api();
-            if (player && typeof player.getPlaybackQuality === "function") {
-              out.qualityLabel = player.getPlaybackQuality() || "—";
-            }
-          } catch (e) {}
-          return out;
-        };
-        const formatStats = (s) => {
-          const lines = [];
-          (lines.push(
-            (s.width && s.height ? s.width + "x" + s.height : "—") +
-              " • " +
-              (s.bitrateKbps ? s.bitrateKbps + " kbps" : "— kbps") +
-              (s.hdr ? " • HDR" : ""),
-          ),
-            lines.push(
-              "codec: " +
-                s.codec +
-                " • color: " +
-                s.color +
-                " • " +
-                s.qualityLabel,
-            ),
-            lines.push(
-              "decoded " +
-                s.framesDecoded +
-                " • dropped " +
-                s.framesDropped,
-            ));
-          return lines.join("\n");
-        };
-        const pushSample = (stats) => {
-          const t0 = performance.now();
-          samples.push({ t: t0, kbps: stats.bitrateKbps, w: stats.width, h: stats.height });
-          while (samples.length > MAX_SAMPLES) samples.shift();
-        };
-        const drawSparkline = (data) => {
-          if (!a) return;
-          try {
-            const ctx = a.getContext("2d");
-            if (!ctx) return;
-            const w = a.width;
-            const h = a.height;
-            ctx.clearRect(0, 0, w, h);
-            ctx.fillStyle = "rgba(255,255,255,0.04)";
-            ctx.fillRect(0, 0, w, h);
-            if (data.length < 2) return;
-            const now = performance.now();
-            const cutoff = now - SAMPLE_SECONDS * 1e3;
-            const visible = data.filter((d) => d.t >= cutoff);
-            if (visible.length < 2) return;
-            const values = visible.map((d) => d.kbps).filter((v) => v > 0);
-            if (!values.length) return;
-            const minV = Math.min.apply(null, values);
-            const maxV = Math.max.apply(null, values);
-            const range = maxV - minV || 1;
-            ctx.strokeStyle = "#4dd0e1";
-            ctx.lineWidth = 1.5;
-            ctx.beginPath();
-            for (let i = 0; i < visible.length; i++) {
-              const x = ((visible[i].t - cutoff) / (SAMPLE_SECONDS * 1e3)) * w;
-              const kbps = visible[i].kbps;
-              const y = kbps > 0 ? h - ((kbps - minV) / range) * (h - 4) - 2 : h - 2;
-              0 === i ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-            }
-            ctx.stroke();
-            ctx.fillStyle = "rgba(77,208,225,0.25)";
-            ctx.lineTo(w, h);
-            ctx.lineTo(0, h);
-            ctx.closePath();
-            ctx.fill();
-          } catch (e) {}
-        };
-        const sampleInterval = null;
-        S.videoStatsOn && start();
-        e.onNav(() => {
-          samples.length = 0;
-        });
-        So("cfg.changed", ({ key: k }) => {
-          if ("videoStatsOn" === k) {
-            S.videoStatsOn ? start() : stop();
-          } else if ("videoStatsPos" === k && t) {
-            const p = S.videoStatsPos || "bl";
-            (t.dataset.pos = ""),
-              (t.className = "ytp-vstats-box ytp-vstats-" + p),
-              (t.dataset.pos = p),
-              (t.style.top = "tl" === p || "tr" === p ? "8px" : ""),
-              (t.style.bottom = "bl" === p || "br" === p ? "48px" : ""),
-              (t.style.left = "tl" === p || "bl" === p ? "8px" : ""),
-              (t.style.right = "tr" === p || "br" === p ? "8px" : "");
-          }
-        });
-        Yt["video-stats-overlay"].push(stop);
-      },
-      settings(e) {
-        (e.appendChild(Io("Show video stats overlay", "videoStatsOn")),
-          e.appendChild(
-            Ro("Position", "videoStatsPos", {
-              tl: "Top-left",
-              tr: "Top-right",
-              bl: "Bottom-left",
-              br: "Bottom-right",
-            }),
-          ),
-          e.appendChild(
-            To(
-              "div",
-              "ytp-hist-note",
-              "Shows current resolution, bitrate, codec, color, HDR status, and quality label from the YouTube player. The mini-graph below tracks bitrate over the last 60 seconds.",
-            ),
-          ));
-      },
-    }),
-    xa.register({
-      id: "block-number-seek",
-      name: "Block Number Key Seeking",
-      summary:
-        "Prevents pressing 0-9 from jumping the video to a percentage of its duration. Useful if you keep accidentally pressing number keys while typing comments.",
-      masterKey: "blockNumberSeekOn",
-      keys: ["blockNumberSeekOn"],
-      apply(e) {
-        if (!S.blockNumberSeekOn) return;
-        const t = (n) => {
-          if (!n.key || n.ctrlKey || n.metaKey || n.altKey) return;
-          const a = n.target;
-          if (a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA" || a.isContentEditable)) return;
-          if (n.key < "0" || n.key > "9") return;
-          const i = ie.el && ie.el();
-          if (!i || i.paused) return;
-          n.preventDefault();
-          n.stopPropagation();
-        };
-        e.addListener(document, "keydown", t, !0);
-        Yt["block-number-seek"].push(() => {});
-      },
-      settings(e) {
-        e.appendChild(Io("Block number keys (0-9) from seeking the video", "blockNumberSeekOn"));
-      },
-    }),
-    xa.register({
       id: "default-audio-track",
       name: "Default to Original Audio Track",
       summary:
@@ -11183,37 +10604,6 @@
       },
       settings(e) {
         e.appendChild(Io("Enable high frame rate (HFR/60fps) playback", "hfrAllowOn"));
-      },
-    }),
-    xa.register({
-      id: "open-settings-on-hover",
-      name: "Open YT Settings on Hover",
-      summary:
-        "Hovering over the player settings (gear) button instantly opens the settings menu, instead of needing a click.",
-      masterKey: "openSettingsOnHoverOn",
-      keys: ["openSettingsOnHoverOn"],
-      apply(e) {
-        if (!S.openSettingsOnHoverOn) return;
-        let t = null;
-        const a = (n) => {
-          const r = n.target && n.target.closest && n.target.closest(".ytp-settings-button");
-          if (!r) return;
-          clearTimeout(t);
-          t = setTimeout(() => {
-            try {
-              r.click();
-            } catch (e) {}
-          }, 300);
-        };
-        const n = () => clearTimeout(t);
-        e.addListener(document, "mouseover", a, !0);
-        e.addListener(document, "mouseout", n, !0);
-        Yt["open-settings-on-hover"].push(() => {
-          clearTimeout(t);
-        });
-      },
-      settings(e) {
-        e.appendChild(Io("Hover the settings button to open the menu", "openSettingsOnHoverOn"));
       },
     }),
     xa.register({
@@ -13042,16 +12432,6 @@
         e.appendChild(Io("Auto-enable when battery low / CPU constrained / Save-Data", "perfModeAuto"));
         e.appendChild(To("div", "ytp-hist-note", "Performance Mode is a single toggle for systemic optimizations: observer consolidation, request deduplication, lazy init, deferred execution, resource pooling, DOM virtualization (content-visibility), incremental rendering, event consolidation, layout/paint optimization, idle-time processing, cache reuse, thumbnail lazy-loading with IntersectionObserver, network prioritization, reduced allocations, and memory trimming. It preserves YouTube's visuals unless a change directly improves performance without noticeably degrading UX. The toggle applies immediately without reload and cleans up fully when disabled."));
       },
-    }),
-    xa.register({
-      id: "privacy-shield",
-      name: "Private Mode",
-      summary:
-        "A single master switch that stops any feature from logging your watch history or measuring data usage while it is turned on.",
-      masterKey: "privacyShieldOn",
-      keys: ["privacyShieldOn"],
-      apply() {},
-      settings() {},
     }),
 
     xa.register({
@@ -19022,27 +18402,6 @@
     },
   }),
     xa.register({
-      id: "session-summary",
-      name: "Session Summary Card",
-      summary:
-        "After you’ve watched a few videos, a small card pops up to recap your session.",
-      masterKey: "sessionSummaryOn",
-      keys: ["sessionSummaryOn", "sessionSummaryThreshold"],
-      apply() {},
-      settings(e) {
-        e.appendChild(
-          No(
-            "Show after N videos",
-            "sessionSummaryThreshold",
-            1,
-            50,
-            1,
-            (e) => e + " videos",
-          ),
-        );
-      },
-    }),
-    xa.register({
       id: "chapter-list",
       name: "Chapter List Panel",
       summary: "Show all the video’s chapters as a clickable list.",
@@ -21839,56 +21198,6 @@
         e.appendChild(u));
     },
   }),
-    xa.register({
-      id: "remote-selectors",
-      name: "Remote Rule Manager",
-      summary:
-        "Load custom element hiding rules from a trusted online source, verified for security.",
-      masterKey: "remoteSelectorsOn",
-      keys: ["remoteSelectorsOn", "remoteSelectorsURL", "remoteSelectorsSHA"],
-      async apply(e) {
-        if (S.remoteSelectorsOn && S.remoteSelectorsURL && S.remoteSelectorsSHA)
-          try {
-            const t = await he(S.remoteSelectorsURL),
-              a = await t.text(),
-              n = await crypto.subtle.digest(
-                "SHA-256",
-                new TextEncoder().encode(a),
-              );
-            if (
-              Array.from(new Uint8Array(n))
-                .map((e) => e.toString(16).padStart(2, "0"))
-                .join("") !== S.remoteSelectorsSHA
-            )
-              throw new Error("hash mismatch");
-            const r = JSON.parse(a);
-            if (!Array.isArray(r)) throw new Error("bad pack");
-            const o = r
-              .filter(
-                (e) => "string" == typeof e.selector && "hide" === e.action,
-              )
-              .filter((e) => {
-                try {
-                  return (document.querySelector(e.selector), !0);
-                } catch (e) {
-                  return !1;
-                }
-              })
-              .map((e) => e.selector + "{display:none!important}")
-              .join("");
-            (o && e.addStyle(o),
-              pe("Loaded " + r.length + " hide rules.", 1800, "success"));
-          } catch (e) {
-            m("remote selectors", e);
-          }
-      },
-      settings(e) {
-        (e.appendChild(_o("Rule list online link", "remoteSelectorsURL")),
-          e.appendChild(
-            _o("Security verification code", "remoteSelectorsSHA"),
-          ));
-      },
-    }),
     Object.freeze(dn),
     Object.freeze(cn),
     Object.freeze(sn),
@@ -22976,30 +22285,8 @@
       needHotkeyOptIn: !0,
       run: () => Ia(),
     },
-    {
-      id: "watchLater",
-      label: "Toggle Watch Later",
-      def: "Alt+KeyW",
-      gated: "watchLaterQuick",
-      needHotkeyOptIn: !0,
-      run: () => {
-        const e = document.querySelector('button[aria-label*="Watch later"]');
-        e && (e.click(), pe("Watch Later toggled", 1500, "success"));
-      },
-    },
-    {
-      id: "subscribe",
-      label: "Toggle Subscribe",
-      def: "Alt+KeyU",
-      gated: "subscribeShortcut",
-      needHotkeyOptIn: !0,
-      run: () => {
-        const e = document.querySelector(
-          "ytd-subscribe-button-renderer button",
-        );
-        e && (e.click(), pe("Subscribe toggled", 1500, "success"));
-      },
-    },
+
+
     {
       id: "frameBack",
       label: "Frame step back",

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YT-zen
 // @namespace    https://github.com/mheci/YT-zen
-// @version      1.5.1
+// @version      1.6.0
 // @description  Clean, lightweight, and customizable client-side interface for YouTube.
 // @author       YT-zen Team
 // @license      Unlicense
@@ -773,7 +773,7 @@
       ("undefined" != typeof GM_info &&
         GM_info.script &&
         GM_info.script.version) ||
-      "3.1.0",
+      "1.6.0",
     r = "https://sponsor.ajay.app",
     o = (() => {
       try {

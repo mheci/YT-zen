@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YT-zen
 // @namespace    https://github.com/mheci/YT-zen
-// @version      3.2.0
+// @version      3.3.0
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      Unlicense
@@ -772,7 +772,7 @@
       ("undefined" != typeof GM_info &&
         GM_info.script &&
         GM_info.script.version) ||
-      "3.2.0",
+      "3.3.0",
     r = "https://sponsor.ajay.app",
     o = (() => {
       try {
@@ -8046,7 +8046,236 @@
       settings() {},
     });
   }
-  function Cb_norm(e) {
+  // ═══════════════════════════════════════════════════════════════════════════
+  //  uBlock Filter Interpreter Engine
+  // ---------------------------------------------------------------------------
+  //  Parses and executes uBlock Origin cosmetic filters for channel blocking.
+  //
+  //  Supported syntax:
+  //    domain##selector          - Element hiding (domain-scoped)
+  //    ##selector                - Global element hiding
+  //    :has(selector)            - Procedural: ancestor matching descendant
+  //    :has-text(/regex/flags)   - Procedural: text content matching regex
+  //    :has-text(string)         - Procedural: text content containing string
+  //    :matches-path(/regex/)    - Procedural: URL path matching regex
+  //    :is(sel1, sel2, ...)      - CSS :is() pseudo-class (native)
+  //    [attr^="val" i]           - Case-insensitive attribute selectors
+  //    ! comment                 - Comment lines (ignored)
+  //    # comment                 - Comment lines (ignored)
+  //
+  //  Backward compatible: plain channel names and @handles still work.
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  const UBlockEngine = (() => {
+    "use strict";
+
+    // ─── Filter Parser ───────────────────────────────────────────────────────
+    // Parses a single filter line into a structured object.
+    // Returns null for comments, blank lines, or unparseable lines.
+    const parseFilter = (line) => {
+      const raw = line.trim();
+      if (!raw || raw[0] === '!' || raw[0] === '#') return null;
+
+      // Check for cosmetic filter: domain##selector or ##selector
+      const hashIdx = raw.indexOf('##');
+      if (hashIdx < 0) return null;
+
+      const domain = raw.slice(0, hashIdx).trim();
+      let selector = raw.slice(hashIdx + 2).trim();
+      if (!selector) return null;
+
+      // Check domain scope
+      const domains = domain ? domain.split(',').map(d => d.trim().toLowerCase()) : [];
+
+      // Detect procedural filters
+      const hasHasText = /:has-text\(/.test(selector);
+      const hasMatchesPath = /:matches-path\(/.test(selector);
+      const isProcedural = hasHasText || hasMatchesPath;
+
+      // Extract :matches-path() regex
+      let pathRegex = null;
+      if (hasMatchesPath) {
+        const pathMatch = selector.match(/:matches-path\((\/.+?\/[gimsuy]*)\)/);
+        if (pathMatch) {
+          try {
+            const parts = pathMatch[1].match(/^\/(.+)\/([gimsuy]*)$/);
+            if (parts) pathRegex = new RegExp(parts[1], parts[2]);
+          } catch (_) {}
+        }
+        // Remove :matches-path() from selector, leaving the target element
+        selector = selector.replace(/:matches-path\([^)]*\)/g, '').trim();
+        if (!selector) selector = '*';
+      }
+
+      // Extract :has-text() patterns
+      const hasTextPatterns = [];
+      if (hasHasText) {
+        const regex = /:has-text\((\/.+?\/[gimsuy]*|[^)]+)\)/g;
+        let match;
+        while ((match = regex.exec(selector)) !== null) {
+          const inner = match[1].trim();
+          if (inner[0] === '/' && inner.lastIndexOf('/') > 0) {
+            // Regex pattern: /pattern/flags
+            const lastSlash = inner.lastIndexOf('/');
+            const pattern = inner.slice(1, lastSlash);
+            const flags = inner.slice(lastSlash + 1);
+            try { hasTextPatterns.push(new RegExp(pattern, flags)); } catch (_) {}
+          } else {
+            // Plain string: convert to case-insensitive regex
+            try { hasTextPatterns.push(new RegExp(escapeRegex(inner), 'i')); } catch (_) {}
+          }
+        }
+        // Remove :has-text() from selector for the CSS part
+        // We need to find the element selector that :has-text() applies to
+        // Pattern: selector:has-text(...) → we keep selector and apply text check in JS
+        selector = selector.replace(/:has-text\([^)]*\)/g, '').trim();
+        if (!selector) selector = '*';
+      }
+
+      return {
+        raw,
+        domains,
+        selector,
+        isProcedural,
+        hasTextPatterns,
+        pathRegex,
+        isCssOnly: !isProcedural,
+      };
+    };
+
+    // Escape special regex characters in a string
+    const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+    // ─── Filter List Parser ──────────────────────────────────────────────────
+    // Parses the full blocklist text into categorized filter arrays.
+    const parseFilterList = (text) => {
+      const cssFilters = [];     // Pure CSS filters (injected as stylesheet)
+      const procFilters = [];    // Procedural filters (need JS DOM scanning)
+      const pathFilters = [];    // Path-based filters (checked on navigation)
+
+      if (!text) return { cssFilters, procFilters, pathFilters };
+
+      const lines = text.split(/[\n\r]+/);
+      for (const line of lines) {
+        const filter = parseFilter(line);
+        if (!filter) continue;
+
+        if (filter.pathRegex) {
+          pathFilters.push(filter);
+          // Path filters may also have CSS/procedural parts
+          if (filter.hasTextPatterns.length > 0) {
+            procFilters.push(filter);
+          } else if (filter.selector && filter.selector !== '*') {
+            cssFilters.push(filter);
+          }
+        } else if (filter.isProcedural) {
+          procFilters.push(filter);
+        } else {
+          cssFilters.push(filter);
+        }
+      }
+
+      return { cssFilters, procFilters, pathFilters };
+    };
+
+    // ─── CSS Generator ───────────────────────────────────────────────────────
+    // Converts CSS-only filters into a single stylesheet string.
+    const generateCSS = (cssFilters, activePath) => {
+      const rules = [];
+      for (const f of cssFilters) {
+        // Check domain scope
+        if (f.domains.length > 0) {
+          const host = (location.hostname || '').toLowerCase();
+          const matches = f.domains.some(d => host === d || host.endsWith('.' + d));
+          if (!matches) continue;
+        }
+
+        // Check path regex for path-scoped CSS filters
+        if (f.pathRegex) {
+          const path = location.pathname || '/';
+          if (!f.pathRegex.test(path)) continue;
+        }
+
+        if (f.selector) {
+          rules.push(f.selector + '{display:none!important;visibility:hidden!important;pointer-events:none!important}');
+        }
+      }
+      return rules.join('\n');
+    };
+
+    // ─── Procedural Filter Executor ──────────────────────────────────────────
+    // Scans the DOM and applies procedural filters (:has-text, :matches-path).
+    const applyProcedural = (procFilters, pathFilters) => {
+      const path = location.pathname || '/';
+      let hidden = 0;
+
+      for (const f of procFilters) {
+        // Check domain scope
+        if (f.domains.length > 0) {
+          const host = (location.hostname || '').toLowerCase();
+          const matches = f.domains.some(d => host === d || host.endsWith('.' + d));
+          if (!matches) continue;
+        }
+
+        // Check path regex
+        if (f.pathRegex && !f.pathRegex.test(path)) continue;
+
+        // Find candidate elements
+        let candidates;
+        try { candidates = document.querySelectorAll(f.selector); } catch (_) { continue; }
+        if (!candidates.length) continue;
+
+        // Apply :has-text() filter
+        if (f.hasTextPatterns.length > 0) {
+          for (const el of candidates) {
+            const text = (el.textContent || '').trim();
+            const matchesAll = f.hasTextPatterns.every(re => re.test(text));
+            if (matchesAll) {
+              if (!el.classList.contains('ytp-ublock-hidden')) {
+                el.classList.add('ytp-ublock-hidden');
+                hidden++;
+              }
+            }
+          }
+        }
+      }
+
+      // Apply path-based hiding
+      for (const f of pathFilters) {
+        if (!f.pathRegex || !f.pathRegex.test(path)) continue;
+        if (f.domains.length > 0) {
+          const host = (location.hostname || '').toLowerCase();
+          const matches = f.domains.some(d => host === d || host.endsWith('.' + d));
+          if (!matches) continue;
+        }
+        if (f.selector && !f.hasTextPatterns.length) {
+          try {
+            const els = document.querySelectorAll(f.selector);
+            for (const el of els) {
+              if (!el.classList.contains('ytp-ublock-hidden')) {
+                el.classList.add('ytp-ublock-hidden');
+                hidden++;
+              }
+            }
+          } catch (_) {}
+        }
+      }
+
+      return hidden;
+    };
+
+    // ─── Unhide ──────────────────────────────────────────────────────────────
+    // Removes all ublock-hidden classes (called when feature is disabled).
+    const unhideAll = () => {
+      document.querySelectorAll('.ytp-ublock-hidden').forEach(el => {
+        el.classList.remove('ytp-ublock-hidden');
+      });
+    };
+
+    return { parseFilter, parseFilterList, generateCSS, applyProcedural, unhideAll, escapeRegex };
+  })();
+
+    function Cb_norm(e) {
     if (!(e = String(e || "").trim())) return "";
     try {
       if (/^https?:\/\//i.test(e)) {
@@ -8438,134 +8667,185 @@
       "channelBlockerMatchTitleText",
     ],
     apply(e) {
-      if (!S.channelBlockerOn)
-        return (
-          document
-            .querySelectorAll(".ytp-channel-block-btn")
-            .forEach((e) => e.remove()),
-          document
-            .querySelectorAll(".ytp-channel-blocked")
-            .forEach((e) => e.classList.remove("ytp-channel-blocked")),
-          void document.documentElement.classList.remove(
-            "ytp-channel-path-blocked",
-          )
-        );
+      // ── Cleanup on disable ──
+      if (!S.channelBlockerOn) {
+        document.querySelectorAll(".ytp-channel-block-btn").forEach(el => el.remove());
+        document.querySelectorAll(".ytp-channel-blocked").forEach(el => el.classList.remove("ytp-channel-blocked"));
+        document.querySelectorAll(".ytp-ublock-hidden").forEach(el => el.classList.remove("ytp-ublock-hidden"));
+        document.documentElement.classList.remove("ytp-channel-path-blocked");
+        const oldStyle = document.getElementById("ytp-ublock-css");
+        if (oldStyle) oldStyle.remove();
+        return;
+      }
+
+      // ── Base styles ──
       e.addStyle(
-        '.ytp-channel-blocked{display:none!important;visibility:hidden!important}.ytp-channel-block-btn{margin-left:6px;border:0;border-radius:999px;background:rgba(204,0,0,.12);color:#ff7777;padding:2px 7px;font:700 10px system-ui;cursor:pointer;vertical-align:middle}.ytp-channel-block-btn:hover{background:rgba(204,0,0,.25);color:#fff}.ytp-channel-path-blocked ytd-browse[page-subtype="channels"]{display:none!important}',
+        '.ytp-channel-blocked,.ytp-ublock-hidden{display:none!important;visibility:hidden!important;pointer-events:none!important}' +
+        '.ytp-channel-block-btn{margin-left:6px;border:0;border-radius:999px;background:rgba(204,0,0,.12);color:#ff7777;padding:2px 7px;font:700 10px system-ui;cursor:pointer;vertical-align:middle}' +
+        '.ytp-channel-block-btn:hover{background:rgba(204,0,0,.25);color:#fff}' +
+        '.ytp-channel-path-blocked ytd-browse[page-subtype="channels"]{display:none!important}'
       );
-      const t = (function () {
-          const e = [],
-            t = [];
-          for (const a of Cb_parseList())
-            a.startsWith("@") ? e.push(a.slice(1)) : t.push(a);
-          return { handles: e, names: t };
-        })(),
-        a = (function (e) {
-          if (!o || !e.length) return "";
-          const t =
-            ":is(" +
-            e
-              .map(
-                (e) =>
-                  'a[href^="/@' + String(e).replace(/["\\]/g, "\\$&") + '" i]',
-              )
-              .join(",") +
-            ")";
-          let a =
-            Fa.map((e) => e + ":has(" + t + ")").join(",") +
-            "{display:none!important}";
-          return (
-            S.channelBlockerHideWatch &&
-              (a +=
-                "ytd-watch-flexy:has(ytd-video-owner-renderer " +
-                t +
-                "){display:none!important}"),
-            a
-          );
-        })(t.handles);
-      (a && e.addStyle(a),
-        S.channelBlockerHideComments ||
-          e.addStyle(
-            "ytd-comment-thread-renderer.ytp-channel-blocked{display:revert!important;visibility:revert!important}",
-          ));
-      const n = () => {
-        const e =
-          S.channelBlockerHideBrowse &&
-          (function (e) {
-            if (!e.length) return !1;
-            const t = (location.pathname || "").toLowerCase();
-            for (const a of e) {
-              const e = "/@" + a.toLowerCase();
-              if (t === e || t.startsWith(e + "/")) return !0;
-            }
-            return !1;
-          })(t.handles);
-        document.documentElement.classList.toggle(
-          "ytp-channel-path-blocked",
-          e,
-        );
+
+      // ── Parse filter list ──
+      // Convert legacy plain channel names to uBlock filters for backward compat
+      const rawList = String(S.channelBlockerList || "");
+      const convertedLines = [];
+      for (const line of rawList.split(/[\n\r]+/)) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        // If it looks like a uBlock filter (contains ##), keep as-is
+        if (trimmed.includes("##")) {
+          convertedLines.push(trimmed);
+          continue;
+        }
+        // Skip comments
+        if (trimmed[0] === "!" || trimmed[0] === "#") {
+          convertedLines.push(trimmed);
+          continue;
+        }
+        // Legacy: plain @handle or channel name → convert to uBlock filter
+        const norm = Cb_norm(trimmed);
+        if (!norm) continue;
+        if (norm.startsWith("@")) {
+          const handle = norm.slice(1).replace(/["\\]/g, "\\$&");
+          const sel = Fa.map(s =>
+            s + ':has(a[href^="/@' + handle + '" i])'
+          ).join(",");
+          convertedLines.push("youtube.com##" + sel);
+          if (S.channelBlockerHideWatch) {
+            convertedLines.push(
+              'youtube.com##ytd-watch-flexy:has(ytd-video-owner-renderer a[href^="/@' + handle + '" i])'
+            );
+          }
+        } else {
+          // Channel name → text match filter
+          const escaped = UBlockEngine.escapeRegex(norm);
+          const titleSel = Fa.map(s =>
+            s + ':has(:is(' + ja.join(",") + '):has-text(/' + escaped + '/i))'
+          ).join(",");
+          convertedLines.push("youtube.com##" + titleSel);
+        }
+      }
+      const filterText = convertedLines.join("\n");
+      const parsed = UBlockEngine.parseFilterList(filterText);
+
+      // ── Inject CSS filters (fast path - no JS needed) ──
+      let ublockStyle = document.getElementById("ytp-ublock-css");
+      if (!ublockStyle) {
+        ublockStyle = document.createElement("style");
+        ublockStyle.id = "ytp-ublock-css";
+        (document.head || document.documentElement).appendChild(ublockStyle);
+      }
+      const rebuildCSS = () => {
+        try { ublockStyle.textContent = UBlockEngine.generateCSS(parsed.cssFilters); } catch (_) {}
       };
-      (n(),
-        e.addListener(window, "yt-navigate-finish", n),
-        e.addListener(window, "popstate", n));
-      let r = !1;
-      const i = Fa.join(","),
-        d = () => t.handles.length > 0 || t.names.length > 0,
-        c = async () => {
-          if (!_a() && !r && d())
-            if (void 0 !== Zt && performance.now() - Zt < 250) ae(c, 500);
-            else {
-              r = !0;
-              try {
-                if (!document.hidden) {
-                  const e = document.querySelectorAll(
-                    'a[href*="/@"],a[href^="/@"],a#channel-name,ytd-channel-name a,#channel-name a,#owner-name a',
-                  );
-                  for (let t = 0; t < e.length; t++)
-                    (Wa(e[t]), (t + 1) % 80 == 0 && (await ne()));
-                }
-                if (
-                  d() &&
-                  (!o || t.names.length > 0 || S.channelBlockerMatchTitleText)
-                ) {
-                  const e = document.querySelectorAll(i);
-                  for (let a = 0; a < e.length; a++) {
-                    const n = e[a],
-                      r = za(n, t);
-                    (n.classList.toggle("ytp-channel-blocked", r),
-                      (a + 1) % 80 == 0 && (await ne()));
-                  }
-                }
-              } finally {
-                r = !1;
+      rebuildCSS();
+
+      // ── Procedural filter executor (:has-text, :matches-path) ──
+      let procRunning = false;
+      const runProcedural = async () => {
+        if (procRunning || _a()) return;
+        procRunning = true;
+        try {
+          UBlockEngine.applyProcedural(parsed.procFilters, parsed.pathFilters);
+        } catch (_) {}
+        procRunning = false;
+      };
+
+      // ── Path-based hiding (channel page blocking) ──
+      const checkPathBlock = () => {
+        let blocked = false;
+        const path = (location.pathname || "").toLowerCase();
+        for (const f of parsed.pathFilters) {
+          if (f.pathRegex && f.pathRegex.test(location.pathname || "/")) {
+            blocked = true;
+            break;
+          }
+        }
+        // Also check legacy handle-based path blocking
+        if (!blocked) {
+          const handles = Cb_parseList().filter(h => h.startsWith("@")).map(h => h.slice(1));
+          for (const h of handles) {
+            const p = "/@" + h.toLowerCase();
+            if (path === p || path.startsWith(p + "/")) { blocked = true; break; }
+          }
+        }
+        document.documentElement.classList.toggle("ytp-channel-path-blocked", blocked && !!S.channelBlockerHideBrowse);
+      };
+      checkPathBlock();
+      e.addListener(window, "yt-navigate-finish", () => { checkPathBlock(); rebuildCSS(); });
+      e.addListener(window, "popstate", () => { checkPathBlock(); rebuildCSS(); });
+
+      // ── Legacy DOM scanning (for "Block" buttons and non-CSS :has fallback) ──
+      const parsed0 = Cb_parseList();
+      const legacyData = { handles: parsed0.filter(h => h.startsWith("@")).map(h => h.slice(1)), names: parsed0.filter(h => !h.startsWith("@")) };
+      let scanning = false;
+      const scanDOM = async () => {
+        if (scanning || _a()) return;
+        scanning = true;
+        try {
+          if (!document.hidden) {
+            // Add "Block" buttons to channel links
+            const anchors = document.querySelectorAll('a[href*="/@"],a[href^="/@"],a#channel-name,ytd-channel-name a,#channel-name a,#owner-name a');
+            for (let i = 0; i < anchors.length; i++) {
+              Wa(anchors[i]);
+              if ((i + 1) % 80 === 0) await ne();
+            }
+            // Legacy fallback: class-based blocking for browsers without :has() support
+            if (!o && (legacyData.handles.length > 0 || legacyData.names.length > 0)) {
+              const items = document.querySelectorAll(Fa.join(","));
+              for (let i = 0; i < items.length; i++) {
+                const blocked = za(items[i], legacyData);
+                items[i].classList.toggle("ytp-channel-blocked", blocked);
+                if ((i + 1) % 80 === 0) await ne();
               }
             }
-        };
-      (ae(c, 600),
-        e.addInterval(() => ae(c, 1500), 3e3),
-        document.body &&
-          e.addObserver(
-            document.body,
-            ee(() => ae(c, 800), 350),
-            { childList: !0, subtree: !0 },
-          ),
-        Yt["channel-blocker"].push(() => {
-          (document
-            .querySelectorAll(".ytp-channel-blocked")
-            .forEach((e) => e.classList.remove("ytp-channel-blocked")),
-            document.documentElement.classList.remove(
-              "ytp-channel-path-blocked",
-            ));
-        }));
+          }
+          // Run procedural filters
+          if (parsed.procFilters.length > 0 || parsed.pathFilters.length > 0) {
+            await runProcedural();
+          }
+        } finally { scanning = false; }
+      };
+      e.addTimeout(scanDOM, 600);
+      e.addInterval(() => { e.addTimeout(scanDOM, 800); }, 3000);
+
+      // MutationObserver for dynamic content
+      if (document.body) {
+        e.addObserver(document.body, ee(() => { e.addTimeout(scanDOM, 500); }, 350), { childList: true, subtree: true });
+      }
+
+      // ── Comment visibility ──
+      if (!S.channelBlockerHideComments) {
+        e.addStyle("ytd-comment-thread-renderer.ytp-channel-blocked,ytd-comment-thread-renderer.ytp-ublock-hidden{display:revert!important;visibility:revert!important;pointer-events:revert!important}");
+      }
+
+      // ── Cleanup ──
+      Yt["channel-blocker"].push(() => {
+        document.querySelectorAll(".ytp-channel-blocked").forEach(el => el.classList.remove("ytp-channel-blocked"));
+        document.querySelectorAll(".ytp-ublock-hidden").forEach(el => el.classList.remove("ytp-ublock-hidden"));
+        document.documentElement.classList.remove("ytp-channel-path-blocked");
+        const s = document.getElementById("ytp-ublock-css");
+        if (s) s.remove();
+      });
     },
     settings(e) {
       (e.appendChild(
         Ho(
-          "Channels to hide (one per line)",
+          "Block list (one filter per line)",
           "channelBlockerList",
-          "@SomeChannel\nAnother Channel Name\nhttps://www.youtube.com/@SomeChannel",
+          "@SomeChannel\nAnother Channel Name\nyoutube.com##ytd-rich-item-renderer:has(a[href^=\"/@SomeChannel\" i])\nyoutube.com##:matches-path(/^\\/@SomeChannel/) ytd-browse",
         ),
       ),
+        e.appendChild(
+          To("div", "ytp-hist-note",
+            "Supports plain channel names, @handles, full URLs, and uBlock Origin cosmetic filters. " +
+            "Examples: youtube.com##selector:has(a[href^=\"/@channel\" i]), " +
+            "youtube.com##:has-text(/pattern/i), " +
+            "youtube.com##:matches-path(/regex/) selector. " +
+            "Lines starting with ! or # are comments."
+          ),
+        ),
         e.appendChild(
           Io(
             "Also hide the watch page if I land on one of their videos",
@@ -12534,7 +12814,7 @@
 
         };
         const PREF_KEYS = {
-          "f5": { label: "Autoplay", type: "enum", options: {"3.2.0": "Enabled", "30000": "Disabled"} },
+          "f5": { label: "Autoplay", type: "enum", options: {"3.3.0": "Enabled", "30000": "Disabled"} },
           "f6": { label: "Layout", type: "enum", options: {"4": "Material", "8": "Old"} },
           "al": { label: "Content Language", type: "text" },
           "gl": { label: "Country", type: "text" },

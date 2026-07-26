@@ -773,7 +773,7 @@
       ("undefined" != typeof GM_info &&
         GM_info.script &&
         GM_info.script.version) ||
-      "1.6.1",
+      "1.6.2",
     r = "https://sponsor.ajay.app",
     o = (() => {
       try {
@@ -7334,14 +7334,9 @@
       apply(e) {
         if ((ft(), !S.sponsorblockOn))
           return (
-            clearInterval(nt),
-            (nt = 0),
-            kt(),
-            vt(),
-            (at = null),
-            void wt()
+            SponsorBlockEngine.destroy(),
+            void ft()
           );
-        at = null;
         const t = ie.videoId();
         if (
           (t && St(t),

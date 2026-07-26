@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YT-zen
 // @namespace    https://github.com/mheci/YT-zen
-// @version      3.1.0
+// @version      3.1.1
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      Unlicense
@@ -772,7 +772,7 @@
       ("undefined" != typeof GM_info &&
         GM_info.script &&
         GM_info.script.version) ||
-      "3.1.0",
+      "3.1.1",
     r = "https://sponsor.ajay.app",
     o = (() => {
       try {
@@ -1790,6 +1790,16 @@
     try {
       Z.abort();
     } catch (e) {}
+    // Clear session restore play gate on every navigation to prevent stuck state
+    try {
+      if (typeof Ma !== "undefined" && Ma) {
+        Ma.awaitingResume = !1;
+        Ma.awaitingResumeVid = null;
+      }
+    } catch (e) {}
+    // Also dismiss any visible resume overlay/card
+    try { Ze(); } catch (e) {}
+    try { Qe(); } catch (e) {}
     ((Z = new AbortController()),
       (oe.vid = void 0),
       (oe.title = void 0),
@@ -2172,6 +2182,38 @@
     } catch (e) {}
     return 0;
   }
+  // Live stream detection: returns true if current video is a live stream or premiere
+  function _isLiveStream() {
+    try {
+      const v = ie.el();
+      if (v) {
+        // Live streams have duration === Infinity or NaN
+        if (!isFinite(v.duration) || v.duration === Infinity) return true;
+        // Live streams often have seekable length of 0 or very small
+        if (v.seekable && v.seekable.length > 0) {
+          const seekableEnd = v.seekable.end(v.seekable.length - 1);
+          const seekableStart = v.seekable.start(0);
+          // If seekable range is very large relative to current time, likely live
+          if (seekableEnd - seekableStart > 3600 && v.currentTime > 0) return true;
+        }
+      }
+    } catch (e) {}
+    try {
+      // Check ytInitialPlayerResponse for live indicators
+      const pr = e.ytInitialPlayerResponse;
+      if (pr) {
+        if (pr.videoDetails && pr.videoDetails.isLiveContent) return true;
+        if (pr.videoDetails && pr.videoDetails.isLive) return true;
+        if (pr.playabilityStatus && pr.playabilityStatus.liveStreamability) return true;
+        if (pr.playabilityStatus && pr.playabilityStatus.status === "LIVE_STREAM_OFFLINE") return true;
+      }
+    } catch (e) {}
+    try {
+      // Check for live badge in DOM
+      if (document.querySelector(".ytp-live-badge, .ytp-live-badge-small, ytd-badge-supported-renderer .badge-style-type-live-now")) return true;
+    } catch (e) {}
+    return false;
+  }
   function He(e) {
     return !!(e && e.title && e.channel && e.thumbnail);
   }
@@ -2379,6 +2421,9 @@
   }
   async function Ke() {
     if (!S.sessionRestoreOn) return;
+    // Always clear the play gate flag on every Ke() call to prevent stuck state
+    Ma.awaitingResume = !1;
+    Ma.awaitingResumeVid = null;
     if (!Ke._gateInstalled) {
       Ke._gateInstalled = !0;
       try {
@@ -2386,10 +2431,16 @@
         HTMLMediaElement.prototype.play = function () {
           try {
             if (Ma && Ma.awaitingResume) {
-              try {
-                this.pause && this.pause();
-              } catch (e) {}
-              return Promise.resolve();
+              // Safety timeout: auto-clear if stuck for more than 30 seconds
+              if (Ma.awaitingResumeSince && Date.now() - Ma.awaitingResumeSince > 30000) {
+                Ma.awaitingResume = !1;
+                Ma.awaitingResumeVid = null;
+              } else {
+                try {
+                  this.pause && this.pause();
+                } catch (e) {}
+                return Promise.resolve();
+              }
             }
           } catch (e) {}
           return orig.apply(this, arguments);
@@ -2924,8 +2975,14 @@
         HTMLMediaElement.prototype.play = function () {
           try {
             if (Ma && Ma.awaitingResume) {
-              try { this.pause && this.pause(); } catch (e) {}
-              return Promise.resolve();
+              // Safety timeout: auto-clear if stuck for more than 30 seconds
+              if (Ma.awaitingResumeSince && Date.now() - Ma.awaitingResumeSince > 30000) {
+                Ma.awaitingResume = !1;
+                Ma.awaitingResumeVid = null;
+              } else {
+                try { this.pause && this.pause(); } catch (e) {}
+                return Promise.resolve();
+              }
             }
           } catch (e) {}
           return _orig.apply(this, arguments);
@@ -3812,6 +3869,13 @@
           return;
         }
 
+        // Skip all segment processing on live streams (seeking breaks live playback)
+        if (_isLiveStream()) {
+          resetMuteState();
+          State.activeSegmentIndex = -1;
+          return;
+        }
+
         const currentTime = videoEl.currentTime;
         const segs = State.segments;
         let idx = State.activeSegmentIndex;
@@ -4154,6 +4218,12 @@
       State.segments = [];
       State.processedUUIDs.clear();
       State.activeSegmentIndex = -1;
+
+      // Skip SponsorBlock entirely on live streams (no segments to skip, seeking breaks playback)
+      if (_isLiveStream()) {
+        UI.clearMarks();
+        return;
+      }
 
       if (!S.sponsorblockOn || !videoId) {
         UI.clearMarks();
@@ -5861,6 +5931,8 @@
       const t = Math.max(0.0625, Math.min(16, Number(S.speedDefault) || 1)),
         a = () => {
           const e = ie.el();
+          // Don't force speed on live streams (they need to stay at 1x)
+          if (e && _isLiveStream()) return;
           e && Math.abs(e.playbackRate - t) > 0.01 && (e.playbackRate = t);
         };
       if ((a(), !S.speedRemember && 1 === S.speedDefault)) return;
@@ -12697,7 +12769,7 @@
 
         };
         const PREF_KEYS = {
-          "f5": { label: "Autoplay", type: "enum", options: {"3.1.0": "Enabled", "30000": "Disabled"} },
+          "f5": { label: "Autoplay", type: "enum", options: {"3.1.1": "Enabled", "30000": "Disabled"} },
           "f6": { label: "Layout", type: "enum", options: {"4": "Material", "8": "Old"} },
           "al": { label: "Content Language", type: "text" },
           "gl": { label: "Country", type: "text" },
@@ -24033,7 +24105,7 @@ body.zen-mood-learn ytd-watch-flexy #secondary{display:none!important}
     settings(en) { en.appendChild(Io("Enable Video DNA Timeline", "videoDnaOn")); } });
 
   xa.register({ id: "smart-speed", name: "Smart Speed", summary: "Automatically adjusts playback speed based on content density.", masterKey: "smartSpeedOn", keys: ["smartSpeedOn", "smartSpeedBase", "smartSpeedFast"],
-    apply(ctx) { if (!S.smartSpeedOn) return; const baseRate = S.smartSpeedBase || 1; const fastRate = S.smartSpeedFast || 1.5; const tick = () => { const vid = ie.el(); if (!vid || vid.paused || vid.ended) return; const a = ZenPlayback.analyzeEnergy(vid); let target = baseRate; if (a.isSpeech && !a.isQuiet) target = fastRate; if (a.isQuiet) target = fastRate; if (Math.abs(vid.playbackRate - target) > 0.1) vid.playbackRate = target; }; const start = () => { if (ie.el()) ctx.addInterval(tick, 2000); }; ctx.addTimeout(start, 2000); ctx.onNav(() => ctx.addTimeout(start, 2000)); Yt["smart-speed"].push(() => { const vid = ie.el(); if (vid) vid.playbackRate = S.speedDefault || 1; }); },
+    apply(ctx) { if (!S.smartSpeedOn) return; const baseRate = S.smartSpeedBase || 1; const fastRate = S.smartSpeedFast || 1.5; const tick = () => { const vid = ie.el(); if (!vid || vid.paused || vid.ended) return; if (_isLiveStream()) { if (Math.abs(vid.playbackRate - 1) > 0.01) vid.playbackRate = 1; return; } const a = ZenPlayback.analyzeEnergy(vid); let target = baseRate; if (a.isSpeech && !a.isQuiet) target = fastRate; if (a.isQuiet) target = fastRate; if (Math.abs(vid.playbackRate - target) > 0.1) vid.playbackRate = target; }; const start = () => { if (ie.el()) ctx.addInterval(tick, 2000); }; ctx.addTimeout(start, 2000); ctx.onNav(() => ctx.addTimeout(start, 2000)); Yt["smart-speed"].push(() => { const vid = ie.el(); if (vid) vid.playbackRate = S.speedDefault || 1; }); },
     settings(en) { en.appendChild(Io("Enable Smart Speed", "smartSpeedOn")); en.appendChild(No("Normal speed", "smartSpeedBase", 0.75, 1.25, 0.05, v => v.toFixed(2) + "x")); en.appendChild(No("Fast speed", "smartSpeedFast", 1.25, 3, 0.05, v => v.toFixed(2) + "x")); } });
 
   xa.register({ id: "mood-layouts", name: "Mood-Based Layouts", summary: "Switch between Focus, Browse, Background, and Learn layouts.", masterKey: "moodLayoutsOn", keys: ["moodLayoutsOn", "moodCurrent"],

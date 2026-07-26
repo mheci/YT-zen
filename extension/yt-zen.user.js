@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YT-zen
 // @namespace    https://github.com/mheci/YT-zen
-// @version      3.5.1
+// @version      3.5.2
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      Unlicense
@@ -778,7 +778,7 @@
       ("undefined" != typeof GM_info &&
         GM_info.script &&
         GM_info.script.version) ||
-      "3.5.1",
+      "3.5.2",
     r = "https://sponsor.ajay.app",
     o = (() => {
       try {
@@ -1872,6 +1872,22 @@
       return (e.set(t, n), n);
     };
   }
+  // ═══════════════════════════════════════════════════════════════════════════
+  //  ZenResources — Memory Safety & Resource Efficiency Layer
+  // ---------------------------------------------------------------------------
+  //  Consolidated infrastructure for preventing memory leaks, reducing CPU
+  //  overhead, and bounding resource usage across all features.
+  //
+  //  Components:
+  //    BoundedCache     — Map with LRU eviction and configurable max size
+  //    WeakElementCache — WeakRef-based cache for DOM elements (auto-GC)
+  //    SharedObserver   — Single MutationObserver dispatching to subscribers
+  //    SharedTicker     — Consolidated interval replacing multiple setIntervals
+  //    TrackedBlobURL   — Auto-revoking blob URL wrapper
+  //    DeferredTask     — requestIdleCallback wrapper with timeout fallback
+  //    AbortGroup       — Grouped AbortController for feature-scoped cancellation
+  // ═══════════════════════════════════════════════════════════════════════════
+
   const ZenResources = (() => {
     "use strict";
 
@@ -1907,10 +1923,6 @@
       has(key) { return this._map.has(key); }
       delete(key) { return this._map.delete(key); }
       clear() { this._map.clear(); }
-      keys() { return this._map.keys(); }
-      values() { return this._map.values(); }
-      entries() { return this._map.entries(); }
-      forEach(fn) { this._map.forEach((v, k) => fn(v, k, this)); }
       get size() { return this._map.size; }
       stats() {
         const total = this._hits + this._misses;
@@ -2033,7 +2045,217 @@
       return { subscribe, unsubscribe, stats };
     })();
 
-  const oe = {
+    // ─── SharedTicker ────────────────────────────────────────────────────────
+    // Consolidated interval that runs all registered callbacks at their
+    // specified cadence. Replaces multiple setInterval calls with one timer.
+    // Pauses when the tab is hidden (saves CPU).
+    const SharedTicker = (() => {
+      const tasks = new Map(); // id → { callback, intervalMs, lastRun, pauseHidden }
+      let timerId = 0;
+      let nextId = 1;
+      const TICK_MS = 1000; // Base tick every 1 second
+
+      const tick = () => {
+        if (document.hidden) return; // Skip when tab is hidden
+        const now = Date.now();
+        for (const [, task] of tasks) {
+          if (task.pauseHidden && document.hidden) continue;
+          if (now - task.lastRun >= task.intervalMs) {
+            task.lastRun = now;
+            try { task.callback(); } catch (_) {}
+          }
+        }
+      };
+
+      const ensureTimer = () => {
+        if (timerId) return;
+        timerId = setInterval(tick, TICK_MS);
+      };
+
+      const add = (callback, intervalMs, opts = {}) => {
+        const id = nextId++;
+        tasks.set(id, {
+          callback,
+          intervalMs: Math.max(TICK_MS, intervalMs),
+          lastRun: 0,
+          pauseHidden: opts.pauseHidden !== false,
+        });
+        ensureTimer();
+        return id;
+      };
+
+      const remove = (id) => {
+        tasks.delete(id);
+        if (tasks.size === 0 && timerId) {
+          clearInterval(timerId);
+          timerId = 0;
+        }
+      };
+
+      const clear = () => {
+        tasks.clear();
+        if (timerId) { clearInterval(timerId); timerId = 0; }
+      };
+
+      const stats = () => ({ tasks: tasks.size, timerActive: timerId !== 0 });
+
+      return { add, remove, clear, stats };
+    })();
+
+    // ─── TrackedBlobURL ──────────────────────────────────────────────────────
+    // Creates blob URLs that are automatically revoked when no longer needed.
+    // Tracks all active URLs and provides bulk revocation.
+    const TrackedBlobURL = (() => {
+      const active = new Map(); // url → { createdAt, label }
+
+      const create = (blob, label = "blob") => {
+        const url = URL.createObjectURL(blob);
+        active.set(url, { createdAt: Date.now(), label });
+        return url;
+      };
+
+      const revoke = (url) => {
+        if (active.has(url)) {
+          URL.revokeObjectURL(url);
+          active.delete(url);
+        }
+      };
+
+      const revokeAll = () => {
+        for (const [url] of active) {
+          try { URL.revokeObjectURL(url); } catch (_) {}
+        }
+        active.clear();
+      };
+
+      const revokeOlderThan = (maxAgeMs) => {
+        const cutoff = Date.now() - maxAgeMs;
+        for (const [url, info] of active) {
+          if (info.createdAt < cutoff) {
+            try { URL.revokeObjectURL(url); } catch (_) {}
+            active.delete(url);
+          }
+        }
+      };
+
+      const stats = () => ({ active: active.size, urls: Array.from(active.values()).map(v => v.label) });
+
+      return { create, revoke, revokeAll, revokeOlderThan, stats };
+    })();
+
+    // ─── DeferredTask ────────────────────────────────────────────────────────
+    // Runs a task during idle time. Falls back to setTimeout if
+    // requestIdleCallback is unavailable. Supports cancellation.
+    const DeferredTask = (() => {
+      let nextId = 1;
+      const pending = new Map(); // id → { cancel }
+
+      const schedule = (fn, timeoutMs = 2000) => {
+        const id = nextId++;
+        let cancelled = false;
+
+        const execute = () => {
+          if (cancelled) return;
+          pending.delete(id);
+          try { fn(); } catch (_) {}
+        };
+
+        let timerId;
+        if (typeof requestIdleCallback === "function") {
+          const idleId = requestIdleCallback(execute, { timeout: timeoutMs });
+          timerId = null;
+          pending.set(id, { cancel: () => { cancelled = true; cancelIdleCallback(idleId); } });
+        } else {
+          timerId = setTimeout(execute, Math.min(timeoutMs, 100));
+          pending.set(id, { cancel: () => { cancelled = true; clearTimeout(timerId); } });
+        }
+
+        return id;
+      };
+
+      const cancel = (id) => {
+        const task = pending.get(id);
+        if (task) { task.cancel(); pending.delete(id); }
+      };
+
+      const cancelAll = () => {
+        for (const [, task] of pending) { task.cancel(); }
+        pending.clear();
+      };
+
+      const stats = () => ({ pending: pending.size });
+
+      return { schedule, cancel, cancelAll, stats };
+    })();
+
+    // ─── AbortGroup ──────────────────────────────────────────────────────────
+    // Groups multiple AbortControllers under a single feature ID.
+    // Calling abort(id) cancels all controllers for that feature.
+    const AbortGroup = (() => {
+      const groups = new Map(); // featureId → Set<AbortController>
+
+      const create = (featureId) => {
+        const ctrl = new AbortController();
+        if (!groups.has(featureId)) groups.set(featureId, new Set());
+        groups.get(featureId).add(ctrl);
+        return ctrl;
+      };
+
+      const abort = (featureId) => {
+        const set = groups.get(featureId);
+        if (!set) return;
+        for (const ctrl of set) {
+          try { ctrl.abort(); } catch (_) {}
+        }
+        set.clear();
+        groups.delete(featureId);
+      };
+
+      const abortAll = () => {
+        for (const [id] of groups) abort(id);
+      };
+
+      const stats = () => {
+        let total = 0;
+        for (const [, set] of groups) total += set.size;
+        return { groups: groups.size, controllers: total };
+      };
+
+      return { create, abort, abortAll, stats };
+    })();
+
+    // ─── Global Stats ────────────────────────────────────────────────────────
+    const stats = () => ({
+      sharedObserver: SharedObserver.stats(),
+      sharedTicker: SharedTicker.stats(),
+      blobURLs: TrackedBlobURL.stats(),
+      deferred: DeferredTask.stats(),
+      abortGroups: AbortGroup.stats(),
+    });
+
+    // ─── Global Cleanup ──────────────────────────────────────────────────────
+    const cleanup = () => {
+      SharedTicker.clear();
+      TrackedBlobURL.revokeAll();
+      DeferredTask.cancelAll();
+      AbortGroup.abortAll();
+    };
+
+    return {
+      BoundedCache,
+      WeakElementCache,
+      SharedObserver,
+      SharedTicker,
+      TrackedBlobURL,
+      DeferredTask,
+      AbortGroup,
+      stats,
+      cleanup,
+    };
+  })();
+
+
+    const oe = {
       vid: void 0,
       vidHref: "",
       title: void 0,
@@ -12994,7 +13216,7 @@
 
         };
         const PREF_KEYS = {
-          "f5": { label: "Autoplay", type: "enum", options: {"3.5.1": "Enabled", "30000": "Disabled"} },
+          "f5": { label: "Autoplay", type: "enum", options: {"3.5.2": "Enabled", "30000": "Disabled"} },
           "f6": { label: "Layout", type: "enum", options: {"4": "Material", "8": "Old"} },
           "al": { label: "Content Language", type: "text" },
           "gl": { label: "Country", type: "text" },
@@ -24263,231 +24485,6 @@ body.zen-mood-learn ytd-watch-flexy #secondary{display:none!important}
     const getList = () => queue.slice();
     const clear = () => { queue = []; };
     return { add, remove, reorder, getTotalTime, getList, clear, size: () => queue.length };
-  })();
-  // ═══════════════════════════════════════════════════════════════════════════
-  //  ZenResources — Memory Safety & Resource Efficiency Layer
-  // ---------------------------------------------------------------------------
-  //  Consolidated infrastructure for preventing memory leaks, reducing CPU
-  //  overhead, and bounding resource usage across all features.
-  //
-  //  Components:
-  //    BoundedCache     — Map with LRU eviction and configurable max size
-  //    WeakElementCache — WeakRef-based cache for DOM elements (auto-GC)
-  //    SharedObserver   — Single MutationObserver dispatching to subscribers
-  //    SharedTicker     — Consolidated interval replacing multiple setIntervals
-  //    TrackedBlobURL   — Auto-revoking blob URL wrapper
-  //    DeferredTask     — requestIdleCallback wrapper with timeout fallback
-  //    AbortGroup       — Grouped AbortController for feature-scoped cancellation
-  // ═══════════════════════════════════════════════════════════════════════════
-
-
-    // ─── SharedTicker ────────────────────────────────────────────────────────
-    // Consolidated interval that runs all registered callbacks at their
-    // specified cadence. Replaces multiple setInterval calls with one timer.
-    // Pauses when the tab is hidden (saves CPU).
-    const SharedTicker = (() => {
-      const tasks = new Map(); // id → { callback, intervalMs, lastRun, pauseHidden }
-      let timerId = 0;
-      let nextId = 1;
-      const TICK_MS = 1000; // Base tick every 1 second
-
-      const tick = () => {
-        if (document.hidden) return; // Skip when tab is hidden
-        const now = Date.now();
-        for (const [, task] of tasks) {
-          if (task.pauseHidden && document.hidden) continue;
-          if (now - task.lastRun >= task.intervalMs) {
-            task.lastRun = now;
-            try { task.callback(); } catch (_) {}
-          }
-        }
-      };
-
-      const ensureTimer = () => {
-        if (timerId) return;
-        timerId = setInterval(tick, TICK_MS);
-      };
-
-      const add = (callback, intervalMs, opts = {}) => {
-        const id = nextId++;
-        tasks.set(id, {
-          callback,
-          intervalMs: Math.max(TICK_MS, intervalMs),
-          lastRun: 0,
-          pauseHidden: opts.pauseHidden !== false,
-        });
-        ensureTimer();
-        return id;
-      };
-
-      const remove = (id) => {
-        tasks.delete(id);
-        if (tasks.size === 0 && timerId) {
-          clearInterval(timerId);
-          timerId = 0;
-        }
-      };
-
-      const clear = () => {
-        tasks.clear();
-        if (timerId) { clearInterval(timerId); timerId = 0; }
-      };
-
-      const stats = () => ({ tasks: tasks.size, timerActive: timerId !== 0 });
-
-      return { add, remove, clear, stats };
-    })();
-
-    // ─── TrackedBlobURL ──────────────────────────────────────────────────────
-    // Creates blob URLs that are automatically revoked when no longer needed.
-    // Tracks all active URLs and provides bulk revocation.
-    const TrackedBlobURL = (() => {
-      const active = new Map(); // url → { createdAt, label }
-
-      const create = (blob, label = "blob") => {
-        const url = URL.createObjectURL(blob);
-        active.set(url, { createdAt: Date.now(), label });
-        return url;
-      };
-
-      const revoke = (url) => {
-        if (active.has(url)) {
-          URL.revokeObjectURL(url);
-          active.delete(url);
-        }
-      };
-
-      const revokeAll = () => {
-        for (const [url] of active) {
-          try { URL.revokeObjectURL(url); } catch (_) {}
-        }
-        active.clear();
-      };
-
-      const revokeOlderThan = (maxAgeMs) => {
-        const cutoff = Date.now() - maxAgeMs;
-        for (const [url, info] of active) {
-          if (info.createdAt < cutoff) {
-            try { URL.revokeObjectURL(url); } catch (_) {}
-            active.delete(url);
-          }
-        }
-      };
-
-      const stats = () => ({ active: active.size, urls: Array.from(active.values()).map(v => v.label) });
-
-      return { create, revoke, revokeAll, revokeOlderThan, stats };
-    })();
-
-    // ─── DeferredTask ────────────────────────────────────────────────────────
-    // Runs a task during idle time. Falls back to setTimeout if
-    // requestIdleCallback is unavailable. Supports cancellation.
-    const DeferredTask = (() => {
-      let nextId = 1;
-      const pending = new Map(); // id → { cancel }
-
-      const schedule = (fn, timeoutMs = 2000) => {
-        const id = nextId++;
-        let cancelled = false;
-
-        const execute = () => {
-          if (cancelled) return;
-          pending.delete(id);
-          try { fn(); } catch (_) {}
-        };
-
-        let timerId;
-        if (typeof requestIdleCallback === "function") {
-          const idleId = requestIdleCallback(execute, { timeout: timeoutMs });
-          timerId = null;
-          pending.set(id, { cancel: () => { cancelled = true; cancelIdleCallback(idleId); } });
-        } else {
-          timerId = setTimeout(execute, Math.min(timeoutMs, 100));
-          pending.set(id, { cancel: () => { cancelled = true; clearTimeout(timerId); } });
-        }
-
-        return id;
-      };
-
-      const cancel = (id) => {
-        const task = pending.get(id);
-        if (task) { task.cancel(); pending.delete(id); }
-      };
-
-      const cancelAll = () => {
-        for (const [, task] of pending) { task.cancel(); }
-        pending.clear();
-      };
-
-      const stats = () => ({ pending: pending.size });
-
-      return { schedule, cancel, cancelAll, stats };
-    })();
-
-    // ─── AbortGroup ──────────────────────────────────────────────────────────
-    // Groups multiple AbortControllers under a single feature ID.
-    // Calling abort(id) cancels all controllers for that feature.
-    const AbortGroup = (() => {
-      const groups = new Map(); // featureId → Set<AbortController>
-
-      const create = (featureId) => {
-        const ctrl = new AbortController();
-        if (!groups.has(featureId)) groups.set(featureId, new Set());
-        groups.get(featureId).add(ctrl);
-        return ctrl;
-      };
-
-      const abort = (featureId) => {
-        const set = groups.get(featureId);
-        if (!set) return;
-        for (const ctrl of set) {
-          try { ctrl.abort(); } catch (_) {}
-        }
-        set.clear();
-        groups.delete(featureId);
-      };
-
-      const abortAll = () => {
-        for (const [id] of groups) abort(id);
-      };
-
-      const stats = () => {
-        let total = 0;
-        for (const [, set] of groups) total += set.size;
-        return { groups: groups.size, controllers: total };
-      };
-
-      return { create, abort, abortAll, stats };
-    })();
-
-    // ─── Global Stats ────────────────────────────────────────────────────────
-    const stats = () => ({
-      sharedObserver: SharedObserver.stats(),
-      sharedTicker: SharedTicker.stats(),
-      blobURLs: TrackedBlobURL.stats(),
-      deferred: DeferredTask.stats(),
-      abortGroups: AbortGroup.stats(),
-    });
-
-    // ─── Global Cleanup ──────────────────────────────────────────────────────
-    const cleanup = () => {
-      SharedTicker.clear();
-      TrackedBlobURL.revokeAll();
-      DeferredTask.cancelAll();
-      AbortGroup.abortAll();
-    };
-
-    return {
-      BoundedCache,
-      WeakElementCache,
-      SharedObserver,
-      SharedTicker,
-      TrackedBlobURL,
-      DeferredTask,
-      AbortGroup,
-      stats,
-      cleanup,
-    };
   })();
   // ═══════════════════════════════════════════════════════════════════════════
   //  Algorithm Intelligence Engine (AlgoEngine)

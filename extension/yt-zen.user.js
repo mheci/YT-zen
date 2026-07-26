@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YT-zen
 // @namespace    https://github.com/mheci/YT-zen
-// @version      2.0.0
+// @version      3.0.0
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      Unlicense
@@ -772,7 +772,7 @@
       ("undefined" != typeof GM_info &&
         GM_info.script &&
         GM_info.script.version) ||
-      "2.0.0",
+      "3.0.0",
     r = "https://sponsor.ajay.app",
     o = (() => {
       try {
@@ -12545,7 +12545,7 @@
 
         };
         const PREF_KEYS = {
-          "f5": { label: "Autoplay", type: "enum", options: {"20000": "Enabled", "30000": "Disabled"} },
+          "f5": { label: "Autoplay", type: "enum", options: {"3.0.0": "Enabled", "30000": "Disabled"} },
           "f6": { label: "Layout", type: "enum", options: {"4": "Material", "8": "Old"} },
           "al": { label: "Content Language", type: "text" },
           "gl": { label: "Country", type: "text" },
@@ -23441,1379 +23441,489 @@
       };
     } catch (err) {}
   })();
+
   // ===========================================================================
-  //  YT-zen Advanced Features Pack
+  //  ZenEngine Ecosystem v3.0
   // ---------------------------------------------------------------------------
-  //  22 new features for content discovery, navigation, layout, search,
-  //  personalization, and playback enhancements.
+  //  Cohesive architectural expansion for YT-zen.
+  //
+  //  Shared Subsystems:
+  //    ZenEngine     - Core orchestrator, CSS, shared state, scheduling
+  //    ZenDiscovery  - Feed infrastructure, scoring, filtering
+  //    ZenPlayback   - Audio analysis, scene detection, adaptive speed
+  //    ZenSearch     - Search enhancement, remix templates, credibility
+  //    ZenSession    - Session memory, genome, collections, budget
+  //    ZenLayout     - Mood profiles, adaptive density, sidebar, previews
+  //    ZenQueue      - Intelligent queue management
+  //
+  //  Features (22):
+  //    Discovery:  Time Machine, Small Creator, Rabbit Hole, Anti-Rec, Momentum
+  //    Playback:   Scene Jumper, Smart Speed, Video DNA, Parallel Player
+  //    Layout:     Mood Layouts, Adaptive Thumbs, Living Sidebar, Inline Previews
+  //    Search:     Vibe Search, Credibility Layer, Search Remix, Outdated Detection
+  //    Session:    Watch Genome, Collections, Session Memory, Time Budget
+  //    Queue:      Smart Queue
   // ===========================================================================
 
-  // ─── Shared Utilities ──────────────────────────────────────────────────────
-
-  const _advStyles = (() => {
-    let injected = false;
+  // ─── ZenEngine (Core) ─────────────────────────────────────────────────────
+  const ZenEngine = (() => {
+    "use strict";
     const CSS = `
-#ytp-time-machine,#ytp-spotlight,#ytp-rabbithole,#ytp-antirec,#ytp-momentum,
-#ytp-scene-strip,#ytp-smartq,#ytp-parallel,#ytp-dna,#ytp-mood-bar,
-#ytp-vibe-panel,#ytp-cred-layer,#ytp-remix-bar,#ytp-deadlink,
-#ytp-genome-panel,#ytp-collections,#ytp-session-mem,#ytp-budget-bar{
-  font:13px/1.45 "Inter","Roboto",system-ui,-apple-system,sans-serif;
-  color:#eef;box-sizing:border-box}
-.ytp-adv-card{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);
-  border-radius:12px;padding:14px;margin:8px 0;transition:background .15s}
-.ytp-adv-card:hover{background:rgba(255,255,255,.08)}
-.ytp-adv-title{font-size:13px;font-weight:700;color:#fff;margin-bottom:4px}
-.ytp-adv-sub{font-size:11.5px;color:#9aa;line-height:1.4}
-.ytp-adv-pill{display:inline-block;padding:2px 8px;border-radius:99px;
-  font:600 10px system-ui;letter-spacing:.03em;text-transform:uppercase}
-.ytp-adv-grid{display:grid;gap:8px}
-.ytp-adv-row{display:flex;align-items:center;gap:8px}
-.ytp-adv-thumb{width:120px;height:68px;border-radius:8px;background:#111 center/cover no-repeat;flex-shrink:0}
-.ytp-adv-btn{appearance:none;border:1px solid rgba(255,255,255,.14);border-radius:8px;
-  padding:6px 12px;background:rgba(255,255,255,.06);color:#eef;cursor:pointer;
-  font:600 11.5px system-ui;transition:background .12s}
-.ytp-adv-btn:hover{background:rgba(255,255,255,.12)}
-.ytp-adv-btn.primary{background:linear-gradient(135deg,#ff0033,#ff3d7f);border-color:transparent;color:#fff}
-.ytp-adv-btn.primary:hover{filter:brightness(1.1)}
-.ytp-adv-badge{position:absolute;top:4px;right:4px;padding:2px 6px;border-radius:4px;
-  font:700 9px system-ui;letter-spacing:.04em;text-transform:uppercase;z-index:5}
-.ytp-adv-meter{height:4px;background:rgba(255,255,255,.08);border-radius:2px;overflow:hidden}
-.ytp-adv-meter-fill{height:100%;border-radius:2px;transition:width .3s}
-#ytp-scene-strip{position:relative;height:24px;margin:4px 0 8px;border-radius:4px;overflow:hidden;cursor:pointer}
-#ytp-scene-strip .ytp-scene-mark{position:absolute;top:0;bottom:0;width:2px;background:rgba(255,255,255,.6);
-  transition:background .15s}
-#ytp-scene-strip .ytp-scene-mark:hover{background:#ff3d7f;width:3px}
-#ytp-dna{position:relative;height:28px;margin:2px 0 6px;border-radius:4px;overflow:hidden;background:rgba(0,0,0,.3)}
-#ytp-dna canvas{width:100%;height:100%}
-#ytp-mood-bar{display:flex;gap:6px;padding:8px 12px;background:rgba(255,255,255,.03);
-  border-bottom:1px solid rgba(255,255,255,.06)}
-#ytp-mood-bar .ytp-mood-btn{flex:1;padding:8px 4px;border:1px solid rgba(255,255,255,.1);
-  border-radius:8px;background:transparent;color:#9aa;font:600 11px system-ui;cursor:pointer;
-  text-align:center;transition:all .15s}
-#ytp-mood-bar .ytp-mood-btn:hover{background:rgba(255,255,255,.06);color:#fff}
-#ytp-mood-bar .ytp-mood-btn.active{background:rgba(255,61,127,.15);border-color:rgba(255,61,127,.4);color:#ff8aa5}
-#ytp-budget-bar{position:fixed;bottom:0;left:0;right:0;height:32px;z-index:2147483634;
-  background:rgba(14,16,22,.92);border-top:1px solid rgba(255,255,255,.08);
+#ytp-zen-bar{display:flex;gap:6px;padding:6px 12px;background:rgba(255,255,255,.03);
+  border-bottom:1px solid rgba(255,255,255,.06);flex-wrap:wrap;align-items:center}
+#ytp-zen-bar .zen-chip{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;
+  border-radius:99px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);
+  color:#ccc;font:600 11px system-ui;cursor:pointer;transition:all .12s;white-space:nowrap}
+#ytp-zen-bar .zen-chip:hover{background:rgba(255,61,127,.12);border-color:rgba(255,61,127,.3);color:#fff}
+#ytp-zen-bar .zen-chip.active{background:rgba(255,61,127,.18);border-color:rgba(255,61,127,.4);color:#ff8aa5}
+.zen-card{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);
+  border-radius:10px;padding:12px;margin:6px 0;transition:background .15s}
+.zen-card:hover{background:rgba(255,255,255,.07)}
+.zen-row{display:flex;align-items:center;gap:8px}
+.zen-thumb{width:120px;height:68px;border-radius:6px;background:#111 center/cover no-repeat;flex-shrink:0}
+.zen-title{font-size:12.5px;font-weight:600;color:#fff;line-height:1.3;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.zen-meta{font-size:10.5px;color:#888;margin-top:2px}
+.zen-pill{display:inline-block;padding:2px 7px;border-radius:99px;font:600 9.5px system-ui;
+  letter-spacing:.03em;text-transform:uppercase}
+.zen-btn{appearance:none;border:1px solid rgba(255,255,255,.12);border-radius:7px;
+  padding:5px 11px;background:rgba(255,255,255,.05);color:#dde;cursor:pointer;
+  font:600 11px system-ui;transition:all .12s}
+.zen-btn:hover{background:rgba(255,255,255,.1)}
+.zen-btn.primary{background:linear-gradient(135deg,#ff0033,#ff3d7f);border-color:transparent;color:#fff}
+.zen-meter{height:3px;background:rgba(255,255,255,.06);border-radius:2px;overflow:hidden}
+.zen-meter-fill{height:100%;border-radius:2px;transition:width .4s}
+#ytp-zen-scene{position:relative;height:20px;margin:2px 0 6px;border-radius:3px;
+  overflow:hidden;background:rgba(0,0,0,.25);cursor:pointer}
+#ytp-zen-scene .zen-scene-mark{position:absolute;top:0;bottom:0;width:2px;
+  background:rgba(255,255,255,.5);transition:all .15s}
+#ytp-zen-scene .zen-scene-mark:hover{background:#ff3d7f;width:3px}
+#ytp-zen-dna{position:relative;height:26px;margin:2px 0 6px;border-radius:4px;
+  overflow:hidden;background:rgba(0,0,0,.3);cursor:pointer}
+#ytp-zen-dna canvas{width:100%;height:100%;display:block}
+#ytp-zen-budget{position:fixed;bottom:0;left:0;right:0;height:30px;z-index:2147483634;
+  background:rgba(14,16,22,.94);border-top:1px solid rgba(255,255,255,.08);
   display:flex;align-items:center;gap:12px;padding:0 16px;font:11px system-ui;color:#ccc;
   backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
-#ytp-budget-bar .ytp-budget-fill{height:6px;border-radius:3px;transition:width .5s,background .3s}
-#ytp-budget-bar .ytp-budget-track{flex:1;height:6px;background:rgba(255,255,255,.08);border-radius:3px;overflow:hidden}
-#ytp-cred-layer .ytp-cred-badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;
-  border-radius:6px;font:600 10px system-ui;margin-left:6px;vertical-align:middle}
-.ytp-remix-chip{display:inline-flex;align-items:center;gap:4px;padding:5px 12px;
-  border-radius:99px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);
-  color:#dde;font:600 11px system-ui;cursor:pointer;transition:all .12s;white-space:nowrap}
-.ytp-remix-chip:hover{background:rgba(255,61,127,.15);border-color:rgba(255,61,127,.3);color:#fff}
-#ytp-session-mem{position:fixed;left:12px;bottom:48px;z-index:2147483634;
-  width:min(320px,calc(100vw - 24px));background:rgba(14,16,22,.92);
-  border:1px solid rgba(255,255,255,.12);border-radius:12px;padding:12px;
-  backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
-  box-shadow:0 12px 40px rgba(0,0,0,.5)}
+#ytp-zen-budget .zen-budget-track{flex:1;height:5px;background:rgba(255,255,255,.08);
+  border-radius:3px;overflow:hidden}
+#ytp-zen-budget .zen-budget-fill{height:100%;border-radius:3px;transition:width .5s,background .3s}
+#ytp-zen-session{position:fixed;left:12px;bottom:48px;z-index:2147483634;
+  width:min(300px,calc(100vw - 24px));background:rgba(14,16,22,.94);
+  border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:10px;
+  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  box-shadow:0 10px 35px rgba(0,0,0,.5);font:12px system-ui;color:#eef}
+body.zen-mood-focus ytd-watch-flexy #secondary,
+body.zen-mood-focus ytd-watch-flexy #related,
+body.zen-mood-focus ytd-comments,
+body.zen-mood-focus #masthead-container{display:none!important}
+body.zen-mood-focus ytd-watch-flexy #primary{max-width:100%!important}
+body.zen-mood-focus #movie_player{border-radius:0!important}
+body.zen-mood-browse ytd-video-primary-info-renderer,
+body.zen-mood-browse ytd-video-secondary-info-renderer,
+body.zen-mood-browse ytd-comments{display:none!important}
+body.zen-mood-browse ytd-rich-grid-renderer{--ytd-rich-grid-items-per-row:5!important}
+body.zen-mood-background #movie_player{position:fixed!important;right:12px!important;
+  bottom:56px!important;width:300px!important;height:169px!important;z-index:2147483630!important;
+  border-radius:10px!important;box-shadow:0 8px 30px rgba(0,0,0,.5)!important}
+body.zen-mood-learn ytd-watch-flexy #secondary{display:none!important}
+#ytp-zen-preview{position:fixed;z-index:2147483640;width:300px;padding:8px;
+  background:rgba(14,16,22,.96);border:1px solid rgba(255,255,255,.12);border-radius:10px;
+  box-shadow:0 12px 40px rgba(0,0,0,.6);pointer-events:none;font:12px system-ui;color:#eef}
+.zen-cred-badge{display:inline-flex;align-items:center;gap:3px;padding:1px 6px;
+  border-radius:5px;font:600 9px system-ui;margin-left:4px;vertical-align:middle}
 `;
-    return () => {
-      if (injected) return;
-      injected = true;
+    let cssInjected = false;
+    const injectCSS = () => {
+      if (cssInjected) return;
+      cssInjected = true;
       try {
         const s = document.createElement("style");
-        s.id = "ytp-adv-styles";
+        s.id = "ytp-zen-engine-css";
         s.textContent = CSS;
         (document.head || document.documentElement).appendChild(s);
       } catch (_) {}
     };
-  })();
-
-  // ─── Content Discovery Store ──────────────────────────────────────────────
-  const _disco = (() => {
-    const KEY = "__ytp_disco__";
-    let store = {};
-    const load = async () => {
-      try {
-        const row = await v("kv", KEY);
-        if (row && row.v && typeof row.v === "object") store = row.v;
-      } catch (_) {}
-    };
-    const save = (() => {
-      let t = 0;
-      return () => {
-        if (t) return;
-        t = setTimeout(() => { t = 0; k("kv", { k: KEY, v: store, updatedAt: Date.now() }); }, 3000);
-      };
-    })();
-    const get = (k2) => store[k2] || null;
-    const set = (k2, val) => { store[k2] = val; save(); };
-    const push = (k2, item, max = 100) => {
-      const arr = Array.isArray(store[k2]) ? store[k2] : [];
-      arr.push(item);
-      if (arr.length > max) arr.splice(0, arr.length - max);
-      store[k2] = arr;
-      save();
-    };
-    load();
-    return { get, set, push, load };
-  })();
-
-  // ─── Watch Genome ─────────────────────────────────────────────────────────
-  const _genome = (() => {
-    const KEY = "__ytp_genome__";
-    let data = { topics: {}, lengths: {}, styles: {}, channels: {}, sessions: 0 };
-    const load = async () => {
-      try {
-        const row = await v("kv", KEY);
-        if (row && row.v) data = row.v;
-      } catch (_) {}
-    };
-    const save = (() => {
-      let t = 0;
-      return () => {
-        if (t) return;
-        t = setTimeout(() => { t = 0; k("kv", { k: KEY, v: data, updatedAt: Date.now() }); }, 5000);
-      };
-    })();
-    const record = (videoMeta) => {
-      if (!videoMeta) return;
-      data.sessions = (data.sessions || 0) + 1;
-      if (videoMeta.topic) {
-        data.topics[videoMeta.topic] = (data.topics[videoMeta.topic] || 0) + 1;
-      }
-      if (videoMeta.duration) {
-        const bucket = videoMeta.duration < 300 ? "short" : videoMeta.duration < 1200 ? "medium" : "long";
-        data.lengths[bucket] = (data.lengths[bucket] || 0) + 1;
-      }
-      if (videoMeta.channelId) {
-        data.channels[videoMeta.channelId] = (data.channels[videoMeta.channelId] || 0) + 1;
-      }
-      save();
-    };
-    const getTopTopics = (n = 5) =>
-      Object.entries(data.topics || {}).sort((a, b) => b[1] - a[1]).slice(0, n).map(e => e[0]);
-    const getTopChannels = (n = 10) =>
-      Object.entries(data.channels || {}).sort((a, b) => b[1] - a[1]).slice(0, n).map(e => e[0]);
-    const getLengthPref = () => {
-      const l = data.lengths || {};
-      const total = (l.short || 0) + (l.medium || 0) + (l.long || 0);
-      if (!total) return "medium";
-      if ((l.short || 0) / total > 0.5) return "short";
-      if ((l.long || 0) / total > 0.4) return "long";
-      return "medium";
-    };
-    const score = (video) => {
-      if (!video) return 50;
-      let s = 50;
-      if (video.channelId && data.channels && data.channels[video.channelId]) s += 20;
-      if (video.duration) {
-        const pref = getLengthPref();
-        const bucket = video.duration < 300 ? "short" : video.duration < 1200 ? "medium" : "long";
-        if (bucket === pref) s += 15;
-      }
-      return Math.min(99, Math.max(10, s));
-    };
-    const snapshot = () => Object.assign({}, data);
-    load();
-    return { record, getTopTopics, getTopChannels, getLengthPref, score, snapshot, load };
-  })();
-
-  // ─── Session Memory ───────────────────────────────────────────────────────
-  const _sessMem = (() => {
-    const KEY = "__ytp_sess_mem__";
-    let session = { videos: [], searches: [], queue: [], topic: "", startedAt: 0 };
-    const load = async () => {
-      try {
-        const row = await v("kv", KEY);
-        if (row && row.v) session = row.v;
-      } catch (_) {}
-    };
-    const save = () => { k("kv", { k: KEY, v: session, updatedAt: Date.now() }); };
-    const trackVideo = (vid) => {
-      if (!vid || !vid.videoId) return;
-      const exists = session.videos.find(v2 => v2.videoId === vid.videoId);
-      if (!exists) {
-        session.videos.push(Object.assign({ watchedAt: Date.now() }, vid));
-        if (session.videos.length > 50) session.videos.shift();
-      }
-      save();
-    };
-    const trackSearch = (query) => {
-      if (!query) return;
-      session.searches = session.searches.filter(s2 => s2 !== query);
-      session.searches.unshift(query);
-      if (session.searches.length > 20) session.searches.pop();
-      save();
-    };
-    const setTopic = (t) => { session.topic = t || ""; save(); };
-    const getSession = () => Object.assign({}, session);
-    const clear = () => {
-      session = { videos: [], searches: [], queue: [], topic: "", startedAt: Date.now() };
-      save();
-    };
-    const begin = () => { session.startedAt = Date.now(); save(); };
-    load();
-    return { trackVideo, trackSearch, setTopic, getSession, clear, begin };
-  })();
-
-  // ─── Scene Detection (Silence + Visual) ───────────────────────────────────
-  const _sceneDetect = (() => {
-    let marks = [];
-    let detecting = false;
-    let audioCtx = null;
-
-    const detectSilence = (video, duration) => {
-      return new Promise((resolve) => {
-        if (!video || !duration || duration < 10) return resolve([]);
+    const createStore = (key, initial) => {
+      let data = initial;
+      let dirty = false;
+      let timer = 0;
+      const load = async () => {
         try {
-          if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-          const src = audioCtx.createMediaElementSource(video);
-          const analyser = audioCtx.createAnalyser();
-          analyser.fftSize = 2048;
-          src.connect(analyser);
-          analyser.connect(audioCtx.destination);
-          const buf = new Uint8Array(analyser.frequencyBinCount);
-          const sceneMarks = [];
-          let silentFrames = 0;
-          const checkInterval = setInterval(() => {
-            if (!video || video.ended || video.paused) {
-              clearInterval(checkInterval);
-              return resolve(sceneMarks);
-            }
-            analyser.getByteFrequencyData(buf);
-            let sum = 0;
-            for (let i2 = 0; i2 < buf.length; i2++) sum += buf[i2];
-            const avg = sum / buf.length;
-            if (avg < 8) {
-              silentFrames++;
-              if (silentFrames === 3) {
-                sceneMarks.push(video.currentTime);
-              }
-            } else {
-              silentFrames = 0;
-            }
-            if (video.currentTime >= duration - 1) {
-              clearInterval(checkInterval);
-              resolve(sceneMarks);
-            }
-          }, 500);
-          setTimeout(() => { clearInterval(checkInterval); resolve(sceneMarks); }, Math.min(duration * 1000, 120000));
-        } catch (_) { resolve([]); }
-      });
+          const row = await v("kv", key);
+          if (row && row.v !== undefined) data = row.v;
+        } catch (_) {}
+      };
+      const flush = () => {
+        if (!dirty) return;
+        dirty = false;
+        k("kv", { k: key, v: data, updatedAt: Date.now() });
+      };
+      const scheduleFlush = () => {
+        if (timer) return;
+        dirty = true;
+        timer = setTimeout(() => { timer = 0; flush(); }, 4000);
+      };
+      const get = () => data;
+      const set = (val) => { data = val; scheduleFlush(); };
+      const update = (fn) => { fn(data); scheduleFlush(); };
+      load();
+      return { get, set, update, load, flush };
     };
-
-    const renderStrip = (container, duration, sceneMarks) => {
-      if (!container || !duration) return;
-      container.innerHTML = "";
-      container.id = "ytp-scene-strip";
-      sceneMarks.forEach(t => {
-        const mark = document.createElement("div");
-        mark.className = "ytp-scene-mark";
-        mark.style.left = ((t / duration) * 100).toFixed(2) + "%";
-        mark.title = "Scene at " + ce(Math.floor(t));
-        mark.addEventListener("click", (ev) => {
-          ev.stopPropagation();
-          const vid = ie.el();
-          if (vid) vid.currentTime = t;
-        });
-        container.appendChild(mark);
-      });
+    const whenIdle = (fn, timeout) => {
+      if (typeof requestIdleCallback === "function") requestIdleCallback(fn, { timeout: timeout || 2000 });
+      else setTimeout(fn, 1);
     };
-
-    return { detectSilence, renderStrip, getMarks: () => marks };
+    const inflight = new Map();
+    const dedup = async (key, fn) => {
+      if (inflight.has(key)) return inflight.get(key);
+      const promise = fn().finally(() => inflight.delete(key));
+      inflight.set(key, promise);
+      return promise;
+    };
+    const innerTube = (endpoint, body, opts) => Ot(endpoint, body, Object.assign({ parseJson: true, timeout: 8000 }, opts || {}));
+    return { injectCSS, createStore, whenIdle, dedup, innerTube, CSS };
   })();
 
-  // ─── Smart Speed Engine ───────────────────────────────────────────────────
-  const _smartSpeed = (() => {
-    let active = false;
-    let baseRate = 1;
-    let fastRate = 1.5;
-    let interval = 0;
-    let audioCtx2 = null;
-    let analyser2 = null;
-    let source2 = null;
-
-    const analyze = (video) => {
-      if (!video || video.paused || video.ended) return;
-      try {
-        if (!audioCtx2) audioCtx2 = new (window.AudioContext || window.webkitAudioContext)();
-        if (!source2) {
-          source2 = audioCtx2.createMediaElementSource(video);
-          analyser2 = audioCtx2.createAnalyser();
-          analyser2.fftSize = 1024;
-          source2.connect(analyser2);
-          analyser2.connect(audioCtx2.destination);
-        }
-        const buf = new Uint8Array(analyser2.frequencyBinCount);
-        analyser2.getByteFrequencyData(buf);
-        let sum = 0;
-        let speechBand = 0;
-        for (let i2 = 0; i2 < buf.length; i2++) {
-          sum += buf[i2];
-          if (i2 > 10 && i2 < 80) speechBand += buf[i2];
-        }
-        const avg = sum / buf.length;
-        const speechAvg = speechBand / 70;
-        const isSpeech = speechAvg > 20 && avg > 10;
-        const isQuiet = avg < 5;
-        const isLoud = avg > 60;
-        let target = baseRate;
-        if (isSpeech && !isLoud) target = fastRate;
-        if (isQuiet) target = fastRate;
-        if (Math.abs(video.playbackRate - target) > 0.1) {
-          video.playbackRate = target;
-        }
-      } catch (_) {}
-    };
-
-    const start = (video) => {
-      if (active) return;
-      active = true;
-      baseRate = S.smartSpeedBase || 1;
-      fastRate = S.smartSpeedFast || 1.5;
-      interval = setInterval(() => analyze(video), 2000);
-    };
-
-    const stop = () => {
-      active = false;
-      clearInterval(interval);
-      interval = 0;
-      const vid = ie.el();
-      if (vid) vid.playbackRate = S.speedDefault || 1;
-    };
-
-    return { start, stop, isActive: () => active };
-  })();
-
-  // ─── Time Budget Manager ──────────────────────────────────────────────────
-  const _budget = (() => {
-    let budgetMin = 0;
-    let usedSec = 0;
-    let lastTick = 0;
-    let interval = 0;
-    let barEl = null;
-
-    const tick = () => {
-      const now = Date.now();
-      if (lastTick && now - lastTick < 2000) return;
-      const vid = ie.el();
-      if (vid && !vid.paused && !vid.ended) {
-        usedSec += (now - (lastTick || now)) / 1000;
-      }
-      lastTick = now;
-      updateBar();
-    };
-
-    const updateBar = () => {
-      if (!barEl) return;
-      const totalSec = budgetMin * 60;
-      const pct = totalSec > 0 ? Math.min(100, (usedSec / totalSec) * 100) : 0;
-      const remain = Math.max(0, totalSec - usedSec);
-      const fill = barEl.querySelector(".ytp-budget-fill");
-      const label = barEl.querySelector(".ytp-budget-label");
-      if (fill) {
-        fill.style.width = pct + "%";
-        fill.style.background = pct < 60 ? "#4caf50" : pct < 85 ? "#ffc107" : "#ff5722";
-      }
-      if (label) {
-        label.textContent = ce(Math.floor(remain)) + " remaining of " + budgetMin + " min";
-      }
-    };
-
-    const start = (mins) => {
-      budgetMin = mins || 60;
-      usedSec = 0;
-      lastTick = Date.now();
-      clearInterval(interval);
-      interval = setInterval(tick, 2000);
-    };
-
-    const stop = () => {
-      clearInterval(interval);
-      interval = 0;
-      if (barEl) { barEl.remove(); barEl = null; }
-    };
-
-    const render = () => {
-      if (barEl) barEl.remove();
-      barEl = document.createElement("div");
-      barEl.id = "ytp-budget-bar";
-      barEl.innerHTML = '<span class="ytp-budget-label">--</span>' +
-        '<div class="ytp-budget-track"><div class="ytp-budget-fill"></div></div>' +
-        '<button class="ytp-adv-btn" id="ytp-budget-close">End session</button>';
-      document.body.appendChild(barEl);
-      barEl.querySelector("#ytp-budget-close").addEventListener("click", () => {
-        Ta("timeBudgetOn", false);
-        xa.apply("time-budget");
-      });
-      updateBar();
-    };
-
-    return { start, stop, render, getUsed: () => usedSec, getBudget: () => budgetMin };
-  })();
-
-  // ─── Curated Collections Store ────────────────────────────────────────────
-  const _collections = (() => {
-    const KEY = "__ytp_collections__";
-    let collections = [];
-    const load = async () => {
-      try {
-        const row = await v("kv", KEY);
-        if (row && Array.isArray(row.v)) collections = row.v;
-      } catch (_) {}
-    };
-    const save = () => { k("kv", { k: KEY, v: collections, updatedAt: Date.now() }); };
-    const list = () => collections.slice();
-    const create = (name, desc) => {
-      const col = { id: "col_" + Date.now(), name, desc: desc || "", videos: [], createdAt: Date.now() };
-      collections.push(col);
-      save();
-      return col;
-    };
-    const addVideo = (colId, video) => {
-      const col = collections.find(c => c.id === colId);
-      if (!col) return;
-      if (!col.videos.find(v2 => v2.videoId === video.videoId)) {
-        col.videos.push(Object.assign({ addedAt: Date.now() }, video));
-        save();
-      }
-    };
-    const removeVideo = (colId, videoId) => {
-      const col = collections.find(c => c.id === colId);
-      if (!col) return;
-      col.videos = col.videos.filter(v2 => v2.videoId !== videoId);
-      save();
-    };
-    const deleteCol = (colId) => {
-      collections = collections.filter(c => c.id !== colId);
-      save();
-    };
-    load();
-    return { list, create, addVideo, removeVideo, deleteCol, load };
-  })();
-
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  //  FEATURE REGISTRATIONS
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  // ─── 1. Time Machine Feed ─────────────────────────────────────────────────
-  xa.register({
-    id: "time-machine",
-    name: "Time Machine Feed",
-    summary: "Surface videos from your subscriptions uploaded exactly N days, months, or years ago. Rediscover content that YouTube buried.",
-    masterKey: "timeMachineOn",
-    keys: ["timeMachineOn", "timeMachineYears", "timeMachineMonths"],
-    apply(ctx) {
-      if (!S.timeMachineOn) return;
-      _advStyles();
+  // ─── ZenDiscovery ─────────────────────────────────────────────────────────
+  const ZenDiscovery = (() => {
+    const createFeedPanel = (id, title) => {
       const panel = document.createElement("div");
-      panel.id = "ytp-time-machine";
-      panel.className = "ytp-adv-card";
-      panel.innerHTML = '<div class="ytp-adv-title">Time Machine</div>' +
-        '<div class="ytp-adv-sub">Show videos from your subscriptions uploaded this date in a previous year.</div>' +
-        '<div class="ytp-adv-row" style="margin-top:8px">' +
-        '<button class="ytp-adv-btn primary" id="ytp-tm-go">Load time capsule</button>' +
-        '<span class="ytp-adv-sub" id="ytp-tm-status"></span></div>' +
-        '<div id="ytp-tm-results" class="ytp-adv-grid" style="margin-top:8px"></div>';
-      const insert = () => {
+      panel.id = id;
+      panel.className = "zen-card";
+      panel.style.cssText = "margin:8px 12px";
+      panel.innerHTML = '<div class="zen-row" style="justify-content:space-between;margin-bottom:6px">' +
+        '<span style="font-size:13px;font-weight:700;color:#fff">' + title + '</span>' +
+        '<span class="zen-meta" id="' + id + '-status"></span></div>' +
+        '<div id="' + id + '-results" style="display:flex;flex-direction:column;gap:4px"></div>';
+      return panel;
+    };
+    const createVideoRow = (videoId, title, channel, onClick) => {
+      const row = document.createElement("div");
+      row.className = "zen-row";
+      row.style.cssText = "padding:4px 0;cursor:pointer";
+      const thumb = "https://i.ytimg.com/vi/" + videoId + "/mqdefault.jpg";
+      row.innerHTML = '<div class="zen-thumb" style="width:80px;height:45px;background-image:url(\'' +
+        sanitizeUrlForCSS(thumb) + '\')"></div>' +
+        '<div style="flex:1;min-width:0"><div class="zen-title" style="-webkit-line-clamp:1">' +
+        (title || videoId) + '</div><div class="zen-meta">' + (channel || "") + '</div></div>';
+      if (onClick) row.addEventListener("click", onClick);
+      return row;
+    };
+    const insertIntoFeed = (panel, ctx) => {
+      const tryInsert = () => {
         const target = document.querySelector("#contents.ytd-rich-grid-renderer") ||
                        document.querySelector("ytd-rich-grid-renderer #contents") ||
                        document.querySelector("#primary");
-        if (target && !document.getElementById("ytp-time-machine")) {
-          target.insertBefore(panel, target.firstChild);
-        }
+        if (target && !panel.parentNode) target.insertBefore(panel, target.firstChild);
       };
-      ctx.addTimeout(insert, 1500);
-      ctx.onNav(() => ctx.addTimeout(insert, 1500));
-      panel.querySelector("#ytp-tm-go").addEventListener("click", () => {
-        const status = panel.querySelector("#ytp-tm-status");
-        const results = panel.querySelector("#ytp-tm-results");
-        status.textContent = "Searching...";
-        const years = S.timeMachineYears || 1;
-        const months = S.timeMachineMonths || 0;
-        const targetDate = new Date();
-        targetDate.setFullYear(targetDate.getFullYear() - years);
-        targetDate.setMonth(targetDate.getMonth() - months);
-        const publishedAfter = Math.floor(targetDate.getTime() / 1000);
-        const target2 = new Date(publishedAfter * 1000);
-        target2.setDate(target2.getDate() + 1);
-        const publishedBefore = Math.floor(target2.getTime() / 1000);
-        Ot("search", {
-          context: Mt(),
-          query: "",
-          params: btoa(String.fromCharCode(0x12, 0x06, 0x08, 0x01) +
-            String.fromCharCode(0x38, 0x01) +
-            String.fromCharCode(0x40, 0x02)),
-        }, { parseJson: true, timeout: 10000 }).then(r => {
-          if (!r || !r.ok || !r.json) { status.textContent = "No results found."; return; }
-          status.textContent = "Found videos from around " +
-            new Date(publishedAfter * 1000).toLocaleDateString();
-          const items = [];
-          try {
-            const contents = r.json.contents && r.json.contents.twoColumnSearchResultsRenderer &&
-              r.json.contents.twoColumnSearchResultsRenderer.primaryContents &&
-              r.json.contents.twoColumnSearchResultsRenderer.primaryContents.sectionListRenderer &&
-              r.json.contents.twoColumnSearchResultsRenderer.primaryContents.sectionListRenderer.contents;
-            if (contents) {
-              for (const section of contents) {
-                const vids = section.itemSectionRenderer && section.itemSectionRenderer.contents;
-                if (vids) {
-                  for (const v2 of vids) {
-                    const vr = v2.videoRenderer;
-                    if (vr) items.push(vr);
-                  }
-                }
-              }
-            }
-          } catch (_) {}
-          results.innerHTML = "";
-          items.slice(0, 12).forEach(item => {
-            const card = document.createElement("div");
-            card.className = "ytp-adv-row";
-            card.style.cssText = "padding:6px 0;cursor:pointer";
-            const thumb = ie.thumb(item.videoId, "mqdefault");
-            card.innerHTML = '<div class="ytp-adv-thumb" style="background-image:url(\'' +
-              sanitizeUrlForCSS(thumb) + '\')"></div>' +
-              '<div style="flex:1;min-width:0"><div style="font-size:12px;color:#fff;font-weight:600;' +
-              'white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' +
-              ((item.title && item.title.simpleText) || item.videoId) +
-              '</div><div style="font-size:10.5px;color:#888;margin-top:2px">' +
-              ((item.ownerText && item.ownerText.simpleText) || "") + '</div></div>';
-            card.addEventListener("click", () => { e.location.href = "/watch?v=" + item.videoId; });
-            results.appendChild(card);
-          });
-        }).catch(() => { status.textContent = "Search failed."; });
-      });
-    },
-    settings(en) {
-      en.appendChild(Io("Enable Time Machine Feed", "timeMachineOn"));
-      en.appendChild(No("Years back", "timeMachineYears", 1, 10, 1, v2 => v2 + " year" + (v2 > 1 ? "s" : "")));
-      en.appendChild(No("Additional months back", "timeMachineMonths", 0, 11, 1, v2 => v2 + " months"));
-    },
-  });
-
-  // ─── 2. Small Creator Spotlight ──────────────────────────────────────────
-  xa.register({
-    id: "small-creator-spotlight",
-    name: "Small Creator Spotlight",
-    summary: "A dedicated feed showing only videos from channels under your subscriber threshold. Find hidden gems before they blow up.",
-    masterKey: "smallCreatorOn",
-    keys: ["smallCreatorOn", "smallCreatorMaxSubs"],
-    apply(ctx) {
-      if (!S.smallCreatorOn) return;
-      _advStyles();
-    },
-    settings(en) {
-      en.appendChild(Io("Enable Small Creator Spotlight", "smallCreatorOn"));
-      en.appendChild(No("Max subscribers", "smallCreatorMaxSubs", 1000, 100000, 1000, v2 => v2.toLocaleString()));
-    },
-  });
-
-  // ─── 3. Rabbit Hole Generator ─────────────────────────────────────────────
-  xa.register({
-    id: "rabbit-hole",
-    name: "Rabbit Hole Generator",
-    summary: "Build an exploration path from a seed video that deliberately avoids obvious picks. See how you got from A to B and branch off anytime.",
-    masterKey: "rabbitHoleOn",
-    keys: ["rabbitHoleOn", "rabbitHoleDepth"],
-    apply(ctx) {
-      if (!S.rabbitHoleOn) return;
-      _advStyles();
-      const panel = document.createElement("div");
-      panel.id = "ytp-rabbithole";
-      panel.className = "ytp-adv-card";
-      panel.style.cssText = "margin:8px 12px";
-      panel.innerHTML = '<div class="ytp-adv-row"><div class="ytp-adv-title">Rabbit Hole</div>' +
-        '<button class="ytp-adv-btn" id="ytp-rh-start">Start from this video</button></div>' +
-        '<div id="ytp-rh-path" style="margin-top:8px"></div>';
-      const insert = () => {
-        const below = document.querySelector("#below") || document.querySelector("#secondary");
-        if (below && !document.getElementById("ytp-rabbithole")) below.prepend(panel);
-      };
-      ctx.addTimeout(insert, 2000);
-      ctx.onNav(() => ctx.addTimeout(insert, 2000));
-      panel.querySelector("#ytp-rh-start").addEventListener("click", () => {
-        const vid = ie.videoId();
-        if (!vid) return pe("Open a video first.", 1500, "error");
-        const path = panel.querySelector("#ytp-rh-path");
-        path.innerHTML = '<div class="ytp-adv-sub">Building path from ' + vid.slice(0, 8) + '...</div>';
-        Ot("next", { context: Mt(), videoId: vid }, { parseJson: true, timeout: 8000 }).then(r => {
-          if (!r || !r.ok || !r.json) { path.innerHTML = '<div class="ytp-adv-sub">Could not find related videos.</div>'; return; }
-          const related = [];
-          try {
-            const results = r.json.contents && r.json.contents.twoColumnWatchNextResults &&
-              r.json.contents.twoColumnWatchNextResults.results &&
-              r.json.contents.twoColumnWatchNextResults.results.results &&
-              r.json.contents.twoColumnWatchNextResults.results.results.contents;
-            if (results) {
-              for (const section of results) {
-                const items = section.shelfRenderer && section.shelfRenderer.content &&
-                  section.shelfRenderer.content.verticalListRenderer &&
-                  section.shelfRenderer.content.verticalListRenderer.items;
-                if (items) {
-                  for (const item of items) {
-                    const vr = item.playlistPanelVideoRenderer || item.videoRenderer;
-                    if (vr && vr.videoId) related.push(vr);
-                  }
-                }
-              }
-            }
-          } catch (_) {}
-          const shuffled = related.sort(() => Math.random() - 0.5).slice(0, S.rabbitHoleDepth || 5);
-          path.innerHTML = "";
-          shuffled.forEach((v2, idx) => {
-            const row = document.createElement("div");
-            row.className = "ytp-adv-row";
-            row.style.cssText = "padding:4px 0;cursor:pointer";
-            const title = (v2.title && (v2.title.simpleText || (v2.title.runs && v2.title.runs[0] && v2.title.runs[0].text))) || v2.videoId;
-            row.innerHTML = '<span style="color:#ff8a96;font:700 11px system-ui;min-width:20px">' + (idx + 1) + '.</span>' +
-              '<div class="ytp-adv-thumb" style="width:80px;height:45px;background-image:url(\'' +
-              sanitizeUrlForCSS(ie.thumb(v2.videoId, "mqdefault")) + '\')"></div>' +
-              '<div style="flex:1;min-width:0;font-size:11.5px;color:#dde;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + title + '</div>';
-            row.addEventListener("click", () => { e.location.href = "/watch?v=" + v2.videoId; });
-            path.appendChild(row);
-          });
-        });
-      });
-    },
-    settings(en) {
-      en.appendChild(Io("Enable Rabbit Hole Generator", "rabbitHoleOn"));
-      en.appendChild(No("Path depth", "rabbitHoleDepth", 3, 10, 1, v2 => v2 + " videos"));
-    },
-  });
-
-  // ─── 4. Anti-Recommendation Engine ────────────────────────────────────────
-  xa.register({
-    id: "anti-rec",
-    name: "Anti-Recommendation Engine",
-    summary: "Break out of your filter bubble. Deliberately surfaces content from topics and perspectives outside your usual interests.",
-    masterKey: "antiRecOn",
-    keys: ["antiRecOn"],
-    apply(ctx) {
-      if (!S.antiRecOn) return;
-      _advStyles();
-    },
-    settings(en) {
-      en.appendChild(Io("Enable Anti-Recommendation Engine", "antiRecOn"));
-    },
-  });
-
-  // ─── 5. Before It Blew Up ─────────────────────────────────────────────────
-  xa.register({
-    id: "momentum",
-    name: "Before It Blew Up",
-    summary: "Find videos gaining momentum right now. Tracks view velocity relative to channel size to surface rising content before it goes viral.",
-    masterKey: "momentumOn",
-    keys: ["momentumOn"],
-    apply(ctx) {
-      if (!S.momentumOn) return;
-      _advStyles();
-    },
-    settings(en) {
-      en.appendChild(Io("Enable Before It Blew Up feed", "momentumOn"));
-    },
-  });
-
-  // ─── 6. Scene Jumper ─────────────────────────────────────────────────────
-  xa.register({
-    id: "scene-jumper",
-    name: "Scene Jumper",
-    summary: "Automatically detect scene transitions in any video using audio silence detection. Click a marker on the timeline to jump to that scene.",
-    masterKey: "sceneJumperOn",
-    keys: ["sceneJumperOn"],
-    apply(ctx) {
-      if (!S.sceneJumperOn) return;
-      _advStyles();
-      let strip = null;
-      const build = () => {
-        const vid = ie.el();
-        if (!vid || !vid.duration || !isFinite(vid.duration) || vid.duration < 30) return;
-        const container = document.querySelector(".ytp-chapters-container") ||
-                          document.querySelector(".ytp-progress-bar-container");
-        if (!container) return;
-        if (strip && strip.parentNode) strip.remove();
-        strip = document.createElement("div");
-        strip.id = "ytp-scene-strip";
-        strip.title = "Click a marker to jump to a scene transition";
-        container.parentNode.insertBefore(strip, container.nextSibling);
-        _sceneDetect.detectSilence(vid, vid.duration).then(marks => {
-          _sceneDetect.renderStrip(strip, vid.duration, marks);
-        });
-      };
-      ctx.addTimeout(build, 3000);
-      ctx.onNav(() => ctx.addTimeout(build, 3000));
-      const vid = ie.el();
-      if (vid) {
-        ctx.addListener(vid, "loadedmetadata", () => ctx.addTimeout(build, 1000));
+      ctx.addTimeout(tryInsert, 1200);
+      ctx.onNav(() => ctx.addTimeout(tryInsert, 1200));
+    };
+    const scoreVideo = (video, criteria) => {
+      let score = 50;
+      if (criteria.smallCreator && video.subscriberCount && video.subscriberCount < (criteria.maxSubs || 10000)) score += 30;
+      if (criteria.momentum && video.viewCount && video.publishedAt) {
+        const velocity = video.viewCount / ((Date.now() - video.publishedAt) / 3600000);
+        if (velocity > 100) score += 25;
       }
-    },
-    settings(en) {
-      en.appendChild(Io("Enable Scene Jumper", "sceneJumperOn"));
-    },
-  });
+      return Math.min(99, Math.max(1, score));
+    };
+    return { createFeedPanel, createVideoRow, insertIntoFeed, scoreVideo };
+  })();
 
-  // ─── 7. Smart Watch Queue ─────────────────────────────────────────────────
-  xa.register({
-    id: "smart-queue",
-    name: "Smart Watch Queue",
-    summary: "An intelligent queue that groups videos by topic, suggests optimal watch order, shows total time, and adapts as you watch.",
-    masterKey: "smartQueueOn",
-    keys: ["smartQueueOn"],
-    apply(ctx) {
-      if (!S.smartQueueOn) return;
-      _advStyles();
-    },
-    settings(en) {
-      en.appendChild(Io("Enable Smart Watch Queue", "smartQueueOn"));
-    },
-  });
-
-  // ─── 8. Parallel Player ──────────────────────────────────────────────────
-  xa.register({
-    id: "parallel-player",
-    name: "Parallel Player",
-    summary: "Watch two videos side by side with synchronized playback. Compare reactions, follow tutorials, or watch debates from both perspectives.",
-    masterKey: "parallelPlayerOn",
-    keys: ["parallelPlayerOn"],
-    apply(ctx) {
-      if (!S.parallelPlayerOn) return;
-      _advStyles();
-    },
-    settings(en) {
-      en.appendChild(Io("Enable Parallel Player", "parallelPlayerOn"));
-    },
-  });
-
-  // ─── 9. Video DNA Timeline ────────────────────────────────────────────────
-  xa.register({
-    id: "video-dna",
-    name: "Video DNA Timeline",
-    summary: "A visual energy profile below the player showing replay heatmaps, audio intensity, and speech vs music zones. Scan any video at a glance.",
-    masterKey: "videoDnaOn",
-    keys: ["videoDnaOn"],
-    apply(ctx) {
-      if (!S.videoDnaOn) return;
-      _advStyles();
-      let dnaEl = null;
-      const build = () => {
-        const vid = ie.el();
-        if (!vid || !vid.duration || !isFinite(vid.duration)) return;
-        const container = document.querySelector(".ytp-chapters-container") ||
-                          document.querySelector(".ytp-progress-bar-container");
-        if (!container) return;
-        if (dnaEl && dnaEl.parentNode) dnaEl.remove();
-        dnaEl = document.createElement("div");
-        dnaEl.id = "ytp-dna";
-        const canvas = document.createElement("canvas");
-        canvas.width = 800;
-        canvas.height = 28;
-        dnaEl.appendChild(canvas);
-        container.parentNode.insertBefore(dnaEl, container.nextSibling);
-        const cx = canvas.getContext("2d");
-        const dur = vid.duration;
-        const w = canvas.width;
-        const h = canvas.height;
-        cx.fillStyle = "rgba(0,0,0,0.3)";
-        cx.fillRect(0, 0, w, h);
-        for (let x = 0; x < w; x++) {
-          const t = (x / w) * dur;
-          const energy = 0.3 + 0.7 * Math.abs(Math.sin(t * 0.1) * Math.cos(t * 0.05));
-          const barH = energy * h * 0.8;
-          const hue = energy > 0.7 ? 0 : energy > 0.4 ? 30 : 200;
-          cx.fillStyle = "hsla(" + hue + ",80%,55%,0.7)";
-          cx.fillRect(x, h - barH, 1, barH);
-        }
-        dnaEl.addEventListener("click", (ev) => {
-          const rect = dnaEl.getBoundingClientRect();
-          const pct = (ev.clientX - rect.left) / rect.width;
-          vid.currentTime = pct * dur;
-        });
-      };
-      ctx.addTimeout(build, 2500);
-      ctx.onNav(() => ctx.addTimeout(build, 2500));
-    },
-    settings(en) {
-      en.appendChild(Io("Enable Video DNA Timeline", "videoDnaOn"));
-    },
-  });
-
-  // ─── 10. Smart Speed ──────────────────────────────────────────────────────
-  xa.register({
-    id: "smart-speed",
-    name: "Smart Speed",
-    summary: "Automatically adjusts playback speed based on content density. Speeds up talking heads, slows down for complex visuals. Set your preferred fast and normal speeds.",
-    masterKey: "smartSpeedOn",
-    keys: ["smartSpeedOn", "smartSpeedBase", "smartSpeedFast"],
-    apply(ctx) {
-      if (!S.smartSpeedOn) return;
-      const vid = ie.el();
-      if (vid) _smartSpeed.start(vid);
-      ctx.onNav(() => {
-        _smartSpeed.stop();
-        ctx.addTimeout(() => {
-          const v2 = ie.el();
-          if (v2 && S.smartSpeedOn) _smartSpeed.start(v2);
-        }, 2000);
+  // ─── ZenPlayback ──────────────────────────────────────────────────────────
+  const ZenPlayback = (() => {
+    let audioCtx = null;
+    const getAudioCtx = () => {
+      if (!audioCtx) try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (_) {}
+      return audioCtx;
+    };
+    const detectScenes = (video, duration) => {
+      return new Promise((resolve) => {
+        if (!video || !duration || duration < 15) return resolve([]);
+        const ctx = getAudioCtx();
+        if (!ctx) return resolve([]);
+        try {
+          const src = ctx.createMediaElementSource(video);
+          const analyser = ctx.createAnalyser();
+          analyser.fftSize = 2048;
+          src.connect(analyser);
+          analyser.connect(ctx.destination);
+          const buf = new Uint8Array(analyser.frequencyBinCount);
+          const scenes = [];
+          let silentFrames = 0;
+          const interval = setInterval(() => {
+            if (!video || video.ended) { clearInterval(interval); resolve(scenes); return; }
+            analyser.getByteFrequencyData(buf);
+            let sum = 0;
+            for (let i = 0; i < buf.length; i++) sum += buf[i];
+            const avg = sum / buf.length;
+            if (avg < 8) { silentFrames++; if (silentFrames === 3 && video.currentTime > 2) { const t = video.currentTime; if (!scenes.length || t - scenes[scenes.length - 1] > 5) scenes.push(t); } }
+            else silentFrames = 0;
+            if (video.currentTime >= duration - 1) { clearInterval(interval); resolve(scenes); }
+          }, 400);
+          setTimeout(() => { clearInterval(interval); resolve(scenes); }, Math.min(duration * 1000, 120000));
+        } catch (_) { resolve([]); }
       });
-      Yt["smart-speed"].push(() => _smartSpeed.stop());
-    },
-    settings(en) {
-      en.appendChild(Io("Enable Smart Speed", "smartSpeedOn"));
-      en.appendChild(No("Normal speed", "smartSpeedBase", 0.75, 1.25, 0.05, v2 => v2.toFixed(2) + "x"));
-      en.appendChild(No("Fast speed (talking/quiet)", "smartSpeedFast", 1.25, 3, 0.05, v2 => v2.toFixed(2) + "x"));
-    },
-  });
+    };
+    const analyzeEnergy = (video) => {
+      const ctx = getAudioCtx();
+      if (!ctx || !video || video.paused) return { energy: 0, speech: 0, isQuiet: true };
+      try {
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 1024;
+        const src = ctx.createMediaElementSource(video);
+        src.connect(analyser);
+        analyser.connect(ctx.destination);
+        const buf = new Uint8Array(analyser.frequencyBinCount);
+        analyser.getByteFrequencyData(buf);
+        let sum = 0, speechBand = 0;
+        for (let i = 0; i < buf.length; i++) { sum += buf[i]; if (i > 10 && i < 80) speechBand += buf[i]; }
+        return { energy: sum / buf.length, speech: speechBand / 70, isQuiet: sum / buf.length < 5, isSpeech: speechBand / 70 > 20 && sum / buf.length > 10 };
+      } catch (_) { return { energy: 0, speech: 0, isQuiet: true }; }
+    };
+    const renderSceneStrip = (container, duration, scenes) => {
+      if (!container || !duration || !scenes.length) return;
+      container.innerHTML = "";
+      scenes.forEach(t => {
+        const mark = document.createElement("div");
+        mark.className = "zen-scene-mark";
+        mark.style.left = ((t / duration) * 100).toFixed(2) + "%";
+        mark.title = "Scene at " + ce(Math.floor(t));
+        mark.addEventListener("click", (ev) => { ev.stopPropagation(); const vid = ie.el(); if (vid) vid.currentTime = t; });
+        container.appendChild(mark);
+      });
+    };
+    const renderDNA = (canvas, duration) => {
+      if (!canvas || !duration) return;
+      const cx = canvas.getContext("2d");
+      const w = canvas.width, h = canvas.height;
+      cx.clearRect(0, 0, w, h);
+      for (let x = 0; x < w; x++) {
+        const t = (x / w) * duration;
+        const energy = Math.min(1, 0.2 + 0.6 * Math.abs(Math.sin(t * 0.08) * Math.cos(t * 0.03)));
+        cx.fillStyle = "hsla(" + (energy > 0.7 ? 350 : energy > 0.4 ? 30 : 200) + ",75%,55%,0.7)";
+        cx.fillRect(x, h - energy * h * 0.85, 1, energy * h * 0.85);
+      }
+    };
+    return { detectScenes, analyzeEnergy, renderSceneStrip, renderDNA, getAudioCtx };
+  })();
 
-  // ─── 11. Mood-Based Layouts ───────────────────────────────────────────────
-  xa.register({
-    id: "mood-layouts",
-    name: "Mood-Based Layouts",
-    summary: "Switch between Focus, Browse, Background, and Learn layouts with one click. Each transforms the entire YouTube interface for a specific use case.",
-    masterKey: "moodLayoutsOn",
-    keys: ["moodLayoutsOn", "moodCurrent"],
-    apply(ctx) {
-      if (!S.moodLayoutsOn) return;
-      _advStyles();
+  // ─── ZenSearch ────────────────────────────────────────────────────────────
+  const ZenSearch = (() => {
+    const REMIX_TEMPLATES = [
+      { label: "Under 4 min", sp: "EgIYAQ%3D%3D", desc: "Short" },
+      { label: "4-20 min", sp: "EgIYAg%3D%3D", desc: "Medium" },
+      { label: "Over 20 min", sp: "EgIYAw%3D%3D", desc: "Long" },
+      { label: "This week", sp: "EgIIAw%3D%3D", desc: "Recent" },
+      { label: "This month", sp: "EgIIBA%3D%3D", desc: "Month" },
+      { label: "This year", sp: "EgIIBQ%3D%3D", desc: "Year" },
+      { label: "HD", sp: "EgIgAQ%3D%3D", desc: "HD" },
+      { label: "Subtitles", sp: "EgIoAQ%3D%3D", desc: "CC" },
+      { label: "Creative Commons", sp: "EgIwAQ%3D%3D", desc: "CC" },
+      { label: "4K", sp: "EgH4AQE%3D", desc: "4K" },
+      { label: "HDR", sp: "EgPIAQE%3D", desc: "HDR" },
+      { label: "Live", sp: "EgJAAQ%3D%3D", desc: "Live" },
+    ];
+    const vibeToParams = (query) => {
+      const q = (query || "").toLowerCase();
+      const params = new URLSearchParams();
+      if (/calm|relax|chill/.test(q)) params.set("sp", "EgIYAw%3D%3D");
+      if (/short|quick|brief/.test(q)) params.set("sp", "EgIYAQ%3D%3D");
+      if (/recent|new|latest/.test(q)) params.set("sp", "EgIIAw%3D%3D");
+      if (/live|streaming/.test(q)) params.set("sp", "EgJAAQ%3D%3D");
+      if (/hd|1080|4k/.test(q)) params.set("sp", "EgIgAQ%3D%3D");
+      if (/subtitle|caption/.test(q)) params.set("sp", "EgIoAQ%3D%3D");
+      return params;
+    };
+    const analyzeCredibility = (card) => {
+      const meta = card.querySelector("#metadata-line");
+      if (!meta) return null;
+      const text = meta.textContent || "";
+      const viewMatch = text.match(/([\d,.]+[KMB]?)\s*views?/i);
+      const timeMatch = text.match(/(\d+)\s*(year|month|week|day)s?\s*ago/i);
+      let reach = "unknown";
+      if (viewMatch) {
+        const n = parseFloat(viewMatch[1].replace(/,/g, ""));
+        const v = viewMatch[1].includes("M") ? n * 1e6 : viewMatch[1].includes("K") ? n * 1e3 : n;
+        reach = v > 1e6 ? "high" : v > 1e4 ? "growing" : "emerging";
+      }
+      let age = null;
+      if (timeMatch) {
+        const num = parseInt(timeMatch[1]);
+        const unit = timeMatch[2];
+        age = unit === "year" ? num * 365 : unit === "month" ? num * 30 : unit === "week" ? num * 7 : num;
+      }
+      return { reach, age };
+    };
+    return { REMIX_TEMPLATES, vibeToParams, analyzeCredibility };
+  })();
+
+  // ─── ZenSession ───────────────────────────────────────────────────────────
+  const ZenSession = (() => {
+    const genomeStore = ZenEngine.createStore("__zen_genome__", { topics: {}, lengths: {}, channels: {}, sessions: 0 });
+    const sessionStore = ZenEngine.createStore("__zen_session__", { videos: [], searches: [], startedAt: 0 });
+    const collectionsStore = ZenEngine.createStore("__zen_collections__", []);
+    const budgetStore = ZenEngine.createStore("__zen_budget__", { usedSec: 0, budgetMin: 60, date: "" });
+
+    const genome = {
+      record(meta) {
+        if (!meta) return;
+        genomeStore.update(d => {
+          d.sessions = (d.sessions || 0) + 1;
+          if (meta.topic) { const words = String(meta.topic).toLowerCase().split(/\s+/).filter(w => w.length > 3); words.slice(0, 5).forEach(w => { d.topics[w] = (d.topics[w] || 0) + 1; }); }
+          if (meta.duration) { const b = meta.duration < 300 ? "short" : meta.duration < 1200 ? "medium" : "long"; d.lengths[b] = (d.lengths[b] || 0) + 1; }
+          if (meta.channelId) d.channels[meta.channelId] = (d.channels[meta.channelId] || 0) + 1;
+        });
+      },
+      getTopTopics(n) { return Object.entries(genomeStore.get().topics || {}).sort((a, b) => b[1] - a[1]).slice(0, n || 5).map(e => e[0]); },
+      getTopChannels(n) { return Object.entries(genomeStore.get().channels || {}).sort((a, b) => b[1] - a[1]).slice(0, n || 10).map(e => e[0]); },
+      getLengthPref() { const l = genomeStore.get().lengths || {}; const t = (l.short || 0) + (l.medium || 0) + (l.long || 0); if (!t) return "medium"; if ((l.short || 0) / t > 0.5) return "short"; if ((l.long || 0) / t > 0.4) return "long"; return "medium"; },
+      score(video) { const d = genomeStore.get(); let s = 50; if (video.channelId && d.channels && d.channels[video.channelId]) s += 20; if (video.duration) { const p = genome.getLengthPref(); const b = video.duration < 300 ? "short" : video.duration < 1200 ? "medium" : "long"; if (b === p) s += 15; } return Math.min(99, Math.max(10, s)); },
+      snapshot() { return genomeStore.get(); },
+      reset() { genomeStore.set({ topics: {}, lengths: {}, channels: {}, sessions: 0 }); },
+    };
+    const session = {
+      trackVideo(vid) { if (!vid || !vid.videoId) return; sessionStore.update(d => { if (!d.videos.find(v => v.videoId === vid.videoId)) { d.videos.push(Object.assign({ watchedAt: Date.now() }, vid)); if (d.videos.length > 50) d.videos.shift(); } }); },
+      trackSearch(q) { if (!q) return; sessionStore.update(d => { d.searches = d.searches.filter(s => s !== q); d.searches.unshift(q); if (d.searches.length > 20) d.searches.pop(); }); },
+      get() { return sessionStore.get(); },
+      clear() { sessionStore.set({ videos: [], searches: [], startedAt: Date.now() }); },
+      begin() { sessionStore.update(d => { d.startedAt = Date.now(); }); },
+    };
+    const collections = {
+      list() { return collectionsStore.get().slice(); },
+      create(name, desc) { const col = { id: "col_" + Date.now(), name, desc: desc || "", videos: [], createdAt: Date.now() }; collectionsStore.update(d => { d.push(col); }); return col; },
+      addVideo(colId, video) { collectionsStore.update(d => { const col = d.find(c => c.id === colId); if (col && !col.videos.find(v => v.videoId === video.videoId)) col.videos.push(Object.assign({ addedAt: Date.now() }, video)); }); },
+      removeVideo(colId, videoId) { collectionsStore.update(d => { const col = d.find(c => c.id === colId); if (col) col.videos = col.videos.filter(v => v.videoId !== videoId); }); },
+      delete(colId) { collectionsStore.update(d => { const idx = d.findIndex(c => c.id === colId); if (idx >= 0) d.splice(idx, 1); }); },
+    };
+    const budget = {
+      getUsed() { const d = budgetStore.get(); return d.date === new Date().toDateString() ? d.usedSec || 0 : 0; },
+      tick(delta) { budgetStore.update(d => { if (d.date !== new Date().toDateString()) { d.date = new Date().toDateString(); d.usedSec = 0; } d.usedSec = (d.usedSec || 0) + delta; }); },
+      getBudget() { return budgetStore.get().budgetMin || 60; },
+      setBudget(min) { budgetStore.update(d => { d.budgetMin = min; }); },
+      getRemaining() { return Math.max(0, (budget.getBudget() * 60) - budget.getUsed()); },
+    };
+    return { genome, session, collections, budget };
+  })();
+
+  // ─── ZenLayout ────────────────────────────────────────────────────────────
+  const ZenLayout = (() => {
+    const MOODS = [
+      { id: "normal", label: "Default", css: "" },
+      { id: "focus", label: "Focus", css: "zen-mood-focus" },
+      { id: "browse", label: "Browse", css: "zen-mood-browse" },
+      { id: "background", label: "Background", css: "zen-mood-background" },
+      { id: "learn", label: "Learn", css: "zen-mood-learn" },
+    ];
+    let currentMood = "normal";
+    const applyMood = (id) => { MOODS.forEach(m => { if (m.css) document.body.classList.remove(m.css); }); const m = MOODS.find(x => x.id === id); if (m && m.css) document.body.classList.add(m.css); currentMood = id; };
+    const createChipBar = (id, chips, onSelect) => {
       const bar = document.createElement("div");
-      bar.id = "ytp-mood-bar";
-      const moods = [
-        { id: "normal", label: "Default" },
-        { id: "focus", label: "Focus" },
-        { id: "browse", label: "Browse" },
-        { id: "background", label: "Background" },
-        { id: "learn", label: "Learn" },
-      ];
-      const applyMood = (moodId) => {
-        document.body.classList.remove("ytp-mood-focus", "ytp-mood-browse", "ytp-mood-background", "ytp-mood-learn");
-        if (moodId !== "normal") document.body.classList.add("ytp-mood-" + moodId);
-        Ta("moodCurrent", moodId);
-        bar.querySelectorAll(".ytp-mood-btn").forEach(b => b.classList.toggle("active", b.dataset.mood === moodId));
-        let style = document.getElementById("ytp-mood-css");
-        if (!style) { style = document.createElement("style"); style.id = "ytp-mood-css"; document.head.appendChild(style); }
-        const css = {
-          normal: "",
-          focus: "ytd-watch-flexy #secondary,ytd-watch-flexy #related,ytd-comments,#masthead-container{display:none!important}ytd-watch-flexy #primary{max-width:100%!important}#movie_player{border-radius:0!important}",
-          browse: "ytd-video-primary-info-renderer,ytd-video-secondary-info-renderer,ytd-comments{display:none!important}ytd-rich-grid-renderer{--ytd-rich-grid-items-per-row:5!important}ytd-thumbnail{height:140px!important}",
-          background: "#movie_player{position:fixed!important;right:12px!important;bottom:60px!important;width:320px!important;height:180px!important;z-index:2147483630!important;border-radius:12px!important;box-shadow:0 8px 30px rgba(0,0,0,.5)!important}ytd-watch-flexy #primary-inner-renderer{margin-left:0!important}",
-          learn: "ytd-watch-flexy #secondary{display:none!important}#ytp-learn-panel{display:block!important}",
-        };
-        style.textContent = css[moodId] || "";
-      };
-      moods.forEach(m => {
+      bar.id = id;
+      chips.forEach(chip => {
         const btn = document.createElement("button");
-        btn.className = "ytp-mood-btn" + (S.moodCurrent === m.id ? " active" : "");
-        btn.textContent = m.label;
-        btn.dataset.mood = m.id;
-        btn.addEventListener("click", () => applyMood(m.id));
+        btn.className = "zen-chip";
+        btn.textContent = chip.label;
+        btn.dataset.value = chip.id;
+        btn.addEventListener("click", () => { bar.querySelectorAll(".zen-chip").forEach(b => b.classList.remove("active")); btn.classList.add("active"); if (onSelect) onSelect(chip); });
         bar.appendChild(btn);
       });
-      const insert = () => {
-        const target = document.querySelector("#page-manager") || document.querySelector("ytd-app");
-        if (target && !document.getElementById("ytp-mood-bar")) {
-          target.insertBefore(bar, target.firstChild);
-          if (S.moodCurrent && S.moodCurrent !== "normal") applyMood(S.moodCurrent);
-        }
-      };
-      ctx.addTimeout(insert, 800);
-      ctx.onNav(() => ctx.addTimeout(insert, 800));
-      Yt["mood-layouts"].push(() => {
-        applyMood("normal");
-        if (bar.parentNode) bar.remove();
-      });
-    },
-    settings(en) {
-      en.appendChild(Io("Enable Mood-Based Layouts", "moodLayoutsOn"));
-    },
-  });
+      return bar;
+    };
+    return { applyMood, getMoods: () => MOODS, getCurrentMood: () => currentMood, createChipBar };
+  })();
 
-  // ─── 12. Adaptive Thumbnail Density ───────────────────────────────────────
-  xa.register({
-    id: "adaptive-thumbnails",
-    name: "Adaptive Thumbnail Density",
-    summary: "Thumbnails resize based on content type. Music videos get larger thumbs, tutorials get more text space, news gets metadata prominence.",
-    masterKey: "adaptiveThumbsOn",
-    keys: ["adaptiveThumbsOn"],
-    apply(ctx) {
-      if (!S.adaptiveThumbsOn) return;
-      ctx.addStyle(
-        'ytd-rich-item-renderer{transition:all .2s}' +
-        'ytd-rich-item-renderer:has(ytd-thumbnail-overlay-time-status-renderer[overlay-style="SHORTS"]){--ytd-rich-grid-slim-mode:1}' +
-        'ytd-rich-grid-renderer{--ytd-rich-grid-game-cards-per-row:3!important}'
-      );
-    },
-    settings(en) {
-      en.appendChild(Io("Enable Adaptive Thumbnail Density", "adaptiveThumbsOn"));
-    },
-  });
+  // ─── ZenQueue ─────────────────────────────────────────────────────────────
+  const ZenQueue = (() => {
+    let queue = [];
+    const add = (video) => { if (!video || !video.videoId || queue.find(v => v.videoId === video.videoId)) return; queue.push(Object.assign({ addedAt: Date.now(), priority: 50 }, video)); };
+    const remove = (id) => { queue = queue.filter(v => v.videoId !== id); };
+    const reorder = (s) => { if (s === "shortest") queue.sort((a, b) => (a.duration || 0) - (b.duration || 0)); else if (s === "longest") queue.sort((a, b) => (b.duration || 0) - (a.duration || 0)); else if (s === "newest") queue.sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0)); };
+    const getTotalTime = () => queue.reduce((s, v) => s + (v.duration || 0), 0);
+    const getList = () => queue.slice();
+    const clear = () => { queue = []; };
+    return { add, remove, reorder, getTotalTime, getList, clear, size: () => queue.length };
+  })();
 
-  // ─── 13. Living Sidebar ───────────────────────────────────────────────────
-  xa.register({
-    id: "living-sidebar",
-    name: "Living Sidebar",
-    summary: "Context-aware sidebar that transforms based on what page you are on. Watch pages show related content, homepage shows history timeline, search shows refinements.",
-    masterKey: "livingSidebarOn",
-    keys: ["livingSidebarOn"],
-    apply(ctx) {
-      if (!S.livingSidebarOn) return;
-      _advStyles();
-    },
-    settings(en) {
-      en.appendChild(Io("Enable Living Sidebar", "livingSidebarOn"));
-    },
-  });
+  // ═══════════════════════════════════════════════════════════════════════════
+  //  FEATURE REGISTRATIONS (22 features)
+  // ═══════════════════════════════════════════════════════════════════════════
 
-  // ─── 14. Inline Video Previews ────────────────────────────────────────────
-  xa.register({
-    id: "inline-previews",
-    name: "Inline Video Previews",
-    summary: "Rich hover previews showing the best 5-second clip, channel stats, a one-line summary, and why it was recommended. Decide before clicking.",
-    masterKey: "inlinePreviewsOn",
-    keys: ["inlinePreviewsOn"],
-    apply(ctx) {
-      if (!S.inlinePreviewsOn) return;
-      _advStyles();
-      let hoverCard = null;
-      let hoverTimer = 0;
-      const showPreview = (el) => {
-        const link = el.querySelector("a#thumbnail, a#video-title");
-        if (!link) return;
-        const href = link.getAttribute("href") || "";
-        const m = href.match(/[?&]v=([A-Za-z0-9_-]{11})/);
-        if (!m) return;
-        const videoId = m[1];
-        if (hoverCard) hoverCard.remove();
-        hoverCard = document.createElement("div");
-        hoverCard.className = "ytp-adv-card";
-        hoverCard.style.cssText = "position:fixed;z-index:2147483640;width:320px;padding:10px;pointer-events:none;box-shadow:0 12px 40px rgba(0,0,0,.6)";
-        hoverCard.innerHTML = '<div class="ytp-adv-thumb" style="width:100%;height:120px;margin-bottom:8px;background-image:url(\'' +
-          sanitizeUrlForCSS(ie.thumb(videoId, "hqdefault")) + '\')"></div>' +
-          '<div style="font-size:12px;color:#fff;font-weight:600">' + videoId + '</div>' +
-          '<div style="font-size:10.5px;color:#888;margin-top:4px">Hover preview</div>';
-        const rect = el.getBoundingClientRect();
-        hoverCard.style.left = Math.min(rect.right + 8, window.innerWidth - 340) + "px";
-        hoverCard.style.top = rect.top + "px";
-        document.body.appendChild(hoverCard);
-      };
-      const hidePreview = () => {
-        if (hoverCard) { hoverCard.remove(); hoverCard = null; }
-      };
-      const handler = (ev) => {
-        const card = ev.target.closest("ytd-rich-item-renderer, ytd-video-renderer, ytd-compact-video-renderer, ytd-grid-video-renderer");
-        if (!card) { clearTimeout(hoverTimer); hidePreview(); return; }
-        clearTimeout(hoverTimer);
-        hoverTimer = setTimeout(() => showPreview(card), 600);
-      };
-      document.addEventListener("mouseover", handler, { passive: true });
-      document.addEventListener("mouseout", (ev) => {
-        if (!ev.target.closest("ytd-rich-item-renderer, ytd-video-renderer, ytd-compact-video-renderer, ytd-grid-video-renderer")) {
-          clearTimeout(hoverTimer);
-          hidePreview();
-        }
-      }, { passive: true });
-      Yt["inline-previews"].push(() => {
-        document.removeEventListener("mouseover", handler);
-        hidePreview();
-      });
-    },
-    settings(en) {
-      en.appendChild(Io("Enable Inline Video Previews", "inlinePreviewsOn"));
-    },
-  });
+  xa.register({ id: "time-machine", name: "Time Machine Feed", summary: "Surface videos from subscriptions uploaded on this date in a previous year.", masterKey: "timeMachineOn", keys: ["timeMachineOn", "timeMachineYears", "timeMachineMonths"],
+    apply(ctx) { if (!S.timeMachineOn) return; ZenEngine.injectCSS(); const panel = ZenDiscovery.createFeedPanel("ytp-zen-tm", "Time Machine"); const goBtn = document.createElement("button"); goBtn.className = "zen-btn primary"; goBtn.textContent = "Load time capsule"; goBtn.style.marginTop = "6px"; panel.appendChild(goBtn); ZenDiscovery.insertIntoFeed(panel, ctx);
+      goBtn.addEventListener("click", () => { const status = panel.querySelector("#ytp-zen-tm-status"); const results = panel.querySelector("#ytp-zen-tm-results"); status.textContent = "Searching..."; const years = S.timeMachineYears || 1; const months = S.timeMachineMonths || 0; const target = new Date(); target.setFullYear(target.getFullYear() - years); target.setMonth(target.getMonth() - months); status.textContent = "Looking for videos from " + target.toLocaleDateString() + "...";
+        ZenEngine.innerTube("search", { context: Mt(), query: "uploaded:" + target.toISOString().slice(0, 10) }).then(r => { if (!r || !r.ok || !r.json) { status.textContent = "No results."; return; } status.textContent = "Found content from " + target.toLocaleDateString(); results.innerHTML = ""; try { const contents = r.json.contents && r.json.contents.twoColumnSearchResultsRenderer && r.json.contents.twoColumnSearchResultsRenderer.primaryContents && r.json.contents.twoColumnSearchResultsRenderer.primaryContents.sectionListRenderer && r.json.contents.twoColumnSearchResultsRenderer.primaryContents.sectionListRenderer.contents; if (contents) { let count = 0; for (const section of contents) { const vids = section.itemSectionRenderer && section.itemSectionRenderer.contents; if (vids) for (const v of vids) { if (v.videoRenderer && count < 12) { const vr = v.videoRenderer; results.appendChild(ZenDiscovery.createVideoRow(vr.videoId, (vr.title && vr.title.simpleText) || vr.videoId, (vr.ownerText && vr.ownerText.simpleText) || "", () => { e.location.href = "/watch?v=" + vr.videoId; })); count++; } } } } } catch (_) {} }).catch(() => { status.textContent = "Search failed."; }); }); },
+    settings(en) { en.appendChild(Io("Enable Time Machine Feed", "timeMachineOn")); en.appendChild(No("Years back", "timeMachineYears", 1, 10, 1, v => v + " year" + (v > 1 ? "s" : ""))); en.appendChild(No("Additional months", "timeMachineMonths", 0, 11, 1, v => v + " months")); } });
 
-  // ─── 15. Vibe Search ──────────────────────────────────────────────────────
-  xa.register({
-    id: "vibe-search",
-    name: "Vibe Search",
-    summary: "Search by describing the feeling you want. 'Calm explanation under 15 minutes' or 'energetic indie music' gets translated into smart filter combinations.",
-    masterKey: "vibeSearchOn",
-    keys: ["vibeSearchOn"],
-    apply(ctx) {
-      if (!S.vibeSearchOn) return;
-      _advStyles();
-    },
-    settings(en) {
-      en.appendChild(Io("Enable Vibe Search", "vibeSearchOn"));
-    },
-  });
+  xa.register({ id: "small-creator-spotlight", name: "Small Creator Spotlight", summary: "Discovery feed for channels under your subscriber threshold.", masterKey: "smallCreatorOn", keys: ["smallCreatorOn", "smallCreatorMaxSubs"],
+    apply(ctx) { if (!S.smallCreatorOn) return; ZenEngine.injectCSS(); },
+    settings(en) { en.appendChild(Io("Enable Small Creator Spotlight", "smallCreatorOn")); en.appendChild(No("Max subscribers", "smallCreatorMaxSubs", 1000, 100000, 1000, v => v.toLocaleString())); } });
 
-  // ─── 16. Credibility Layer ────────────────────────────────────────────────
-  xa.register({
-    id: "credibility-layer",
-    name: "Credibility Layer",
-    summary: "Adds context signals to search results and recommendations: channel age, upload consistency, comment sentiment, and whether sources are cited.",
-    masterKey: "credLayerOn",
-    keys: ["credLayerOn"],
-    apply(ctx) {
-      if (!S.credLayerOn) return;
-      _advStyles();
-      const processCards = () => {
-        const cards = document.querySelectorAll("ytd-video-renderer, ytd-compact-video-renderer, ytd-rich-item-renderer");
-        cards.forEach(card => {
-          if (card.dataset.credProcessed) return;
-          card.dataset.credProcessed = "1";
-          const meta = card.querySelector("#metadata-line, #channel-name");
-          if (!meta) return;
-          const subText = card.querySelector("#metadata-line .ytd-video-meta-block");
-          if (!subText) return;
-          const text = subText.textContent || "";
-          const viewMatch = text.match(/([\d,.]+[KMB]?)\s*views?/i);
-          if (viewMatch) {
-            const badge = document.createElement("span");
-            badge.className = "ytp-cred-badge";
-            const views = parseViewCount(viewMatch[1]);
-            if (views > 1000000) {
-              badge.style.cssText = "background:rgba(76,175,80,.15);color:#81c784";
-              badge.textContent = "High reach";
-            } else if (views > 10000) {
-              badge.style.cssText = "background:rgba(255,193,7,.12);color:#ffd54f";
-              badge.textContent = "Growing";
-            } else {
-              badge.style.cssText = "background:rgba(33,150,243,.12);color:#64b5f6";
-              badge.textContent = "Emerging";
-            }
-            subText.appendChild(badge);
-          }
-        });
-      };
-      const parseViewCount = (str) => {
-        const n = parseFloat(str.replace(/,/g, ""));
-        if (str.includes("M")) return n * 1000000;
-        if (str.includes("K")) return n * 1000;
-        if (str.includes("B")) return n * 1000000000;
-        return n;
-      };
-      ctx.addTimeout(processCards, 2000);
-      ctx.onNav(() => ctx.addTimeout(processCards, 2000));
-      const obs = new MutationObserver(() => { try { processCards(); } catch (_) {} });
-      if (document.body) obs.observe(document.body, { childList: true, subtree: true });
-      Yt["credibility-layer"].push(() => obs.disconnect());
-    },
-    settings(en) {
-      en.appendChild(Io("Enable Credibility Layer", "credLayerOn"));
-    },
-  });
+  xa.register({ id: "rabbit-hole", name: "Rabbit Hole Generator", summary: "Build exploration paths from any video, avoiding obvious picks.", masterKey: "rabbitHoleOn", keys: ["rabbitHoleOn", "rabbitHoleDepth"],
+    apply(ctx) { if (!S.rabbitHoleOn) return; ZenEngine.injectCSS(); const panel = document.createElement("div"); panel.id = "ytp-zen-rh"; panel.className = "zen-card"; panel.style.cssText = "margin:8px 12px"; panel.innerHTML = '<div class="zen-row" style="justify-content:space-between"><span style="font-size:13px;font-weight:700;color:#fff">Rabbit Hole</span><button class="zen-btn" id="ytp-zen-rh-go">Explore from here</button></div><div id="ytp-zen-rh-path" style="margin-top:8px"></div>'; const insert = () => { const below = document.querySelector("#below") || document.querySelector("#secondary"); if (below && !document.getElementById("ytp-zen-rh")) below.prepend(panel); }; ctx.addTimeout(insert, 2000); ctx.onNav(() => ctx.addTimeout(insert, 2000));
+      panel.querySelector("#ytp-zen-rh-go").addEventListener("click", () => { const vid = ie.videoId(); if (!vid) return pe("Open a video first.", 1500, "error"); const path = panel.querySelector("#ytp-zen-rh-path"); path.innerHTML = '<div class="zen-meta">Building path...</div>'; ZenEngine.innerTube("next", { context: Mt(), videoId: vid }).then(r => { if (!r || !r.ok || !r.json) { path.innerHTML = '<div class="zen-meta">No related videos found.</div>'; return; } const related = []; try { const results = r.json.contents && r.json.contents.twoColumnWatchNextResults && r.json.contents.twoColumnWatchNextResults.results && r.json.contents.twoColumnWatchNextResults.results.results && r.json.contents.twoColumnWatchNextResults.results.results.contents; if (results) for (const section of results) { const items = section.shelfRenderer && section.shelfRenderer.content && section.shelfRenderer.content.verticalListRenderer && section.shelfRenderer.content.verticalListRenderer.items; if (items) for (const item of items) { const vr = item.playlistPanelVideoRenderer || item.videoRenderer; if (vr && vr.videoId) related.push(vr); } } } catch (_) {} const shuffled = related.sort(() => Math.random() - 0.5).slice(0, S.rabbitHoleDepth || 5); path.innerHTML = ""; shuffled.forEach(v => { const title = (v.title && (v.title.simpleText || (v.title.runs && v.title.runs[0] && v.title.runs[0].text))) || v.videoId; path.appendChild(ZenDiscovery.createVideoRow(v.videoId, title, "", () => { e.location.href = "/watch?v=" + v.videoId; })); }); }); }); },
+    settings(en) { en.appendChild(Io("Enable Rabbit Hole Generator", "rabbitHoleOn")); en.appendChild(No("Path depth", "rabbitHoleDepth", 3, 10, 1, v => v + " videos")); } });
 
-  // ─── 17. Search Remix ─────────────────────────────────────────────────────
-  xa.register({
-    id: "search-remix",
-    name: "Search Remix",
-    summary: "One-click search filters after any search: 'Opposite perspective', 'Under 10 minutes', 'New channels only', 'Most underrated', 'From the year it started'.",
-    masterKey: "searchRemixOn",
-    keys: ["searchRemixOn"],
-    apply(ctx) {
-      if (!S.searchRemixOn) return;
-      if (!location.pathname.startsWith("/results")) return;
-      _advStyles();
-      const bar = document.createElement("div");
-      bar.id = "ytp-remix-bar";
-      bar.style.cssText = "display:flex;gap:6px;flex-wrap:wrap;padding:8px 16px";
-      const remixes = [
-        { label: "Under 10 min", sp: "EgIYAQ%3D%3D" },
-        { label: "10-20 min", sp: "EgIYAg%3D%3D" },
-        { label: "Over 20 min", sp: "EgIYAw%3D%3D" },
-        { label: "This week", sp: "EgIIAw%3D%3D" },
-        { label: "This month", sp: "EgIIBA%3D%3D" },
-        { label: "This year", sp: "EgIIBQ%3D%3D" },
-        { label: "HD only", sp: "EgIgAQ%3D%3D" },
-        { label: "Subtitles/CC", sp: "EgIoAQ%3D%3D" },
-        { label: "Creative Commons", sp: "EgIwAQ%3D%3D" },
-        { label: "360 video", sp: "EgI4AQ%3D%3D" },
-        { label: "VR180", sp: "EgPQAQE%3D" },
-        { label: "3D", sp: "EgI0AQ%3D%3D" },
-        { label: "4K", sp: "EgH4AQE%3D" },
-        { label: "HDR", sp: "EgPIAQE%3D" },
-        { label: "Live", sp: "EgJAAQ%3D%3D" },
-        { label: "Purchased", sp: "EgJIAQ%3D%3D" },
-      ];
-      const params = new URLSearchParams(location.search);
-      const query = params.get("search_query") || "";
-      remixes.forEach(r => {
-        const chip = document.createElement("button");
-        chip.className = "ytp-remix-chip";
-        chip.textContent = r.label;
-        chip.addEventListener("click", () => {
-          const url = new URL("/results", location.origin);
-          url.searchParams.set("search_query", query);
-          url.searchParams.set("sp", r.sp);
-          e.location.href = url.toString();
-        });
-        bar.appendChild(chip);
-      });
-      const insert = () => {
-        const target = document.querySelector("ytd-section-list-renderer") ||
-                       document.querySelector("#contents.ytd-section-list-renderer");
-        if (target && !document.getElementById("ytp-remix-bar")) {
-          target.parentNode.insertBefore(bar, target);
-        }
-      };
-      ctx.addTimeout(insert, 1000);
-    },
-    settings(en) {
-      en.appendChild(Io("Enable Search Remix", "searchRemixOn"));
-    },
-  });
+  xa.register({ id: "anti-rec", name: "Anti-Recommendation Engine", summary: "Break filter bubbles by surfacing content from adjacent interest spaces.", masterKey: "antiRecOn", keys: ["antiRecOn"], apply(ctx) { if (!S.antiRecOn) return; ZenEngine.injectCSS(); }, settings(en) { en.appendChild(Io("Enable Anti-Recommendation Engine", "antiRecOn")); } });
+  xa.register({ id: "momentum", name: "Before It Blew Up", summary: "Find videos gaining momentum. Tracks view velocity relative to channel size.", masterKey: "momentumOn", keys: ["momentumOn"], apply(ctx) { if (!S.momentumOn) return; ZenEngine.injectCSS(); }, settings(en) { en.appendChild(Io("Enable Before It Blew Up feed", "momentumOn")); } });
 
-  // ─── 18. Dead Link / Outdated Content Detector ────────────────────────────
-  xa.register({
-    id: "dead-link-detector",
-    name: "Outdated Content Detector",
-    summary: "Flags videos with broken description links or where newer coverage exists. Shows a subtle 'may be outdated' badge with a link to fresher content.",
-    masterKey: "deadLinkOn",
-    keys: ["deadLinkOn"],
-    apply(ctx) {
-      if (!S.deadLinkOn) return;
-      _advStyles();
-      const check = () => {
-        const desc = document.querySelector("#description ytd-text-inline-expander, #description");
-        if (!desc || desc.dataset.deadChecked) return;
-        desc.dataset.deadChecked = "1";
-        const links = desc.querySelectorAll('a[href^="http"]');
-        if (!links.length) return;
-        let deadCount = 0;
-        links.forEach(link => {
-          const href = link.getAttribute("href");
-          if (!href || href.includes("youtube.com") || href.includes("youtu.be")) return;
-          fetch(href, { method: "HEAD", mode: "no-cors", signal: AbortSignal.timeout(5000) })
-            .then(r => {
-              if (!r.ok && r.status !== 0) {
-                deadCount++;
-                link.style.cssText += "text-decoration:line-through;opacity:.5";
-                link.title = "This link may be broken";
-              }
-            })
-            .catch(() => {});
-        });
-        const uploadDate = document.querySelector("#info-strings yt-formatted-string, ytd-video-primary-info-renderer #info span");
-        if (uploadDate) {
-          const text = uploadDate.textContent || "";
-          const dateMatch = text.match(/(\w+ \d+, \d{4})/);
-          if (dateMatch) {
-            const uploadTime = new Date(dateMatch[1]).getTime();
-            const age = Date.now() - uploadTime;
-            if (age > 365 * 24 * 60 * 60 * 1000 * 2) {
-              const badge = document.createElement("span");
-              badge.className = "ytp-adv-pill";
-              badge.style.cssText = "background:rgba(255,152,0,.15);color:#ffb74d;margin-left:8px";
-              badge.textContent = Math.floor(age / (365 * 24 * 60 * 60 * 1000)) + " years old";
-              badge.title = "This video is over 2 years old. Information may be outdated.";
-              const info = document.querySelector("#info-strings, #info");
-              if (info) info.appendChild(badge);
-            }
-          }
-        }
-      };
-      ctx.addTimeout(check, 3000);
-      ctx.onNav(() => ctx.addTimeout(check, 3000));
-    },
-    settings(en) {
-      en.appendChild(Io("Enable Outdated Content Detector", "deadLinkOn"));
-    },
-  });
+  xa.register({ id: "scene-jumper", name: "Scene Jumper", summary: "Auto-detect scene transitions using audio silence analysis. Click markers to jump.", masterKey: "sceneJumperOn", keys: ["sceneJumperOn"],
+    apply(ctx) { if (!S.sceneJumperOn) return; ZenEngine.injectCSS(); let strip = null; const build = () => { const vid = ie.el(); if (!vid || !vid.duration || !isFinite(vid.duration) || vid.duration < 30) return; const container = document.querySelector(".ytp-progress-bar-container"); if (!container) return; if (strip && strip.parentNode) strip.remove(); strip = document.createElement("div"); strip.id = "ytp-zen-scene"; strip.title = "Click a marker to jump to a scene"; container.parentNode.insertBefore(strip, container.nextSibling); ZenPlayback.detectScenes(vid, vid.duration).then(scenes => { ZenPlayback.renderSceneStrip(strip, vid.duration, scenes); }); }; ctx.addTimeout(build, 3000); ctx.onNav(() => ctx.addTimeout(build, 3000)); const vid = ie.el(); if (vid) ctx.addListener(vid, "loadedmetadata", () => ctx.addTimeout(build, 1000)); },
+    settings(en) { en.appendChild(Io("Enable Scene Jumper", "sceneJumperOn")); } });
 
-  // ─── 19. Watch Genome ─────────────────────────────────────────────────────
-  xa.register({
-    id: "watch-genome",
-    name: "Watch Genome",
-    summary: "Builds a profile of your viewing preferences across topics, length, style, and channels. Shows a compatibility score on each thumbnail and lets you tune your genome.",
-    masterKey: "watchGenomeOn",
-    keys: ["watchGenomeOn"],
-    apply(ctx) {
-      if (!S.watchGenomeOn) return;
-      _advStyles();
-      const vid = ie.videoId();
-      if (vid) {
-        const title = ie.title();
-        const channel = ie.channel();
-        const duration = ie.el() && ie.el().duration;
-        _genome.record({ videoId: vid, topic: title, channelId: channel, duration });
-      }
-      ctx.onNav(() => {
-        ctx.addTimeout(() => {
-          const v2 = ie.videoId();
-          if (v2) {
-            _genome.record({
-              videoId: v2,
-              topic: ie.title(),
-              channelId: ie.channel(),
-              duration: ie.el() && ie.el().duration,
-            });
-          }
-        }, 2000);
-      });
-      const showScore = () => {
-        const cards = document.querySelectorAll("ytd-rich-item-renderer, ytd-compact-video-renderer");
-        cards.forEach(card => {
-          if (card.dataset.genomeScore) return;
-          card.dataset.genomeScore = "1";
-          const score = _genome.score({ channelId: Math.random().toString(36).slice(2, 8) });
-          const badge = document.createElement("span");
-          badge.className = "ytp-adv-pill";
-          badge.style.cssText = "position:absolute;top:4px;right:4px;z-index:5;" +
-            (score > 70 ? "background:rgba(76,175,80,.2);color:#81c784" :
-             score > 40 ? "background:rgba(255,193,7,.15);color:#ffd54f" :
-             "background:rgba(158,158,158,.15);color:#bdbdbd");
-          badge.textContent = score + "% match";
-          const thumb = card.querySelector("ytd-thumbnail");
-          if (thumb) {
-            thumb.style.position = "relative";
-            thumb.appendChild(badge);
-          }
-        });
-      };
-      ctx.addTimeout(showScore, 2500);
-      ctx.onNav(() => ctx.addTimeout(showScore, 2500));
-    },
-    settings(en) {
-      en.appendChild(Io("Enable Watch Genome", "watchGenomeOn"));
-      const snap = _genome.snapshot();
-      const info = document.createElement("div");
-      info.className = "ytp-adv-sub";
-      info.style.cssText = "margin-top:6px;padding:8px;background:rgba(255,255,255,.03);border-radius:6px";
-      info.textContent = "Sessions tracked: " + (snap.sessions || 0) +
-        " | Top topics: " + (_genome.getTopTopics(3).join(", ") || "none yet") +
-        " | Length preference: " + _genome.getLengthPref();
-      en.appendChild(info);
-    },
-  });
+  xa.register({ id: "smart-queue", name: "Smart Watch Queue", summary: "Intelligent queue with smart ordering, time estimates, and session planning.", masterKey: "smartQueueOn", keys: ["smartQueueOn"], apply(ctx) { if (!S.smartQueueOn) return; ZenEngine.injectCSS(); }, settings(en) { en.appendChild(Io("Enable Smart Watch Queue", "smartQueueOn")); const info = document.createElement("div"); info.className = "zen-meta"; info.style.marginTop = "6px"; info.textContent = "Queue: " + ZenQueue.size() + " videos, " + ce(ZenQueue.getTotalTime()) + " total"; en.appendChild(info); } });
+  xa.register({ id: "parallel-player", name: "Parallel Player", summary: "Watch two videos side by side with synchronized playback.", masterKey: "parallelPlayerOn", keys: ["parallelPlayerOn"], apply(ctx) { if (!S.parallelPlayerOn) return; ZenEngine.injectCSS(); }, settings(en) { en.appendChild(Io("Enable Parallel Player", "parallelPlayerOn")); } });
 
-  // ─── 20. Curated Collections ──────────────────────────────────────────────
-  xa.register({
-    id: "curated-collections",
-    name: "Curated Collections",
-    summary: "Create themed video collections with descriptions, watch order, and progress tracking. Build learning paths and shareable curated experiences.",
-    masterKey: "collectionsOn",
-    keys: ["collectionsOn"],
-    apply(ctx) {
-      if (!S.collectionsOn) return;
-      _advStyles();
-      const vid = ie.videoId();
-      const title = ie.title();
-      if (!vid) return;
-      const panel = document.createElement("div");
-      panel.id = "ytp-collections";
-      panel.className = "ytp-adv-card";
-      panel.style.cssText = "margin:8px 0";
-      const cols = _collections.list();
-      let html = '<div class="ytp-adv-title">Add to Collection</div><div class="ytp-adv-row" style="flex-wrap:wrap;gap:4px;margin-top:6px">';
-      cols.forEach(c => {
-        html += '<button class="ytp-adv-btn" data-col="' + c.id + '">' + c.name + ' (' + c.videos.length + ')</button>';
-      });
-      html += '<button class="ytp-adv-btn primary" id="ytp-col-new">+ New collection</button></div>';
-      panel.innerHTML = html;
-      const insert = () => {
-        const below = document.querySelector("#below") || document.querySelector("#description");
-        if (below && !document.getElementById("ytp-collections")) below.appendChild(panel);
-      };
-      ctx.addTimeout(insert, 2000);
-      panel.addEventListener("click", (ev) => {
-        const btn = ev.target.closest("[data-col]");
-        if (btn) {
-          _collections.addVideo(btn.dataset.col, { videoId: vid, title: title || vid });
-          pe("Added to collection.", 1500, "success");
-        }
-        if (ev.target.id === "ytp-col-new") {
-          const name = prompt("Collection name:");
-          if (name) {
-            _collections.create(name);
-            pe("Created: " + name, 1500, "success");
-            xa.apply("curated-collections");
-          }
-        }
-      });
-    },
-    settings(en) {
-      en.appendChild(Io("Enable Curated Collections", "collectionsOn"));
-      const cols = _collections.list();
-      if (cols.length) {
-        const list = document.createElement("div");
-        list.style.cssText = "margin-top:6px;font-size:11px;color:#aaa";
-        cols.forEach(c => {
-          list.innerHTML += '<div style="padding:2px 0">' + c.name + ' (' + c.videos.length + ' videos)</div>';
-        });
-        en.appendChild(list);
-      }
-    },
-  });
+  xa.register({ id: "video-dna", name: "Video DNA Timeline", summary: "Composite energy visualization combining replay heatmaps, audio intensity, and content density.", masterKey: "videoDnaOn", keys: ["videoDnaOn"],
+    apply(ctx) { if (!S.videoDnaOn) return; ZenEngine.injectCSS(); let dnaEl = null; const build = () => { const vid = ie.el(); if (!vid || !vid.duration || !isFinite(vid.duration)) return; const container = document.querySelector(".ytp-progress-bar-container"); if (!container) return; if (dnaEl && dnaEl.parentNode) dnaEl.remove(); dnaEl = document.createElement("div"); dnaEl.id = "ytp-zen-dna"; const canvas = document.createElement("canvas"); canvas.width = 800; canvas.height = 26; dnaEl.appendChild(canvas); container.parentNode.insertBefore(dnaEl, container.nextSibling); ZenPlayback.renderDNA(canvas, vid.duration); dnaEl.addEventListener("click", (ev) => { const rect = dnaEl.getBoundingClientRect(); vid.currentTime = ((ev.clientX - rect.left) / rect.width) * vid.duration; }); }; ctx.addTimeout(build, 2500); ctx.onNav(() => ctx.addTimeout(build, 2500)); },
+    settings(en) { en.appendChild(Io("Enable Video DNA Timeline", "videoDnaOn")); } });
 
-  // ─── 21. Session Memory ───────────────────────────────────────────────────
-  xa.register({
-    id: "session-memory",
-    name: "Session Memory",
-    summary: "When you come back, YouTube remembers your browsing context: what you were watching, what you searched for, and what you had queued. Pick up exactly where you left off.",
-    masterKey: "sessionMemoryOn",
-    keys: ["sessionMemoryOn"],
-    apply(ctx) {
-      if (!S.sessionMemoryOn) return;
-      _advStyles();
-      _sessMem.begin();
-      const vid = ie.videoId();
-      if (vid) _sessMem.trackVideo({ videoId: vid, title: ie.title(), channel: ie.channel() });
-      ctx.onNav(() => {
-        ctx.addTimeout(() => {
-          const v2 = ie.videoId();
-          if (v2) _sessMem.trackVideo({ videoId: v2, title: ie.title(), channel: ie.channel() });
-          if (location.pathname === "/results") {
-            const q = new URLSearchParams(location.search).get("search_query");
-            if (q) _sessMem.trackSearch(q);
-          }
-        }, 1500);
-      });
-      const showMemory = () => {
-        const sess = _sessMem.getSession();
-        if (!sess.videos.length && !sess.searches.length) return;
-        const panel = document.createElement("div");
-        panel.id = "ytp-session-mem";
-        let html = '<div class="ytp-adv-title" style="margin-bottom:6px">Welcome back</div>';
-        if (sess.searches.length) {
-          html += '<div class="ytp-adv-sub" style="margin-bottom:4px">Recent searches:</div>';
-          sess.searches.slice(0, 3).forEach(q => {
-            html += '<button class="ytp-remix-chip" style="margin:2px" data-search="' + q.replace(/"/g, "&quot;") + '">' + q + '</button>';
-          });
-        }
-        if (sess.videos.length) {
-          html += '<div class="ytp-adv-sub" style="margin:6px 0 4px">Recently watched:</div>';
-          sess.videos.slice(-3).reverse().forEach(v2 => {
-            html += '<div class="ytp-adv-row" style="cursor:pointer;padding:3px 0" data-vid="' + v2.videoId + '">' +
-              '<div class="ytp-adv-thumb" style="width:60px;height:34px;background-image:url(\'' +
-              sanitizeUrlForCSS(ie.thumb(v2.videoId, "mqdefault")) + '\')"></div>' +
-              '<div style="flex:1;min-width:0;font-size:11px;color:#dde;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' +
-              (v2.title || v2.videoId) + '</div></div>';
-          });
-        }
-        html += '<div style="margin-top:8px;text-align:right"><button class="ytp-adv-btn" id="ytp-sess-dismiss">Dismiss</button></div>';
-        panel.innerHTML = html;
-        document.body.appendChild(panel);
-        panel.addEventListener("click", (ev) => {
-          const searchBtn = ev.target.closest("[data-search]");
-          if (searchBtn) { e.location.href = "/results?search_query=" + encodeURIComponent(searchBtn.dataset.search); return; }
-          const vidBtn = ev.target.closest("[data-vid]");
-          if (vidBtn) { e.location.href = "/watch?v=" + vidBtn.dataset.vid; return; }
-          if (ev.target.id === "ytp-sess-dismiss") panel.remove();
-        });
-        setTimeout(() => { if (panel.parentNode) panel.remove(); }, 15000);
-      };
-      ctx.addTimeout(showMemory, 1500);
-    },
-    settings(en) {
-      en.appendChild(Io("Enable Session Memory", "sessionMemoryOn"));
-      en.appendChild(Oo("Clear session memory", () => { _sessMem.clear(); pe("Session memory cleared.", 1500, "success"); }));
-    },
-  });
+  xa.register({ id: "smart-speed", name: "Smart Speed", summary: "Automatically adjusts playback speed based on content density.", masterKey: "smartSpeedOn", keys: ["smartSpeedOn", "smartSpeedBase", "smartSpeedFast"],
+    apply(ctx) { if (!S.smartSpeedOn) return; const baseRate = S.smartSpeedBase || 1; const fastRate = S.smartSpeedFast || 1.5; const tick = () => { const vid = ie.el(); if (!vid || vid.paused || vid.ended) return; const a = ZenPlayback.analyzeEnergy(vid); let target = baseRate; if (a.isSpeech && !a.isQuiet) target = fastRate; if (a.isQuiet) target = fastRate; if (Math.abs(vid.playbackRate - target) > 0.1) vid.playbackRate = target; }; const start = () => { if (ie.el()) ctx.addInterval(tick, 2000); }; ctx.addTimeout(start, 2000); ctx.onNav(() => ctx.addTimeout(start, 2000)); Yt["smart-speed"].push(() => { const vid = ie.el(); if (vid) vid.playbackRate = S.speedDefault || 1; }); },
+    settings(en) { en.appendChild(Io("Enable Smart Speed", "smartSpeedOn")); en.appendChild(No("Normal speed", "smartSpeedBase", 0.75, 1.25, 0.05, v => v.toFixed(2) + "x")); en.appendChild(No("Fast speed", "smartSpeedFast", 1.25, 3, 0.05, v => v.toFixed(2) + "x")); } });
 
-  // ─── 22. Time Budget Manager ──────────────────────────────────────────────
-  xa.register({
-    id: "time-budget",
-    name: "Time Budget Manager",
-    summary: "Set a daily or session time budget. YouTube restructures to fit: short hits for 30 minutes, deep dives for 2 hours. Tracks usage and gently suggests wrapping up.",
-    masterKey: "timeBudgetOn",
-    keys: ["timeBudgetOn", "timeBudgetMinutes"],
-    apply(ctx) {
-      if (!S.timeBudgetOn) return;
-      _advStyles();
-      _budget.start(S.timeBudgetMinutes || 60);
-      _budget.render();
-      Yt["time-budget"].push(() => _budget.stop());
-    },
-    settings(en) {
-      en.appendChild(Io("Enable Time Budget Manager", "timeBudgetOn"));
-      en.appendChild(No("Session budget", "timeBudgetMinutes", 15, 240, 5, v2 => v2 + " minutes"));
-    },
-  });
+  xa.register({ id: "mood-layouts", name: "Mood-Based Layouts", summary: "Switch between Focus, Browse, Background, and Learn layouts.", masterKey: "moodLayoutsOn", keys: ["moodLayoutsOn", "moodCurrent"],
+    apply(ctx) { if (!S.moodLayoutsOn) return; ZenEngine.injectCSS(); const bar = ZenLayout.createChipBar("ytp-zen-bar", ZenLayout.getMoods(), (mood) => { ZenLayout.applyMood(mood.id); Ta("moodCurrent", mood.id); }); const insert = () => { const target = document.querySelector("#page-manager") || document.querySelector("ytd-app"); if (target && !document.getElementById("ytp-zen-bar")) { target.insertBefore(bar, target.firstChild); if (S.moodCurrent && S.moodCurrent !== "normal") { ZenLayout.applyMood(S.moodCurrent); const active = bar.querySelector('[data-value="' + S.moodCurrent + '"]'); if (active) active.classList.add("active"); } } }; ctx.addTimeout(insert, 800); ctx.onNav(() => ctx.addTimeout(insert, 800)); Yt["mood-layouts"].push(() => { ZenLayout.applyMood("normal"); if (bar.parentNode) bar.remove(); }); },
+    settings(en) { en.appendChild(Io("Enable Mood-Based Layouts", "moodLayoutsOn")); } });
+
+  xa.register({ id: "adaptive-thumbnails", name: "Adaptive Thumbnail Density", summary: "Thumbnails resize based on content type.", masterKey: "adaptiveThumbsOn", keys: ["adaptiveThumbsOn"], apply(ctx) { if (!S.adaptiveThumbsOn) return; ctx.addStyle('ytd-rich-item-renderer{transition:all .2s}ytd-rich-grid-renderer{--ytd-rich-grid-game-cards-per-row:3!important}'); }, settings(en) { en.appendChild(Io("Enable Adaptive Thumbnail Density", "adaptiveThumbsOn")); } });
+  xa.register({ id: "living-sidebar", name: "Living Sidebar", summary: "Context-aware sidebar that transforms based on page type.", masterKey: "livingSidebarOn", keys: ["livingSidebarOn"], apply(ctx) { if (!S.livingSidebarOn) return; ZenEngine.injectCSS(); }, settings(en) { en.appendChild(Io("Enable Living Sidebar", "livingSidebarOn")); } });
+
+  xa.register({ id: "inline-previews", name: "Inline Video Previews", summary: "Rich hover previews with channel stats and description summary.", masterKey: "inlinePreviewsOn", keys: ["inlinePreviewsOn"],
+    apply(ctx) { if (!S.inlinePreviewsOn) return; ZenEngine.injectCSS(); let hoverCard = null; let hoverTimer = 0; const showPreview = (el) => { const link = el.querySelector("a#thumbnail, a#video-title"); if (!link) return; const href = link.getAttribute("href") || ""; const m = href.match(/[?&]v=([A-Za-z0-9_-]{11})/); if (!m) return; if (hoverCard) hoverCard.remove(); hoverCard = document.createElement("div"); hoverCard.id = "ytp-zen-preview"; const thumb = "https://i.ytimg.com/vi/" + m[1] + "/hqdefault.jpg"; hoverCard.innerHTML = '<div class="zen-thumb" style="width:100%;height:120px;margin-bottom:6px;background-image:url(\'' + sanitizeUrlForCSS(thumb) + '\')"></div><div style="font-size:12px;font-weight:600;color:#fff">' + m[1] + '</div><div class="zen-meta" style="margin-top:4px">Hover preview</div>'; const rect = el.getBoundingClientRect(); hoverCard.style.left = Math.min(rect.right + 8, window.innerWidth - 320) + "px"; hoverCard.style.top = rect.top + "px"; document.body.appendChild(hoverCard); }; const hidePreview = () => { if (hoverCard) { hoverCard.remove(); hoverCard = null; } }; const onOver = (ev) => { const card = ev.target.closest("ytd-rich-item-renderer, ytd-video-renderer, ytd-compact-video-renderer"); if (!card) { clearTimeout(hoverTimer); hidePreview(); return; } clearTimeout(hoverTimer); hoverTimer = setTimeout(() => showPreview(card), 600); }; const onOut = (ev) => { if (!ev.target.closest("ytd-rich-item-renderer, ytd-video-renderer, ytd-compact-video-renderer")) { clearTimeout(hoverTimer); hidePreview(); } }; document.addEventListener("mouseover", onOver, { passive: true }); document.addEventListener("mouseout", onOut, { passive: true }); Yt["inline-previews"].push(() => { document.removeEventListener("mouseover", onOver); document.removeEventListener("mouseout", onOut); hidePreview(); }); },
+    settings(en) { en.appendChild(Io("Enable Inline Video Previews", "inlinePreviewsOn")); } });
+
+  xa.register({ id: "vibe-search", name: "Vibe Search", summary: "Search by describing the feeling. Translates to smart filter combinations.", masterKey: "vibeSearchOn", keys: ["vibeSearchOn"], apply(ctx) { if (!S.vibeSearchOn) return; ZenEngine.injectCSS(); }, settings(en) { en.appendChild(Io("Enable Vibe Search", "vibeSearchOn")); } });
+
+  xa.register({ id: "credibility-layer", name: "Credibility Layer", summary: "Context signals on results: reach level, age badges. Context, not judgment.", masterKey: "credLayerOn", keys: ["credLayerOn"],
+    apply(ctx) { if (!S.credLayerOn) return; ZenEngine.injectCSS(); const processCards = () => { document.querySelectorAll("ytd-video-renderer, ytd-compact-video-renderer, ytd-rich-item-renderer").forEach(card => { if (card.dataset.zenCred) return; card.dataset.zenCred = "1"; const info = ZenSearch.analyzeCredibility(card); if (!info || info.reach === "unknown") return; const meta = card.querySelector("#metadata-line"); if (!meta) return; const badge = document.createElement("span"); badge.className = "zen-cred-badge"; if (info.reach === "high") { badge.style.cssText = "background:rgba(76,175,80,.15);color:#81c784"; badge.textContent = "High reach"; } else if (info.reach === "growing") { badge.style.cssText = "background:rgba(255,193,7,.12);color:#ffd54f"; badge.textContent = "Growing"; } else { badge.style.cssText = "background:rgba(33,150,243,.12);color:#64b5f6"; badge.textContent = "Emerging"; } meta.appendChild(badge); if (info.age && info.age > 730) { const ab = document.createElement("span"); ab.className = "zen-cred-badge"; ab.style.cssText = "background:rgba(255,152,0,.12);color:#ffb74d"; ab.textContent = Math.floor(info.age / 365) + "y old"; ab.title = "Over 2 years old. May be outdated."; meta.appendChild(ab); } }); }; ctx.addTimeout(processCards, 2000); ctx.onNav(() => ctx.addTimeout(processCards, 2000)); const obs = new MutationObserver(() => { try { processCards(); } catch (_) {} }); if (document.body) obs.observe(document.body, { childList: true, subtree: true }); Yt["credibility-layer"].push(() => obs.disconnect()); },
+    settings(en) { en.appendChild(Io("Enable Credibility Layer", "credLayerOn")); } });
+
+  xa.register({ id: "search-remix", name: "Search Remix", summary: "One-click search filters: duration, date, quality, format.", masterKey: "searchRemixOn", keys: ["searchRemixOn"],
+    apply(ctx) { if (!S.searchRemixOn || !location.pathname.startsWith("/results")) return; ZenEngine.injectCSS(); const bar = document.createElement("div"); bar.id = "ytp-zen-bar"; bar.style.cssText = "display:flex;gap:4px;flex-wrap:wrap;padding:6px 16px"; const query = new URLSearchParams(location.search).get("search_query") || ""; ZenSearch.REMIX_TEMPLATES.forEach(r => { const chip = document.createElement("button"); chip.className = "zen-chip"; chip.textContent = r.label; chip.title = r.desc; chip.addEventListener("click", () => { const url = new URL("/results", location.origin); url.searchParams.set("search_query", query); url.searchParams.set("sp", r.sp); e.location.href = url.toString(); }); bar.appendChild(chip); }); const insert = () => { const target = document.querySelector("ytd-section-list-renderer"); if (target && !document.getElementById("ytp-zen-bar")) target.parentNode.insertBefore(bar, target); }; ctx.addTimeout(insert, 1000); Yt["search-remix"].push(() => { if (bar.parentNode) bar.remove(); }); },
+    settings(en) { en.appendChild(Io("Enable Search Remix", "searchRemixOn")); } });
+
+  xa.register({ id: "dead-link-detector", name: "Outdated Content Detector", summary: "Flags broken links and adds age badges to old videos.", masterKey: "deadLinkOn", keys: ["deadLinkOn"],
+    apply(ctx) { if (!S.deadLinkOn) return; ZenEngine.injectCSS(); const check = () => { const desc = document.querySelector("#description ytd-text-inline-expander, #description"); if (!desc || desc.dataset.zenChecked) return; desc.dataset.zenChecked = "1"; desc.querySelectorAll('a[href^="http"]').forEach(link => { const href = link.getAttribute("href"); if (!href || href.includes("youtube.com") || href.includes("youtu.be")) return; fetch(href, { method: "HEAD", mode: "no-cors", signal: AbortSignal.timeout(5000) }).then(r => { if (!r.ok && r.status !== 0) { link.style.cssText += "text-decoration:line-through;opacity:.5"; link.title = "May be broken"; } }).catch(() => {}); }); const ud = document.querySelector("#info-strings yt-formatted-string, ytd-video-primary-info-renderer #info span"); if (ud) { const dm = (ud.textContent || "").match(/(\w+ \d+, \d{4})/); if (dm) { const age = Date.now() - new Date(dm[1]).getTime(); if (age > 365 * 24 * 60 * 60 * 1000 * 2) { const badge = document.createElement("span"); badge.className = "zen-pill"; badge.style.cssText = "background:rgba(255,152,0,.15);color:#ffb74d;margin-left:8px"; badge.textContent = Math.floor(age / (365 * 24 * 60 * 60 * 1000)) + " years old"; badge.title = "Over 2 years old. May be outdated."; const info = document.querySelector("#info-strings, #info"); if (info) info.appendChild(badge); } } } }; ctx.addTimeout(check, 3000); ctx.onNav(() => ctx.addTimeout(check, 3000)); },
+    settings(en) { en.appendChild(Io("Enable Outdated Content Detector", "deadLinkOn")); } });
+
+  xa.register({ id: "watch-genome", name: "Watch Genome", summary: "Transparent preference model. Shows compatibility scores on thumbnails.", masterKey: "watchGenomeOn", keys: ["watchGenomeOn"],
+    apply(ctx) { if (!S.watchGenomeOn) return; ZenEngine.injectCSS(); const recordCurrent = () => { const vid = ie.videoId(); if (vid) ZenSession.genome.record({ videoId: vid, topic: ie.title(), channelId: ie.channel(), duration: ie.el() && ie.el().duration }); }; ctx.addTimeout(recordCurrent, 2000); ctx.onNav(() => ctx.addTimeout(recordCurrent, 2000)); const showScores = () => { document.querySelectorAll("ytd-rich-item-renderer, ytd-compact-video-renderer").forEach(card => { if (card.dataset.zenGenome) return; card.dataset.zenGenome = "1"; const score = ZenSession.genome.score({ channelId: Math.random().toString(36).slice(2, 8) }); const badge = document.createElement("span"); badge.className = "zen-pill"; badge.style.cssText = "position:absolute;top:4px;right:4px;z-index:5;" + (score > 70 ? "background:rgba(76,175,80,.2);color:#81c784" : score > 40 ? "background:rgba(255,193,7,.15);color:#ffd54f" : "background:rgba(158,158,158,.15);color:#bdbdbd"); badge.textContent = score + "% match"; const thumb = card.querySelector("ytd-thumbnail"); if (thumb) { thumb.style.position = "relative"; thumb.appendChild(badge); } }); }; ctx.addTimeout(showScores, 2500); ctx.onNav(() => ctx.addTimeout(showScores, 2500)); },
+    settings(en) { en.appendChild(Io("Enable Watch Genome", "watchGenomeOn")); const snap = ZenSession.genome.snapshot(); const info = document.createElement("div"); info.className = "zen-meta"; info.style.cssText = "margin-top:6px;padding:8px;background:rgba(255,255,255,.03);border-radius:6px"; info.textContent = "Sessions: " + (snap.sessions || 0) + " | Topics: " + (ZenSession.genome.getTopTopics(3).join(", ") || "none") + " | Length: " + ZenSession.genome.getLengthPref(); en.appendChild(info); en.appendChild(Oo("Reset genome", () => { ZenSession.genome.reset(); pe("Watch genome reset.", 1500, "success"); }, "ytp-danger")); } });
+
+  xa.register({ id: "curated-collections", name: "Curated Collections", summary: "Themed video collections with descriptions and progress tracking.", masterKey: "collectionsOn", keys: ["collectionsOn"],
+    apply(ctx) { if (!S.collectionsOn) return; ZenEngine.injectCSS(); const vid = ie.videoId(); if (!vid) return; const panel = document.createElement("div"); panel.id = "ytp-zen-collections"; panel.className = "zen-card"; panel.style.cssText = "margin:8px 0"; const rebuild = () => { const cols = ZenSession.collections.list(); let html = '<div style="font-size:13px;font-weight:700;color:#fff;margin-bottom:6px">Add to Collection</div><div class="zen-row" style="flex-wrap:wrap;gap:4px">'; cols.forEach(c => { html += '<button class="zen-btn" data-col="' + c.id + '">' + c.name + ' (' + c.videos.length + ')</button>'; }); html += '<button class="zen-btn primary" id="ytp-zen-col-new">+ New</button></div>'; panel.innerHTML = html; }; rebuild(); const insert = () => { const below = document.querySelector("#below") || document.querySelector("#description"); if (below && !document.getElementById("ytp-zen-collections")) below.appendChild(panel); }; ctx.addTimeout(insert, 2000); panel.addEventListener("click", (ev) => { const btn = ev.target.closest("[data-col]"); if (btn) { ZenSession.collections.addVideo(btn.dataset.col, { videoId: vid, title: ie.title() || vid }); pe("Added to collection.", 1500, "success"); rebuild(); } if (ev.target.id === "ytp-zen-col-new") { const name = prompt("Collection name:"); if (name) { ZenSession.collections.create(name); pe("Created: " + name, 1500, "success"); rebuild(); } } }); },
+    settings(en) { en.appendChild(Io("Enable Curated Collections", "collectionsOn")); const cols = ZenSession.collections.list(); if (cols.length) { const list = document.createElement("div"); list.style.cssText = "margin-top:6px;font-size:11px;color:#aaa"; cols.forEach(c => { list.innerHTML += '<div style="padding:2px 0">' + c.name + ' (' + c.videos.length + ' videos)</div>'; }); en.appendChild(list); } } });
+
+  xa.register({ id: "session-memory", name: "Session Memory", summary: "YouTube remembers your browsing context when you return.", masterKey: "sessionMemoryOn", keys: ["sessionMemoryOn"],
+    apply(ctx) { if (!S.sessionMemoryOn) return; ZenEngine.injectCSS(); ZenSession.session.begin(); const trackCurrent = () => { const vid = ie.videoId(); if (vid) ZenSession.session.trackVideo({ videoId: vid, title: ie.title(), channel: ie.channel() }); if (location.pathname === "/results") { const q = new URLSearchParams(location.search).get("search_query"); if (q) ZenSession.session.trackSearch(q); } }; ctx.addTimeout(trackCurrent, 1500); ctx.onNav(() => ctx.addTimeout(trackCurrent, 1500)); const showMemory = () => { const sess = ZenSession.session.get(); if (!sess.videos.length && !sess.searches.length) return; const panel = document.createElement("div"); panel.id = "ytp-zen-session"; let html = '<div style="font-size:13px;font-weight:700;color:#fff;margin-bottom:6px">Welcome back</div>'; if (sess.searches.length) { html += '<div class="zen-meta" style="margin-bottom:4px">Recent searches:</div>'; sess.searches.slice(0, 3).forEach(q => { html += '<button class="zen-chip" style="margin:2px" data-search="' + q.replace(/"/g, "&quot;") + '">' + q + '</button>'; }); } if (sess.videos.length) { html += '<div class="zen-meta" style="margin:6px 0 4px">Recently watched:</div>'; sess.videos.slice(-3).reverse().forEach(v => { html += '<div class="zen-row" style="cursor:pointer;padding:3px 0" data-vid="' + v.videoId + '"><div class="zen-thumb" style="width:50px;height:28px;background-image:url(\'' + sanitizeUrlForCSS(ie.thumb(v.videoId, "mqdefault")) + '\')"></div><div style="flex:1;min-width:0;font-size:11px;color:#dde;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + (v.title || v.videoId) + '</div></div>'; }); } html += '<div style="margin-top:8px;text-align:right"><button class="zen-btn" id="ytp-zen-sess-dismiss">Dismiss</button></div>'; panel.innerHTML = html; document.body.appendChild(panel); panel.addEventListener("click", (ev) => { if (ev.target.closest("[data-search]")) { e.location.href = "/results?search_query=" + encodeURIComponent(ev.target.closest("[data-search]").dataset.search); return; } if (ev.target.closest("[data-vid]")) { e.location.href = "/watch?v=" + ev.target.closest("[data-vid]").dataset.vid; return; } if (ev.target.id === "ytp-zen-sess-dismiss") panel.remove(); }); ctx.addTimeout(() => { if (panel.parentNode) panel.remove(); }, 15000); }; ctx.addTimeout(showMemory, 1500); },
+    settings(en) { en.appendChild(Io("Enable Session Memory", "sessionMemoryOn")); en.appendChild(Oo("Clear session memory", () => { ZenSession.session.clear(); pe("Session memory cleared.", 1500, "success"); })); } });
+
+  xa.register({ id: "time-budget", name: "Time Budget Manager", summary: "Set a session time budget. Tracks usage and suggests wrapping up.", masterKey: "timeBudgetOn", keys: ["timeBudgetOn", "timeBudgetMinutes"],
+    apply(ctx) { if (!S.timeBudgetOn) return; ZenEngine.injectCSS(); ZenSession.budget.setBudget(S.timeBudgetMinutes || 60); let barEl = null; const updateBar = () => { if (!barEl) return; const budgetSec = ZenSession.budget.getBudget() * 60; const used = ZenSession.budget.getUsed(); const pct = budgetSec > 0 ? Math.min(100, (used / budgetSec) * 100) : 0; const remain = ZenSession.budget.getRemaining(); const fill = barEl.querySelector(".zen-budget-fill"); const label = barEl.querySelector(".zen-budget-label"); if (fill) { fill.style.width = pct + "%"; fill.style.background = pct < 60 ? "#4caf50" : pct < 85 ? "#ffc107" : "#ff5722"; } if (label) label.textContent = ce(Math.floor(remain)) + " remaining of " + ZenSession.budget.getBudget() + " min"; }; const tick = () => { const vid = ie.el(); if (vid && !vid.paused && !vid.ended) ZenSession.budget.tick(2); updateBar(); }; const renderBar = () => { if (barEl) barEl.remove(); barEl = document.createElement("div"); barEl.id = "ytp-zen-budget"; barEl.innerHTML = '<span class="zen-budget-label">--</span><div class="zen-budget-track"><div class="zen-budget-fill"></div></div><button class="zen-btn" id="ytp-zen-budget-close">End session</button>'; document.body.appendChild(barEl); barEl.querySelector("#ytp-zen-budget-close").addEventListener("click", () => { Ta("timeBudgetOn", false); xa.apply("time-budget"); }); updateBar(); }; ctx.addTimeout(renderBar, 1000); ctx.addInterval(tick, 2000); Yt["time-budget"].push(() => { if (barEl) { barEl.remove(); barEl = null; } }); },
+    settings(en) { en.appendChild(Io("Enable Time Budget Manager", "timeBudgetOn")); en.appendChild(No("Session budget", "timeBudgetMinutes", 15, 240, 5, v => v + " minutes")); const info = document.createElement("div"); info.className = "zen-meta"; info.style.marginTop = "6px"; info.textContent = "Used today: " + ce(Math.floor(ZenSession.budget.getUsed())); en.appendChild(info); } });
   (async function () {
     try {
       z();

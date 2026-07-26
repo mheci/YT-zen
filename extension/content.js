@@ -64,7 +64,7 @@
         window.GM_info = {
           script: {
             name: "YT-zen",
-            version: "1.2.0"
+            version: "3.5.1"
           }
         };
 

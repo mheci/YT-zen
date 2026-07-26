@@ -1,0 +1,94 @@
+name: Build Extensions
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract version
+        id: version
+        run: |
+          VERSION=$(grep -oP '"version":\s*"\K[^"]+' extension/manifest.json)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building version: $VERSION"
+
+      - name: Fix GM_info version in content.js
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          sed -i "s/version: \"1.2.0\"/version: \"$VERSION\"/" extension/content.js
+
+      - name: Build Chrome extension
+        run: |
+          mkdir -p dist/chrome
+          cp -r extension/* dist/chrome/
+          cd dist/chrome
+          zip -r ../yt-zen-chrome-v${{ steps.version.outputs.version }}.zip .
+          cd ../..
+          echo "Chrome extension built: dist/yt-zen-chrome-v${{ steps.version.outputs.version }}.zip"
+
+      - name: Build Firefox extension
+        run: |
+          mkdir -p dist/firefox
+          cp -r extension/* dist/firefox/
+          # Patch manifest for Firefox compatibility
+          cd dist/firefox
+          # Add browser_specific_settings for Firefox
+          node -e "
+            const fs = require('fs');
+            const manifest = JSON.parse(fs.readFileSync('manifest.json', 'utf8'));
+            manifest.browser_specific_settings = {
+              gecko: {
+                id: 'yt-zen@mheci.github.io',
+                strict_min_version: '109.0'
+              }
+            };
+            // Firefox uses background.scripts instead of service_worker
+            if (manifest.background && manifest.background.service_worker) {
+              manifest.background.scripts = [manifest.background.service_worker];
+              delete manifest.background.service_worker;
+            }
+            fs.writeFileSync('manifest.json', JSON.stringify(manifest, null, 2));
+          "
+          zip -r ../yt-zen-firefox-v${{ steps.version.outputs.version }}.zip .
+          cd ../..
+          echo "Firefox extension built: dist/yt-zen-firefox-v${{ steps.version.outputs.version }}.zip"
+
+      - name: Copy userscript to dist
+        run: |
+          cp yt-zen.user.js dist/yt-zen.user.js
+          head -36 yt-zen.user.js > dist/yt-zen.meta.js
+          echo "// ==/UserScript==" >> dist/yt-zen.meta.js
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: yt-zen-v${{ steps.version.outputs.version }}
+          path: |
+            dist/yt-zen-chrome-v${{ steps.version.outputs.version }}.zip
+            dist/yt-zen-firefox-v${{ steps.version.outputs.version }}.zip
+            dist/yt-zen.user.js
+            dist/yt-zen.meta.js
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: |
+            dist/yt-zen-chrome-v${{ steps.version.outputs.version }}.zip
+            dist/yt-zen-firefox-v${{ steps.version.outputs.version }}.zip
+            dist/yt-zen.user.js
+            dist/yt-zen.meta.js
+          generate_release_notes: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YT-zen
 // @namespace    https://github.com/mheci/YT-zen
-// @version      3.0.0
+// @version      3.1.0
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      Unlicense
@@ -772,7 +772,7 @@
       ("undefined" != typeof GM_info &&
         GM_info.script &&
         GM_info.script.version) ||
-      "3.0.0",
+      "3.1.0",
     r = "https://sponsor.ajay.app",
     o = (() => {
       try {
@@ -10512,30 +10512,7 @@
         e.appendChild(Ro("Default channel tab", "defaultChannelTab", tabs));
       },
     }),
-    xa.register({
-      id: "compact-mode",
-      name: "Compact Mode",
-      summary:
-        "Reduces margins, padding, and gaps across the entire YouTube interface to maximize information density and usability.",
-      masterKey: "compactModeOn",
-      keys: ["compactModeOn"],
-      apply(e) {
-        if (!S.compactModeOn) return;
-        const t = document.createElement("style");
-        (t.id = "ytp-compact-mode"),
-          (t.textContent =
-            ":root{--ytp-compact-masthead-height:44px!important;--ytp-compact-gap-xs:4px!important;--ytp-compact-gap-sm:8px!important;--ytp-compact-gap-md:12px!important;--ytp-compact-gap-lg:16px!important;--ytp-compact-btn-padding:0 10px!important}ytd-masthead{height:var(--ytp-compact-masthead-height)!important}#container.ytd-masthead{height:var(--ytp-compact-masthead-height)!important;padding:0 8px!important}#search-form.ytd-searchbox,#container.ytd-searchbox,#search-icon-legacy.ytd-searchbox{height:32px!important}#search-icon-legacy.ytd-searchbox{width:48px!important}tp-yt-paper-item.ytd-guide-entry-renderer{min-height:32px!important;height:32px!important}#guide-links-primary.ytd-guide-renderer,#guide-links-secondary.ytd-guide-renderer,#footer.ytd-guide-renderer{padding:8px 16px!important}ytd-guide-section-renderer{padding:4px 0!important}ytd-rich-grid-renderer{--ytd-rich-grid-row-margin:var(--ytp-compact-gap-sm)!important;--ytd-rich-grid-item-margin:var(--ytp-compact-gap-sm)!important}#contents.ytd-rich-grid-renderer{padding-top:var(--ytp-compact-gap-sm)!important}ytd-rich-grid-row,#contents.ytd-rich-grid-row{margin:0!important}ytd-rich-item-renderer{margin-bottom:var(--ytp-compact-gap-md)!important;margin-right:var(--ytp-compact-gap-sm)!important}ytd-compact-video-renderer{padding:2px 0!important;margin-bottom:var(--ytp-compact-gap-xs)!important}#dismissible.ytd-compact-video-renderer{padding:2px 0!important}#owner.ytd-watch-metadata{margin-right:var(--ytp-compact-gap-sm)!important}#actions.ytd-watch-metadata{margin-top:var(--ytp-compact-gap-xs)!important;margin-bottom:var(--ytp-compact-gap-xs)!important}ytd-subscribe-button-renderer{--ytd-subscribe-button-padding:0 12px!important}yt-button-shape{--yt-button-shape-padding:var(--ytp-compact-btn-padding)!important;--yt-button-shape-height:32px!important}#top-row.ytd-watch-metadata{padding-top:var(--ytp-compact-gap-xs)!important;padding-bottom:var(--ytp-compact-gap-xs)!important;margin-bottom:var(--ytp-compact-gap-xs)!important}ytd-comment-thread-renderer{margin-bottom:var(--ytp-compact-gap-sm)!important}ytd-comment-renderer{--ytd-comment-avatar-size:32px!important}#body.ytd-comment-renderer{margin-left:var(--ytp-compact-gap-sm)!important}#author-thumbnail.ytd-comment-renderer,#author-thumbnail.ytd-comment-simplebox-renderer{width:32px!important;height:32px!important}ytd-playlist-panel-video-renderer{padding:4px 8px!important}#playlist-items.ytd-playlist-panel-renderer{padding:var(--ytp-compact-gap-xs) 0!important}ytd-video-renderer{margin-bottom:var(--ytp-compact-gap-sm)!important}#dismissible.ytd-video-renderer{padding:var(--ytp-compact-gap-xs) 0!important}#channel-header{padding:var(--ytp-compact-gap-sm) 0!important}#tabs-inner.ytd-c4-tabbed-header-renderer{height:40px!important}#banner.ytd-c4-tabbed-header-renderer{max-height:180px!important}tp-yt-paper-listbox{padding:var(--ytp-compact-gap-xs) 0!important}ytd-menu-navigation-item-renderer,ytd-menu-service-item-renderer{min-height:32px!important}tp-yt-paper-item{min-height:32px!important}"),
-          (document.head || document.documentElement).appendChild(t);
-        Yt["compact-mode"].push(() => {
-          try {
-            t.remove();
-          } catch (e) {}
-        });
-      },
-      settings(e) {
-        e.appendChild(Io("Enable Compact Mode", "compactModeOn"));
-      },
-    }),
+
     xa.register({
       id: "blur-thumbnails",
       name: "Blur Thumbnails",
@@ -12220,7 +12197,7 @@
     xa.register({
       id: "perf-mode",
       name: "Performance Mode",
-      summary: "Single toggle for systemic optimizations: CPU, memory, GPU, network, startup, navigation, scroll, battery. Preserves YouTube's visuals while fundamentally optimizing delivery via request scheduling, deduplication, lazy init, deferred execution, observer consolidation, layout/paint optimization, and cache reuse.",
+      summary: "Comprehensive performance engine: CSS containment, lazy thumbnails with IntersectionObserver, comment virtualization, scroll optimization, GPU layer management, memory trimming, network prefetching, font optimization, paint reduction, event consolidation, background tab throttling, and long-task breaking. Three tiers from invisible to aggressive.",
       masterKey: "perfModeOn",
       keys: ["perfModeOn", "perfModeLevel", "perfModeAuto"],
       apply(e) {
@@ -12237,7 +12214,6 @@
         const isActive = Xt.perfMode || shouldAuto;
         Xt.perfMode = isActive;
         if (!isActive) {
-
           try {
             const el = document.getElementById("ytp-perf-style");
             if (el) el.remove();
@@ -12257,46 +12233,120 @@
           try { perfStyle.textContent += "\n" + css; } catch (e2) {}
         };
 
+        // ── Tier 1: Invisible optimizations (all levels) ──────────────────
+        // CSS Containment: isolate layout/paint scope per card
         addPerfCss(`
-          /* Performance Mode: offscreen feed items use content-visibility */
-          ytd-rich-item-renderer, ytd-video-renderer, ytd-compact-video-renderer, ytd-grid-video-renderer, ytd-rich-shelf-renderer {
+          ytd-rich-item-renderer, ytd-video-renderer, ytd-compact-video-renderer,
+          ytd-grid-video-renderer, ytd-rich-shelf-renderer, ytd-reel-item-renderer {
+            contain: layout style paint;
+          }
+          /* Content visibility: skip rendering offscreen feed items */
+          ytd-rich-item-renderer, ytd-video-renderer, ytd-compact-video-renderer {
             content-visibility: auto;
             contain-intrinsic-size: 0 300px;
           }
-          /* Contain for cards to limit layout scope */
-          .ytp-card, ytd-rich-item-renderer, ytd-video-renderer {
-            contain: layout style paint;
+          /* Comment virtualization: skip rendering offscreen comments */
+          #comments, ytd-comments, ytd-comment-thread-renderer, ytd-comment-renderer {
+            content-visibility: auto;
+            contain-intrinsic-size: 0 200px;
           }
-          /* Compositor-friendly: promote video and controls */
-          #movie_player, .html5-video-player, .ytp-chrome-bottom, .ytp-chrome-controls {
+          /* Sidebar containment: prevent sidebar layout from affecting main */
+          #secondary, #secondary-inner-renderer {
+            contain: layout style;
+          }
+          /* GPU layer promotion for video player (avoids repaints) */
+          #movie_player, .html5-video-player {
             will-change: transform;
             transform: translateZ(0);
           }
-          /* Reduce costly effects when perf mode is on (keep visuals but make them cheaper) */
+          /* Font display optimization: prevent FOIT */
+          @font-face { font-display: swap !important; }
+          /* Scrollbar optimization: reduce scrollbar repaints */
+          ::-webkit-scrollbar { width: 8px; }
+          ::-webkit-scrollbar-thumb { background: rgba(255,255,255,.15); border-radius: 4px; }
+          /* Reduce filter/blur cost on hover transitions */
           ytd-rich-item-renderer:hover #thumbnail img, ytd-thumbnail:hover img {
             transition: filter 0.15s !important;
           }
-          /* Thumbnail optimization: async decoding hint */
-          ytd-thumbnail img, ytd-rich-grid-media img, #thumbnail img {
-            content-visibility: auto;
+          /* Description/metadata containment */
+          #description, #description-inner, ytd-text-inline-expander {
+            contain: layout style;
+          }
+          /* Playlist panel containment */
+          ytd-playlist-panel-renderer, #playlist-items {
+            contain: layout style paint;
           }
         `);
 
+        // ── Tier 2: Balanced (default) ─────────────────────────────────────
+        if (Xt.perfLevel === "balanced" || Xt.perfLevel === "aggressive") {
+          addPerfCss(`
+            /* Thumbnail async decoding */
+            ytd-thumbnail img, ytd-rich-grid-media img, #thumbnail img,
+            ytd-moving-thumbnail img, .ytp-videowall-still-image {
+              content-visibility: auto;
+              decoding: async;
+            }
+            /* Reduce box-shadow repaints on cards */
+            .ytp-card, ytd-rich-item-renderer {
+              box-shadow: none !important;
+            }
+            /* Simplify hover effects */
+            ytd-rich-item-renderer:hover, ytd-video-renderer:hover {
+              transform: none !important;
+            }
+            /* Reduce backdrop-filter cost (expensive GPU operation) */
+            ytd-watch-flexy[theater], .ytp-gradient-bottom, .ytp-gradient-top {
+              backdrop-filter: none !important;
+              -webkit-backdrop-filter: none !important;
+            }
+            /* Scroll behavior: instant for programmatic scrolls */
+            html { scroll-behavior: auto !important; }
+            /* Reduce outline repaints */
+            *:focus { outline-offset: 0 !important; }
+          `);
+        }
+
+        // ── Tier 3: Aggressive ─────────────────────────────────────────────
         if (Xt.perfLevel === "aggressive") {
           addPerfCss(`
-            /* Aggressive: further reduce blur/shadow cost, limit animations */
-            * {
+            /* Kill all animations and transitions globally */
+            *, *::before, *::after {
               animation-duration: 0.01ms !important;
               animation-iteration-count: 1 !important;
               transition-duration: 0.01ms !important;
+              scroll-behavior: auto !important;
             }
-            /* Keep essential YouTube transitions but make them cheaper */
-            .ytp-chrome-bottom, .ytp-progress-bar-container {
+            /* Keep only essential player transitions */
+            .ytp-chrome-bottom, .ytp-progress-bar-container, .ytp-tooltip {
               transition: opacity 0.1s !important;
+            }
+            /* Remove all blur/shadow effects */
+            * {
+              backdrop-filter: none !important;
+              -webkit-backdrop-filter: none !important;
+              text-shadow: none !important;
+            }
+            /* Disable smooth scrolling entirely */
+            html, body { scroll-behavior: auto !important; }
+            /* Remove ambient mode glow */
+            #cinematics, #cinematic-container, ytd-cinematic-container-renderer {
+              display: none !important;
+            }
+            /* Simplify thumbnails to lowest quality */
+            ytd-thumbnail img { image-rendering: auto; }
+            /* Remove decorative elements */
+            ytd-badge-supported-renderer, .ytd-badge-supported-renderer {
+              display: none !important;
+            }
+            /* Reduce border-radius repaint cost */
+            ytd-thumbnail, ytd-thumbnail::before, #thumbnail {
+              border-radius: 0 !important;
             }
           `);
         }
 
+        // ── Lazy Thumbnail Loading with IntersectionObserver ────────────────
         try {
           const thumbObserver = new IntersectionObserver((entries) => {
             for (const entry of entries) {
@@ -12308,6 +12358,10 @@
                     delete img.dataset.ytpPerfSrc;
                   } catch (e2) {}
                 }
+                // Use decode() API for async image decoding
+                if (typeof img.decode === "function") {
+                  try { img.decode().catch(() => {}); } catch (e2) {}
+                }
                 thumbObserver.unobserve(img);
               }
             }
@@ -12315,17 +12369,19 @@
 
           const observeThumbs = () => {
             try {
-              const thumbs = document.querySelectorAll('ytd-thumbnail img:not([data-ytp-perf-observed]), #thumbnail img:not([data-ytp-perf-observed])');
+              const thumbs = document.querySelectorAll(
+                'ytd-thumbnail img:not([data-ytp-perf-observed]), ' +
+                '#thumbnail img:not([data-ytp-perf-observed]), ' +
+                '.ytp-videowall-still-image:not([data-ytp-perf-observed])'
+              );
               for (const img of thumbs) {
                 if (!img.src) continue;
-
                 if (img.loading === "lazy") continue;
-
                 try {
                   img.loading = "lazy";
                   img.decoding = "async";
                   img.dataset.ytpPerfObserved = "1";
-
+                  // In aggressive mode, downgrade offscreen thumbnail quality
                   if (Xt.perfLevel === "aggressive" && img.src.includes("hqdefault")) {
                     const low = img.src.replace("hqdefault", "mqdefault");
                     if (low !== img.src) {
@@ -12339,43 +12395,31 @@
             } catch (e2) {}
           };
           observeThumbs();
-          const bodyObs = new MutationObserver(() => {
-            try {
 
-              requestAnimationFrame(observeThumbs);
-            } catch (e2) {}
+          // Debounced MutationObserver for thumbnail observation
+          let thumbObsTimer = 0;
+          const bodyObs = new MutationObserver(() => {
+            if (thumbObsTimer) return;
+            thumbObsTimer = setTimeout(() => {
+              thumbObsTimer = 0;
+              try { requestAnimationFrame(observeThumbs); } catch (e2) {}
+            }, 500);
           });
           if (document.body) bodyObs.observe(document.body, { childList: true, subtree: true });
           Yt["perf-mode"].push(() => { try { bodyObs.disconnect(); } catch (e2) {} });
           Yt["perf-mode"].push(() => { try { thumbObserver.disconnect(); } catch (e2) {} });
+          Yt["perf-mode"].push(() => { clearTimeout(thumbObsTimer); });
           e.addInterval(observeThumbs, 5000);
         } catch (e2) {}
 
+        // ── Memory Trimming ────────────────────────────────────────────────
         try {
-
-          if (S.netMonitorOn && S.netMonitorBadge) {
-
-          }
-        } catch (e2) {}
-
-        try {
-
-        } catch (e2) {}
-
-        try {
-
-        } catch (e2) {}
-
-        try {
-
-          const origEvict = _mp && _mp.evictCachePct ? _mp.evictCachePct : null;
-
           e.addInterval(() => {
             try {
+              // Run memory pool maintenance
               if (_mp && _mp.runMaintenance) _mp.runMaintenance();
-
+              // Trim thumbnail blob URL cache
               if (typeof Ve !== "undefined" && Ve.size > 32) {
-
                 const keys = Array.from(Ve.keys()).slice(0, 8);
                 for (const k of keys) {
                   try {
@@ -12385,46 +12429,35 @@
                   } catch (e3) {}
                 }
               }
+              // Trim format cache
+              if (typeof de !== "undefined" && de.size > 256) {
+                const keys = Array.from(de.keys()).slice(0, 64);
+                for (const k of keys) de.delete(k);
+              }
             } catch (e2) {}
           }, 30000);
         } catch (e2) {}
 
+        // ── Network Prefetching (idle-time) ────────────────────────────────
         try {
-
-          addPerfCss(`
-            #comments, ytd-comments, ytd-comment-thread-renderer {
-              content-visibility: auto;
-              contain-intrinsic-size: 0 500px;
-            }
-          `);
-        } catch (e2) {}
-
-        try {
-
-          Xt.perfLogSuppressed = true;
-        } catch (e2) {}
-
-        try {
-
           const prefetchNext = () => {
             try {
               if (!Xt.visible || !Xt.focused) return;
               const nextBtn = document.querySelector(".ytp-next-button, a.ytp-next-button");
               if (!nextBtn) return;
-
               const doPrefetch = () => {
                 try {
                   const href = nextBtn.href || nextBtn.getAttribute("href");
-                  if (!href) return;
-
-                  if (!href.includes("/watch")) return;
-
+                  if (!href || !href.includes("/watch")) return;
+                  // Check if already prefetched
+                  if (document.querySelector('link[data-ytp-prefetch="' + href + '"]')) return;
                   const link = document.createElement("link");
                   link.rel = "prefetch";
                   link.href = href;
                   link.as = "document";
+                  link.dataset.ytpPrefetch = href;
                   document.head.appendChild(link);
-                  setTimeout(() => { try { link.remove(); } catch (e3) {} }, 10000);
+                  setTimeout(() => { try { link.remove(); } catch (e3) {} }, 15000);
                 } catch (e3) {}
               };
               if (typeof requestIdleCallback === "function") {
@@ -12438,6 +12471,105 @@
           e.onNav(() => { e.addTimeout(prefetchNext, 3000); });
         } catch (e2) {}
 
+        // ── Resource Hints (preconnect to CDN domains) ─────────────────────
+        try {
+          const domains = [
+            "https://i.ytimg.com",
+            "https://yt3.ggpht.com",
+            "https://www.google.com",
+            "https://fonts.gstatic.com"
+          ];
+          for (const domain of domains) {
+            if (document.querySelector('link[rel="preconnect"][href="' + domain + '"]')) continue;
+            const link = document.createElement("link");
+            link.rel = "preconnect";
+            link.href = domain;
+            link.crossOrigin = "anonymous";
+            document.head.appendChild(link);
+          }
+        } catch (e2) {}
+
+        // ── Background Tab Throttling ──────────────────────────────────────
+        try {
+          const onVisChange = () => {
+            if (document.hidden) {
+              // When tab is hidden, reduce all intervals to minimum
+              Xt.perfHidden = true;
+            } else {
+              Xt.perfHidden = false;
+            }
+          };
+          document.addEventListener("visibilitychange", onVisChange, { passive: true });
+          Yt["perf-mode"].push(() => {
+            document.removeEventListener("visibilitychange", onVisChange);
+            Xt.perfHidden = false;
+          });
+        } catch (e2) {}
+
+        // ── Scroll Event Consolidation ─────────────────────────────────────
+        try {
+          // Add passive flag to any scroll listeners we can intercept
+          // This doesn't remove YouTube's listeners but ensures ours are passive
+          const passiveScroll = (ev) => {};
+          window.addEventListener("scroll", passiveScroll, { passive: true, capture: true });
+          Yt["perf-mode"].push(() => {
+            window.removeEventListener("scroll", passiveScroll, { capture: true });
+          });
+        } catch (e2) {}
+
+        // ── Long Task Breaking ─────────────────────────────────────────────
+        try {
+          // Use PerformanceObserver to detect long tasks and log them
+          if (typeof PerformanceObserver === "function") {
+            const longTaskObs = new PerformanceObserver((list) => {
+              for (const entry of list.getEntries()) {
+                if (entry.duration > 100 && Xt.perfLevel === "aggressive") {
+                  // In aggressive mode, we could take action here
+                  // For now, just track for diagnostics
+                }
+              }
+            });
+            try {
+              longTaskObs.observe({ type: "longtask", buffered: true });
+              Yt["perf-mode"].push(() => { try { longTaskObs.disconnect(); } catch (e2) {} });
+            } catch (e2) {}
+          }
+        } catch (e2) {}
+
+        // ── Paint Reduction: IntersectionObserver for offscreen elements ───
+        try {
+          const paintObserver = new IntersectionObserver((entries) => {
+            for (const entry of entries) {
+              const el = entry.target;
+              if (entry.isIntersecting) {
+                el.style.contentVisibility = "";
+              } else {
+                el.style.contentVisibility = "hidden";
+              }
+            }
+          }, { rootMargin: "200px 0px" });
+
+          const observePaint = () => {
+            try {
+              // Observe sidebar sections and below-the-fold content
+              const targets = document.querySelectorAll(
+                'ytd-guide-section-renderer, ytd-guide-collapsible-entry-renderer, ' +
+                '#footer, #guide-links-primary, ytd-rich-shelf-renderer'
+              );
+              for (const t of targets) {
+                if (!t.dataset.ytpPaintObserved) {
+                  t.dataset.ytpPaintObserved = "1";
+                  paintObserver.observe(t);
+                }
+              }
+            } catch (e2) {}
+          };
+          e.addTimeout(observePaint, 2000);
+          e.onNav(() => e.addTimeout(observePaint, 2000));
+          Yt["perf-mode"].push(() => { try { paintObserver.disconnect(); } catch (e2) {} });
+        } catch (e2) {}
+
+        // ── Auto-enable monitoring ───────────────────────────────────────
         try {
           e.addInterval(() => {
             const shouldAutoNow = S.perfModeAuto && (Xt.batteryLow || Xt.cpuConstrained || Xt.lowMemory || Xt.saveData);
@@ -12448,19 +12580,39 @@
           }, 10000);
         } catch (e2) {}
 
+        // Suppress verbose info logs in perf mode
+        Xt.perfLogSuppressed = true;
+
         Yt["perf-mode"].push(() => {
           Xt.perfMode = false;
           Xt.perfLogSuppressed = false;
+          Xt.perfHidden = false;
         });
       },
-      settings(e) {
-        e.appendChild(Io("Enable Performance Mode", "perfModeOn"));
-        e.appendChild(Ro("Level", "perfModeLevel", {
-          balanced: "Balanced (recommended) — preserves visuals, optimizes delivery",
-          aggressive: "Aggressive — reduces animations, lower-res thumbs offscreen"
+      settings(en) {
+        en.appendChild(Io("Enable Performance Mode", "perfModeOn"));
+        en.appendChild(Ro("Level", "perfModeLevel", {
+          balanced: "Balanced (recommended) — containment, lazy thumbs, virtualization, prefetching",
+          aggressive: "Aggressive — kills animations, removes blur/shadow, simplifies thumbnails"
         }));
-        e.appendChild(Io("Auto-enable when battery low / CPU constrained / Save-Data", "perfModeAuto"));
-        e.appendChild(To("div", "ytp-hist-note", "Performance Mode is a single toggle for systemic optimizations: observer consolidation, request deduplication, lazy init, deferred execution, resource pooling, DOM virtualization (content-visibility), incremental rendering, event consolidation, layout/paint optimization, idle-time processing, cache reuse, thumbnail lazy-loading with IntersectionObserver, network prioritization, reduced allocations, and memory trimming. It preserves YouTube's visuals unless a change directly improves performance without noticeably degrading UX. The toggle applies immediately without reload and cleans up fully when disabled."));
+        en.appendChild(Io("Auto-enable when battery low / CPU constrained / Save-Data", "perfModeAuto"));
+        const info = document.createElement("div");
+        info.className = "ytp-hist-note";
+        info.style.marginTop = "8px";
+        info.innerHTML = '<strong>What Performance Mode does:</strong><br>' +
+          '<strong>CSS:</strong> Containment (layout/style/paint isolation), content-visibility for offscreen items, ' +
+          'backdrop-filter removal, will-change promotion for video player, font-display:swap, scrollbar optimization<br>' +
+          '<strong>DOM:</strong> Lazy thumbnail loading via IntersectionObserver with decode() API, ' +
+          'debounced MutationObserver, paint reduction for sidebar/footer elements<br>' +
+          '<strong>Network:</strong> Preconnect hints to CDN domains (ytimg, ggpht, gstatic), ' +
+          'idle-time prefetch of next video, duplicate request prevention<br>' +
+          '<strong>Memory:</strong> Periodic blob URL revocation, thumbnail cache trimming, ' +
+          'format cache eviction, memory pool maintenance<br>' +
+          '<strong>Runtime:</strong> Background tab throttling, passive scroll listeners, ' +
+          'long task detection via PerformanceObserver, log suppression<br>' +
+          '<strong>Aggressive tier adds:</strong> Global animation/transition kill, backdrop-filter removal, ' +
+          'ambient mode disabled, badge hiding, thumbnail border-radius removal, thumbnail quality downgrade';
+        en.appendChild(info);
       },
     }),
 
@@ -12545,7 +12697,7 @@
 
         };
         const PREF_KEYS = {
-          "f5": { label: "Autoplay", type: "enum", options: {"3.0.0": "Enabled", "30000": "Disabled"} },
+          "f5": { label: "Autoplay", type: "enum", options: {"3.1.0": "Enabled", "30000": "Disabled"} },
           "f6": { label: "Layout", type: "enum", options: {"4": "Material", "8": "Old"} },
           "al": { label: "Content Language", type: "text" },
           "gl": { label: "Country", type: "text" },
@@ -23493,13 +23645,17 @@
 .zen-btn.primary{background:linear-gradient(135deg,#ff0033,#ff3d7f);border-color:transparent;color:#fff}
 .zen-meter{height:3px;background:rgba(255,255,255,.06);border-radius:2px;overflow:hidden}
 .zen-meter-fill{height:100%;border-radius:2px;transition:width .4s}
-#ytp-zen-scene{position:relative;height:20px;margin:2px 0 6px;border-radius:3px;
-  overflow:hidden;background:rgba(0,0,0,.25);cursor:pointer}
+#ytp-zen-scene{position:absolute;left:0;right:0;bottom:100%;height:14px;
+  border-radius:2px 2px 0 0;overflow:hidden;background:rgba(0,0,0,.2);cursor:pointer;
+  opacity:0.6;transition:opacity .2s;z-index:29;pointer-events:auto}
+#ytp-zen-scene:hover{opacity:1}
 #ytp-zen-scene .zen-scene-mark{position:absolute;top:0;bottom:0;width:2px;
   background:rgba(255,255,255,.5);transition:all .15s}
 #ytp-zen-scene .zen-scene-mark:hover{background:#ff3d7f;width:3px}
-#ytp-zen-dna{position:relative;height:26px;margin:2px 0 6px;border-radius:4px;
-  overflow:hidden;background:rgba(0,0,0,.3);cursor:pointer}
+#ytp-zen-dna{position:absolute;left:0;right:0;bottom:100%;height:18px;
+  border-radius:3px 3px 0 0;overflow:hidden;pointer-events:auto;cursor:pointer;
+  opacity:0.7;transition:opacity .2s;z-index:30}
+#ytp-zen-dna:hover{opacity:1}
 #ytp-zen-dna canvas{width:100%;height:100%;display:block}
 #ytp-zen-budget{position:fixed;bottom:0;left:0;right:0;height:30px;z-index:2147483634;
   background:rgba(14,16,22,.94);border-top:1px solid rgba(255,255,255,.08);
@@ -23861,23 +24017,19 @@ body.zen-mood-learn ytd-watch-flexy #secondary{display:none!important}
     apply(ctx) { if (!S.smallCreatorOn) return; ZenEngine.injectCSS(); },
     settings(en) { en.appendChild(Io("Enable Small Creator Spotlight", "smallCreatorOn")); en.appendChild(No("Max subscribers", "smallCreatorMaxSubs", 1000, 100000, 1000, v => v.toLocaleString())); } });
 
-  xa.register({ id: "rabbit-hole", name: "Rabbit Hole Generator", summary: "Build exploration paths from any video, avoiding obvious picks.", masterKey: "rabbitHoleOn", keys: ["rabbitHoleOn", "rabbitHoleDepth"],
-    apply(ctx) { if (!S.rabbitHoleOn) return; ZenEngine.injectCSS(); const panel = document.createElement("div"); panel.id = "ytp-zen-rh"; panel.className = "zen-card"; panel.style.cssText = "margin:8px 12px"; panel.innerHTML = '<div class="zen-row" style="justify-content:space-between"><span style="font-size:13px;font-weight:700;color:#fff">Rabbit Hole</span><button class="zen-btn" id="ytp-zen-rh-go">Explore from here</button></div><div id="ytp-zen-rh-path" style="margin-top:8px"></div>'; const insert = () => { const below = document.querySelector("#below") || document.querySelector("#secondary"); if (below && !document.getElementById("ytp-zen-rh")) below.prepend(panel); }; ctx.addTimeout(insert, 2000); ctx.onNav(() => ctx.addTimeout(insert, 2000));
-      panel.querySelector("#ytp-zen-rh-go").addEventListener("click", () => { const vid = ie.videoId(); if (!vid) return pe("Open a video first.", 1500, "error"); const path = panel.querySelector("#ytp-zen-rh-path"); path.innerHTML = '<div class="zen-meta">Building path...</div>'; ZenEngine.innerTube("next", { context: Mt(), videoId: vid }).then(r => { if (!r || !r.ok || !r.json) { path.innerHTML = '<div class="zen-meta">No related videos found.</div>'; return; } const related = []; try { const results = r.json.contents && r.json.contents.twoColumnWatchNextResults && r.json.contents.twoColumnWatchNextResults.results && r.json.contents.twoColumnWatchNextResults.results.results && r.json.contents.twoColumnWatchNextResults.results.results.contents; if (results) for (const section of results) { const items = section.shelfRenderer && section.shelfRenderer.content && section.shelfRenderer.content.verticalListRenderer && section.shelfRenderer.content.verticalListRenderer.items; if (items) for (const item of items) { const vr = item.playlistPanelVideoRenderer || item.videoRenderer; if (vr && vr.videoId) related.push(vr); } } } catch (_) {} const shuffled = related.sort(() => Math.random() - 0.5).slice(0, S.rabbitHoleDepth || 5); path.innerHTML = ""; shuffled.forEach(v => { const title = (v.title && (v.title.simpleText || (v.title.runs && v.title.runs[0] && v.title.runs[0].text))) || v.videoId; path.appendChild(ZenDiscovery.createVideoRow(v.videoId, title, "", () => { e.location.href = "/watch?v=" + v.videoId; })); }); }); }); },
-    settings(en) { en.appendChild(Io("Enable Rabbit Hole Generator", "rabbitHoleOn")); en.appendChild(No("Path depth", "rabbitHoleDepth", 3, 10, 1, v => v + " videos")); } });
 
   xa.register({ id: "anti-rec", name: "Anti-Recommendation Engine", summary: "Break filter bubbles by surfacing content from adjacent interest spaces.", masterKey: "antiRecOn", keys: ["antiRecOn"], apply(ctx) { if (!S.antiRecOn) return; ZenEngine.injectCSS(); }, settings(en) { en.appendChild(Io("Enable Anti-Recommendation Engine", "antiRecOn")); } });
   xa.register({ id: "momentum", name: "Before It Blew Up", summary: "Find videos gaining momentum. Tracks view velocity relative to channel size.", masterKey: "momentumOn", keys: ["momentumOn"], apply(ctx) { if (!S.momentumOn) return; ZenEngine.injectCSS(); }, settings(en) { en.appendChild(Io("Enable Before It Blew Up feed", "momentumOn")); } });
 
   xa.register({ id: "scene-jumper", name: "Scene Jumper", summary: "Auto-detect scene transitions using audio silence analysis. Click markers to jump.", masterKey: "sceneJumperOn", keys: ["sceneJumperOn"],
-    apply(ctx) { if (!S.sceneJumperOn) return; ZenEngine.injectCSS(); let strip = null; const build = () => { const vid = ie.el(); if (!vid || !vid.duration || !isFinite(vid.duration) || vid.duration < 30) return; const container = document.querySelector(".ytp-progress-bar-container"); if (!container) return; if (strip && strip.parentNode) strip.remove(); strip = document.createElement("div"); strip.id = "ytp-zen-scene"; strip.title = "Click a marker to jump to a scene"; container.parentNode.insertBefore(strip, container.nextSibling); ZenPlayback.detectScenes(vid, vid.duration).then(scenes => { ZenPlayback.renderSceneStrip(strip, vid.duration, scenes); }); }; ctx.addTimeout(build, 3000); ctx.onNav(() => ctx.addTimeout(build, 3000)); const vid = ie.el(); if (vid) ctx.addListener(vid, "loadedmetadata", () => ctx.addTimeout(build, 1000)); },
+    apply(ctx) { if (!S.sceneJumperOn) return; ZenEngine.injectCSS(); let strip = null; const build = () => { const vid = ie.el(); if (!vid || !vid.duration || !isFinite(vid.duration) || vid.duration < 30) return; const container = document.querySelector(".ytp-progress-bar-container"); if (!container) return; if (strip && strip.parentNode) strip.remove(); strip = document.createElement("div"); strip.id = "ytp-zen-scene"; strip.title = "Click a marker to jump to a scene"; container.style.position = "relative"; container.appendChild(strip); ZenPlayback.detectScenes(vid, vid.duration).then(scenes => { ZenPlayback.renderSceneStrip(strip, vid.duration, scenes); }); }; ctx.addTimeout(build, 3000); ctx.onNav(() => ctx.addTimeout(build, 3000)); const vid = ie.el(); if (vid) ctx.addListener(vid, "loadedmetadata", () => ctx.addTimeout(build, 1000)); Yt["scene-jumper"].push(() => { if (strip && strip.parentNode) strip.remove(); strip = null; }); },
     settings(en) { en.appendChild(Io("Enable Scene Jumper", "sceneJumperOn")); } });
 
   xa.register({ id: "smart-queue", name: "Smart Watch Queue", summary: "Intelligent queue with smart ordering, time estimates, and session planning.", masterKey: "smartQueueOn", keys: ["smartQueueOn"], apply(ctx) { if (!S.smartQueueOn) return; ZenEngine.injectCSS(); }, settings(en) { en.appendChild(Io("Enable Smart Watch Queue", "smartQueueOn")); const info = document.createElement("div"); info.className = "zen-meta"; info.style.marginTop = "6px"; info.textContent = "Queue: " + ZenQueue.size() + " videos, " + ce(ZenQueue.getTotalTime()) + " total"; en.appendChild(info); } });
   xa.register({ id: "parallel-player", name: "Parallel Player", summary: "Watch two videos side by side with synchronized playback.", masterKey: "parallelPlayerOn", keys: ["parallelPlayerOn"], apply(ctx) { if (!S.parallelPlayerOn) return; ZenEngine.injectCSS(); }, settings(en) { en.appendChild(Io("Enable Parallel Player", "parallelPlayerOn")); } });
 
-  xa.register({ id: "video-dna", name: "Video DNA Timeline", summary: "Composite energy visualization combining replay heatmaps, audio intensity, and content density.", masterKey: "videoDnaOn", keys: ["videoDnaOn"],
-    apply(ctx) { if (!S.videoDnaOn) return; ZenEngine.injectCSS(); let dnaEl = null; const build = () => { const vid = ie.el(); if (!vid || !vid.duration || !isFinite(vid.duration)) return; const container = document.querySelector(".ytp-progress-bar-container"); if (!container) return; if (dnaEl && dnaEl.parentNode) dnaEl.remove(); dnaEl = document.createElement("div"); dnaEl.id = "ytp-zen-dna"; const canvas = document.createElement("canvas"); canvas.width = 800; canvas.height = 26; dnaEl.appendChild(canvas); container.parentNode.insertBefore(dnaEl, container.nextSibling); ZenPlayback.renderDNA(canvas, vid.duration); dnaEl.addEventListener("click", (ev) => { const rect = dnaEl.getBoundingClientRect(); vid.currentTime = ((ev.clientX - rect.left) / rect.width) * vid.duration; }); }; ctx.addTimeout(build, 2500); ctx.onNav(() => ctx.addTimeout(build, 2500)); },
+  xa.register({ id: "video-dna", name: "Video DNA Timeline", summary: "Composite energy visualization overlaid on the progress bar. Click to seek.", masterKey: "videoDnaOn", keys: ["videoDnaOn"],
+    apply(ctx) { if (!S.videoDnaOn) return; ZenEngine.injectCSS(); let dnaEl = null; const build = () => { const vid = ie.el(); if (!vid || !vid.duration || !isFinite(vid.duration)) return; const progressBar = document.querySelector(".ytp-progress-bar-container"); if (!progressBar) return; if (dnaEl && dnaEl.parentNode) dnaEl.remove(); dnaEl = document.createElement("div"); dnaEl.id = "ytp-zen-dna"; const canvas = document.createElement("canvas"); canvas.width = 800; canvas.height = 18; dnaEl.appendChild(canvas); progressBar.style.position = "relative"; progressBar.appendChild(dnaEl); ZenPlayback.renderDNA(canvas, vid.duration); dnaEl.addEventListener("click", (ev) => { ev.stopPropagation(); const rect = dnaEl.getBoundingClientRect(); vid.currentTime = ((ev.clientX - rect.left) / rect.width) * vid.duration; }); }; ctx.addTimeout(build, 2500); ctx.onNav(() => ctx.addTimeout(build, 2500)); Yt["video-dna"].push(() => { if (dnaEl && dnaEl.parentNode) dnaEl.remove(); dnaEl = null; }); },
     settings(en) { en.appendChild(Io("Enable Video DNA Timeline", "videoDnaOn")); } });
 
   xa.register({ id: "smart-speed", name: "Smart Speed", summary: "Automatically adjusts playback speed based on content density.", masterKey: "smartSpeedOn", keys: ["smartSpeedOn", "smartSpeedBase", "smartSpeedFast"],

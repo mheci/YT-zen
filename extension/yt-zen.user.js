@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YT-zen
 // @namespace    https://github.com/mheci/YT-zen
-// @version      1.2.0
+// @version      1.3.0
 // @description  Clean, lightweight, and customizable client-side interface for YouTube.
 // @author       YT-zen Team
 // @license      Unlicense
@@ -801,9 +801,7 @@
     Yi = {
       skip: "Skip",
       mute: "Mute",
-      full: "Skip",
-      poi: "Highlight",
-      chapter: "Chapter",
+      info: "Display Only",
       disabled: "Off",
     },
 
@@ -3669,7 +3667,7 @@
     const t = ie.el();
     if (!t || !t.duration || !isFinite(t.duration)) return;
     const a = t.duration;
-    const list = document.querySelector(".ytp-progress-list");
+    const list = document.querySelector(".ytp-progress-list") || document.querySelector(".ytp-progress-bar");
     if (!list) {
 
       return;
@@ -3759,179 +3757,7 @@
     wt();
   }
 
-  function Bt_viewedSponsorTime(uuid) {
-    if (!uuid || !S.sbSubmitUserId) return;
-    if (_voteInFlight.has(uuid)) return;
-    _voteInFlight.add(uuid);
-    const v = ie.videoId();
-    if (!v) return;
-    const url =
-      Bt_serverUrl() +
-      "/api/viewedVideoSponsorTime?UUID=" +
-      encodeURIComponent(uuid);
-    try {
-      he(url, { method: "POST" }).catch(() => {}).finally(() => {
-        _voteInFlight.delete(uuid);
-      });
-    } catch (e) {
-      _voteInFlight.delete(uuid);
-    }
-  }
 
-  function Bt_voteSponsorTime(uuid, type) {
-    if (!uuid) return Promise.reject(new Error("missing UUID"));
-    const v = ie.videoId();
-    if (!v) return Promise.reject(new Error("no video"));
-    return he(
-      Bt_serverUrl() +
-        "/api/voteSponsorTime?UUID=" +
-        encodeURIComponent(uuid) +
-        "&userID=" +
-        encodeURIComponent(S.sbSubmitUserId || "") +
-        "&type=" +
-        encodeURIComponent(type || 1),
-      { method: "POST" },
-    ).then((r) => {
-      if (!r.ok) throw new Error("vote failed: HTTP " + r.status);
-      pe("Vote recorded", 1500, "success");
-      yt.clear();
-      return St(at);
-    });
-  }
-  function Bt_postNoBody(path) {
-    return he(Bt_serverUrl() + path, { method: "POST" }).then((r) => {
-      if (!r.ok) throw new Error(path + ": HTTP " + r.status);
-      return r;
-    });
-  }
-  function Bt_ignoreSegment(uuid) {
-    if (!uuid) return Promise.reject(new Error("missing UUID"));
-    return Bt_postNoBody(
-      "/api/ignore?UUID=" + encodeURIComponent(uuid) + "&userID=" + encodeURIComponent(S.sbSubmitUserId || ""),
-    ).then(() => {
-      pe("Segment hidden", 1500, "success");
-      yt.clear();
-      St_segmentsRaw = Math.max(0, St_segmentsRaw - 1);
-      return St(at);
-    });
-  }
-  function Bt_unIgnoreSegment(uuid) {
-    if (!uuid) return Promise.reject(new Error("missing UUID"));
-    return Bt_postNoBody(
-      "/api/unIgnore?UUID=" + encodeURIComponent(uuid) + "&userID=" + encodeURIComponent(S.sbSubmitUserId || ""),
-    ).then(() => {
-      pe("Segment unhidden", 1500, "success");
-      yt.clear();
-      return St(at);
-    });
-  }
-  function Bt_hideVideo(videoId) {
-    if (!videoId) videoId = ie.videoId();
-    if (!videoId) return Promise.reject(new Error("no video"));
-    return Bt_postNoBody(
-      "/api/hideVideoSponsorTime?videoID=" +
-        encodeURIComponent(videoId) +
-        "&userID=" +
-        encodeURIComponent(S.sbSubmitUserId || ""),
-    ).then(() => {
-      pe("SB hidden on this video", 1500, "success");
-      yt.clear();
-      if (at) return St(at);
-    });
-  }
-  function Bt_unHideVideo(videoId) {
-    if (!videoId) videoId = ie.videoId();
-    if (!videoId) return Promise.reject(new Error("no video"));
-    return Bt_postNoBody(
-      "/api/unHideVideoSponsorTime?videoID=" +
-        encodeURIComponent(videoId) +
-        "&userID=" +
-        encodeURIComponent(S.sbSubmitUserId || ""),
-    ).then(() => {
-      pe("SB unhidden on this video", 1500, "success");
-      yt.clear();
-      if (at) return St(at);
-    });
-  }
-  function Bt_lockCategories(categories) {
-    if (!Array.isArray(categories) || !categories.length)
-      return Promise.reject(new Error("no categories"));
-    return he(
-      Bt_serverUrl() +
-        "/api/lockCategories?userID=" +
-        encodeURIComponent(S.sbSubmitUserId || "") +
-        "&categories=" +
-        encodeURIComponent(categories.join(",")),
-      { method: "POST" },
-    ).then((r) => {
-      if (!r.ok) throw new Error("lock failed: HTTP " + r.status);
-      pe("Categories locked", 1500, "success");
-      return r.json();
-    });
-  }
-  function Bt_setUsername(name) {
-    const uid = S.sbSubmitUserId;
-    if (!uid) return Promise.reject(new Error("no userID"));
-    return he(
-      Bt_serverUrl() +
-        "/api/username?userID=" +
-        encodeURIComponent(uid) +
-        "&username=" +
-        encodeURIComponent(name || ""),
-      { method: "POST" },
-    ).then((r) => {
-      if (!r.ok) throw new Error("set username failed: HTTP " + r.status);
-      pe("Username saved", 1500, "success");
-      return r.json();
-    });
-  }
-  async function Bt_getUsername() {
-    const uid = S.sbSubmitUserId;
-    if (!uid) return null;
-    const r = await he(
-      Bt_serverUrl() + "/api/username?userID=" + encodeURIComponent(uid),
-    );
-    if (!r.ok) return null;
-    const j = await r.json();
-    return j && j.username ? j.username : null;
-  }
-  async function Bt_getUserInfo() {
-    const uid = S.sbSubmitUserId;
-    if (!uid) return null;
-    try {
-      const r = await he(
-        Bt_serverUrl() + "/api/userInfo?userID=" + encodeURIComponent(uid),
-      );
-      if (!r.ok) return null;
-      return await r.json();
-    } catch (e) {
-      return null;
-    }
-  }
-
-  const St_external = {
-    server: Bt_serverUrl,
-    health: Bt_health,
-    vote: Bt_voteSponsorTime,
-    ignore: Bt_ignoreSegment,
-    unIgnore: Bt_unIgnoreSegment,
-    hideVideo: Bt_hideVideo,
-    unHideVideo: Bt_unHideVideo,
-    lockCategories: Bt_lockCategories,
-    setUsername: Bt_setUsername,
-    getUsername: Bt_getUsername,
-    getUserInfo: Bt_getUserInfo,
-    color: Bt_color,
-    findActive: Bt_findActive,
-    findNext: Bt_findNext,
-    invalidateMarks: Bt_invalidateMarks,
-    resolveAction: Bt_resolveAction,
-    reload() {
-      const e = ie.videoId();
-      if (e) return St(e);
-    },
-    stats: () => ({ saved: rt, skips: ot, segments: tt.length }),
-  };
 
   async function St(e) {
     if ((nt && (clearInterval(nt), (nt = 0)), pt && ut)) {
@@ -4051,6 +3877,25 @@
         _a() || xt();
       };
       t.addEventListener("timeupdate", ut);
+      
+      // Reset active index on user seeking to force re-evaluation instantly!
+      const onSeeking = () => {
+        St_activeIdx = -1;
+        wt(); // Redraw seekbar marks immediately on seek
+      };
+      t.addEventListener("seeking", onSeeking);
+      t.addEventListener("seeked", onSeeking);
+      t.addEventListener("loadedmetadata", wt);
+      t.addEventListener("durationchange", wt);
+      
+      Yt["sponsorblock"].push(() => {
+        try {
+          t.removeEventListener("seeking", onSeeking);
+          t.removeEventListener("seeked", onSeeking);
+          t.removeEventListener("loadedmetadata", wt);
+          t.removeEventListener("durationchange", wt);
+        } catch (_) {}
+      });
     } else {
       nt = setInterval(() => {
         _a() || document.hidden || xt();
@@ -19246,7 +19091,7 @@
       }
       return;
     }
-    const list = document.querySelector(".ytp-progress-list");
+    const list = document.querySelector(".ytp-progress-list") || document.querySelector(".ytp-progress-bar");
     if (!list) return;
     const v = ie.el();
     if (!v || !v.duration || !isFinite(v.duration)) return;

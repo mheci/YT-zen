@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "YT-zen",
-  "version": "3.5.2",
+  "version": "3.5.1",
   "description": "Clean, lightweight, and customizable client-side interface for YouTube.",
   "author": "mheci",
   "license": "Unlicense",
@@ -13,7 +13,9 @@
     "https://sponsor.ajay.app/*"
   ],
   "background": {
-    "service_worker": "background.js"
+    "scripts": [
+      "background.js"
+    ]
   },
   "content_scripts": [
     {
@@ -22,15 +24,23 @@
         "https://m.youtube.com/*",
         "https://music.youtube.com/*"
       ],
-      "js": ["content.js"],
+      "js": [
+        "content.js"
+      ],
       "run_at": "document_start",
       "all_frames": true
     }
   ],
   "web_accessible_resources": [
     {
-      "resources": ["yt-zen.user.js"],
-      "matches": ["https://www.youtube.com/*", "https://m.youtube.com/*", "https://music.youtube.com/*"]
+      "resources": [
+        "yt-zen.user.js"
+      ],
+      "matches": [
+        "https://www.youtube.com/*",
+        "https://m.youtube.com/*",
+        "https://music.youtube.com/*"
+      ]
     }
   ],
   "action": {
@@ -40,5 +50,11 @@
   "options_page": "options.html",
   "icons": {
     "128": "icon.png"
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "yt-zen@mheci.github.io",
+      "strict_min_version": "109.0"
+    }
   }
 }

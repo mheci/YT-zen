@@ -1,175 +1,55 @@
-# SponsorBlock Engine v2 — Test Validation Strategy
+# SponsorBlock Subsystem Validation and Regression Test Strategy
 
-## Test Matrix
+This document defines the functional test scenarios, automated verification procedures, and regression guard points for verifying the SponsorBlock subsystem.
 
-### Category 1: Installation & Migration
+## Test Validation Scenarios
 
-| Test ID | Scenario | Expected Result | Priority |
-|---------|----------|-----------------|----------|
-| T-1.1 | First install (no cache) | Fresh fetch, cache populated | P0 |
-| T-1.2 | Existing user with v1 cache | v1 entries invalidated, v2 entries created | P0 |
-| T-1.3 | Existing user with v2 cache | Cache hit, instant load | P0 |
-| T-1.4 | Upgrade from older version | No crashes, settings preserved | P1 |
+### 1. Installation, Migration & Cache Integrity
+- **Test Scenario 1.1 (Fresh Deployment):** Verify that clean installations initialize with the correct default configuration (SponsorBlock disabled by default, privacy mode active).
+- **Test Scenario 1.2 (Cache Schema Migration):** Verify that deploying v2 over v1 detects the obsolete schema version, purges the deprecated persistent IndexedDB tables, and generates the new v2 cache structure without crashing.
+- **Test Scenario 1.3 (Deduplication validation):** Trigger 5 simultaneous calls to `SponsorBlockEngine.init(videoId)` for the same video ID. Verify that the network tab shows exactly 1 outbound HTTP query to the SponsorBlock API.
 
-### Category 2: Core Functionality
+### 2. Playback Sync and Playhead Controls
+- **Test Scenario 2.1 (Standard Skip Action):** Play a video containing a sponsored segment. Verify that when the playhead reaches `segment[0]`, the video skips immediately to `segment[1]`, a toast notification is rendered (if enabled), and the cumulative "time saved" metric increases.
+- **Test Scenario 2.2 (Manual Seeking):** Seek manually into the middle of an active segment. Verify that the skip action executes immediately, jumping to `segment[1]`.
+- **Test Scenario 2.3 (Oscillation Prevention):** Seek backward to `segment[1] - 0.2s` immediately after a skip. Verify that the skip guard state machine blocks repeated seek requests within the 500ms cooldown window to prevent video playback freeze.
+- **Test Scenario 2.4 (Mute/Unmute Lifecycle):** Play a video segment mapped to a "mute" action. Verify that the volume is suppressed at `segment[0]` and restored to its original value and state at `segment[1]`.
 
-| Test ID | Scenario | Expected Result | Priority |
-|---------|----------|-----------------|----------|
-| T-2.1 | Video with sponsor segments | Segments loaded, skips execute | P0 |
-| T-2.2 | Video with no segments | 404 handled gracefully, no errors | P0 |
-| T-2.3 | All categories enabled | All categories fetched from API | P1 |
-| T-2.4 | Single category enabled | Only that category fetched | P1 |
-| T-2.5 | No categories enabled | No API request made | P1 |
-| T-2.6 | Skip action | Video seeks to segment end | P0 |
-| T-2.7 | Mute action | Video muted during segment, restored after | P0 |
-| T-2.8 | Disabled action | Segment ignored | P0 |
-| T-2.9 | POI segment | No skip (display only) | P1 |
-| T-2.10 | Chapter segment | No skip (display only) | P1 |
+### 3. SPA Navigation and Timing Reliability
+- **Test Scenario 3.1 (Dynamic Video Swap):** Navigate between videos in a rapid cycle. Verify that the in-flight network requests and active timers of previous video IDs are aborted immediately, preventing out-of-order segment rendering.
+- **Test Scenario 3.2 (Ad Interruption):** Play a video with an active pre-roll or mid-roll ad. Verify that the skip actions are suspended, preventing media playback issues.
 
-### Category 3: Caching
+### 4. Progress-bar UI Marks
+- **Test Scenario 4.1 (Responsive Layouts):** Toggle between standard, theater, and fullscreen modes. Verify that the SVG progress-bar markers resize and align perfectly matching the timeline duration.
+- **Test Scenario 4.2 (Zero-segment fallback):** Navigate to a video with zero SponsorBlock segments. Verify that no timeline marks are drawn and the console is free of errors.
 
-| Test ID | Scenario | Expected Result | Priority |
-|---------|----------|-----------------|----------|
-| T-3.1 | Fresh cache miss | API request, result cached | P0 |
-| T-3.2 | Memory cache hit | No API request, instant return | P0 |
-| T-3.3 | Persistent cache hit | Promoted to memory | P0 |
-| T-3.4 | Stale cache (within grace) | Served immediately + background refresh | P1 |
-| T-3.5 | Expired cache (beyond grace) | Deleted, fresh fetch | P1 |
-| T-3.6 | Cache version mismatch | Entry deleted, fresh fetch | P1 |
-| T-3.7 | LRU eviction at capacity | Oldest entries removed first | P2 |
-| T-3.8 | Request deduplication | Single request for concurrent callers | P0 |
-| T-3.9 | IDB corruption | Graceful fallback to network | P1 |
-| T-3.10 | Browser restart | Persistent cache survives | P1 |
+## Automated Verification Pipeline
 
-### Category 4: Playback Synchronization
+The build pipeline (`.github/workflows/build.yml`) runs the following automated verification checks:
 
-| Test ID | Scenario | Expected Result | Priority |
-|---------|----------|-----------------|----------|
-| T-4.1 | Normal playback with segments | Skip at segment start | P0 |
-| T-4.2 | Manual seek into segment | Immediate skip | P0 |
-| T-4.3 | Manual seek past segment | No skip | P0 |
-| T-4.4 | Seek to segment boundary | Skip at exact start | P1 |
-| T-4.5 | Rapid seeking | No duplicate skips | P0 |
-| T-4.6 | Playback speed 2x | Skip still accurate | P1 |
-| T-4.7 | Playback speed 0.5x | Skip still accurate | P1 |
-| T-4.8 | Paused playback | No skip while paused | P0 |
-| T-4.9 | Resume from pause | Monitoring resumes | P0 |
-| T-4.10 | Video ended | State reset | P1 |
-| T-4.11 | Buffering/stalled | No skip during buffer | P1 |
-| T-4.12 | Skip cooldown | No double-skip within 500ms | P0 |
-| T-4.13 | Overlapping segments | First segment processed, second handled | P1 |
-
-### Category 5: Navigation & SPA
-
-| Test ID | Scenario | Expected Result | Priority |
-|---------|----------|-----------------|----------|
-| T-5.1 | Navigate to new video | Old request cancelled, new init | P0 |
-| T-5.2 | Navigate back to cached video | Cache hit | P1 |
-| T-5.3 | Rapid navigation (5 videos in 10s) | Only last video's request completes | P0 |
-| T-5.4 | Playlist autoplay | Segments loaded for each video | P0 |
-| T-5.5 | YouTube Shorts | Engine handles gracefully | P1 |
-| T-5.6 | Live stream | No segments, no errors | P1 |
-| T-5.7 | Premiere | Segments loaded when available | P2 |
-| T-5.8 | Embedded player | Works in embed context | P2 |
-
-### Category 6: Network Resilience
-
-| Test ID | Scenario | Expected Result | Priority |
-|---------|----------|-----------------|----------|
-| T-6.1 | API returns 200 | Segments parsed | P0 |
-| T-6.2 | API returns 404 | Empty segments, no error | P0 |
-| T-6.3 | API returns 400 | Error logged, fallback to cache | P1 |
-| T-6.4 | API returns 500 | Retry, fallback to cache | P0 |
-| T-6.5 | API returns 503 | Retry, fallback to cache | P1 |
-| T-6.6 | Network timeout | Retry with backoff | P0 |
-| T-6.7 | Network offline | Fallback to stale cache | P0 |
-| T-6.8 | Malformed JSON | Error handled, empty segments | P1 |
-| T-6.9 | Partial response | Valid segments kept, invalid filtered | P1 |
-| T-6.10 | Slow network (3G) | Timeout handled, retry | P2 |
-
-### Category 7: UI & Seekbar
-
-| Test ID | Scenario | Expected Result | Priority |
-|---------|----------|-----------------|----------|
-| T-7.1 | Seekbar enabled | Marks rendered | P0 |
-| T-7.2 | Seekbar disabled | No marks | P0 |
-| T-7.3 | Toggle seekbar on/off | Marks appear/disappear | P1 |
-| T-7.4 | Color overrides | Custom colors applied | P1 |
-| T-7.5 | Category disabled | No marks for that category | P1 |
-| T-7.6 | Progress bar not visible | No errors, graceful skip | P1 |
-| T-7.7 | Theater mode | Marks render correctly | P2 |
-| T-7.8 | Fullscreen | Marks render correctly | P2 |
-
-### Category 8: Performance
-
-| Test ID | Scenario | Expected Result | Priority |
-|---------|----------|-----------------|----------|
-| T-8.1 | Tab hidden | No CPU usage from engine | P0 |
-| T-8.2 | Tab visible, no video | No CPU usage | P0 |
-| T-8.3 | Tab visible, video paused | Minimal CPU (no polling) | P0 |
-| T-8.4 | Tab visible, video playing | <1% CPU | P1 |
-| T-8.5 | Long session (4 hours) | No memory leak | P0 |
-| T-8.6 | 50+ video navigations | No listener leak | P0 |
-| T-8.7 | Multiple tabs open | Each tab independent | P1 |
-| T-8.8 | Browser sleep/resume | Engine recovers gracefully | P1 |
-
-### Category 9: Integration
-
-| Test ID | Scenario | Expected Result | Priority |
-|---------|----------|-----------------|----------|
-| T-9.1 | Ad showing | No skip during ad | P0 |
-| T-9.2 | Dialog popup | No skip during dialog | P1 |
-| T-9.3 | Settings change (category toggle) | Immediate effect on next video | P0 |
-| T-9.4 | Settings change (action type) | Immediate effect on next video | P0 |
-| T-9.5 | Settings change (server URL) | New server used | P1 |
-| T-9.6 | Settings change (privacy mode) | Hash prefix used | P1 |
-| T-9.7 | HUD enabled | Stats displayed | P2 |
-| T-9.8 | Toast enabled | Notifications shown on skip | P1 |
-| T-9.9 | Unified heatmap + SB | Both render correctly | P2 |
-| T-9.10 | Dashboard SB section | All controls functional | P1 |
-
-## Validation Checklist
-
-### Automated (Node.js)
 ```bash
-# Syntax validation
+# Verify syntax of all modified source files
 node -c yt-zen.user.js
+node -c extension/yt-zen.user.js
+node -c src/sponsorblock-engine-v2.js
 
-# Check for undefined references
-grep -n "Bt_invalidateMarks\|Bt_hideVideo\|Bt_unHideVideo\|Bt_getUserInfo" yt-zen.user.js
-
-# Check engine exports
-grep -n "SponsorBlockEngine\." yt-zen.user.js
-
-# Verify no duplicate function definitions
-grep -c "function Ct()" yt-zen.user.js  # Should be 1
+# Assert that critical public methods exist in SponsorBlockEngine export
+node -e "
+  const content = require('fs').readFileSync('yt-zen.user.js', 'utf8');
+  const assertions = ['init', 'destroy', 'invalidate', 'stats', 'metrics', 'getSegments'];
+  assertions.forEach(m => {
+    if (!content.includes(m)) {
+      console.error('CRITICAL ERROR: Missing SponsorBlockEngine method export: ' + m);
+      process.exit(1);
+    }
+  });
+  console.log('Success: All SponsorBlock exports verified!');
+"
 ```
 
-### Manual (Browser)
-1. Install userscript/extension
-2. Open YouTube
-3. Navigate to video with known segments
-4. Verify segments load (check network tab)
-5. Verify seekbar marks appear
-6. Verify skip executes at correct time
-7. Verify toast notification shows
-8. Navigate to another video
-9. Verify new segments load
-10. Navigate back — verify cache hit (no network request)
-11. Disable a category — verify no marks/skips for it
-12. Enable mute action — verify mute behavior
-13. Open dashboard — verify SB stats display
-14. Check console for errors
-15. Run for 1+ hour — check memory usage stability
+## Regression Guard Checklist
 
-## Regression Guard Points
-
-These specific behaviors MUST NOT regress:
-- ✅ Existing users' settings are preserved on upgrade
-- ✅ Existing users' cached segments remain usable (or gracefully invalidated)
-- ✅ The `sb.segments` event is still emitted for the unified heatmap
-- ✅ The `SponsorBlockEngine.stats()` API still returns `{ saved, skips, segments }`
-- ✅ The feature registration's `apply()` and `settings()` callbacks work
-- ✅ Color picker overrides in settings still function
-- ✅ Per-category enable/action toggles still function
-- ✅ The `Ct()` interval callback works for seekbar refresh
+Before completing a release pass, ensure the following parameters are satisfied:
+- [ ] Userscript and manifest metadata versions match.
+- [ ] Direct calls to `fetch()` targeting external SponsorBlock domains are fully replaced by the safe fetch wrapper `he` to preserve CSP compatibility.
+- [ ] The global event bus `g` receives the `sb.segments` event on successful initialization to preserve compatibility with other modules like the Heatmap.

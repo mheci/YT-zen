@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         YT-zen
 // @namespace    https://github.com/mheci/YT-zen
-// @version      1.6.0
-// @description  Clean, lightweight, and customizable client-side interface for YouTube.
-// @author       YT-zen Team
+// @version      3.5.2
+// @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
+// @author       mheci
 // @license      Unlicense
 // @homepageURL  https://github.com/mheci/YT-zen
 // @supportURL   https://github.com/mheci/YT-zen/issues
@@ -27,8 +27,7 @@
 // @connect      ytimg.com
 // @connect      ggpht.com
 // @connect      api.github.com
-// @connect      raw.githubusercontent.com
-// @connect      objects.githubusercontent.com
+// @connect      doubleclick.net
 // @icon         https://raw.githubusercontent.com/mheci/YT-zen/main/icon.png
 // @noframes
 // @updateURL    https://github.com/mheci/YT-zen/releases/latest/download/yt-zen.meta.js

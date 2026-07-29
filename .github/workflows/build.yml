@@ -23,10 +23,27 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Building version: $VERSION"
 
+      - name: Validate Syntax and Metadata
+        run: |
+          # 1. Compile check all JS files
+          node -c yt-zen.user.js
+          node -c extension/yt-zen.user.js
+          node -c src/*.js
+          node -c extension/*.js
+
+          # 2. Verify version match in userscript header
+          HEADER_VERSION=$(grep -oP '// @version\s+\K[0-9.]+' yt-zen.user.js)
+          MANIFEST_VERSION=${{ steps.version.outputs.version }}
+          if [ "$HEADER_VERSION" != "$MANIFEST_VERSION" ]; then
+            echo "ERROR: Userscript version ($HEADER_VERSION) does not match manifest.json version ($MANIFEST_VERSION)"
+            exit 1
+          fi
+          echo "Success: Version checks passed!"
+
       - name: Fix GM_info version in content.js
         run: |
           VERSION=${{ steps.version.outputs.version }}
-          sed -i "s/version: \"1.2.0\"/version: \"$VERSION\"/" extension/content.js
+          sed -i -E "s/version: \"[0-9]+\.[0-9]+\.[0-9]+\"/version: \"$VERSION\"/" extension/content.js
 
       - name: Build Chrome extension
         run: |

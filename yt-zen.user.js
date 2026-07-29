@@ -918,34 +918,10 @@
         adSpeed: !1,
         hideBannerAds: !1,
         sponsorblockOn: !1,
-        sbServer: r,
         sbPrivacy: !1,
         sbToast: !1,
         sbToastDur: 2200,
-        sbMinVotes: 0,
-        sbHud: !0,
         sbSeekbar: !1,
-
-        sbMinViews: 0,
-        sbMaxViews: 0, 
-        sbIncludeLocked: !1,
-        sbIncludeHidden: !1,
-        sbIncludeIgnored: !1,
-
-        sbTrimUUIDs: !1,
-
-        sbSegOverrides: "",
-        sbChanOverrides: "",
-
-        sbChapterRules: "",
-
-        sbUpNextSec: 12,
-
-        sbColorOverrides: "",
-
-        sbServerPreset: "ajay",
-
-        sbHudStatus: !1,
         sessionRestoreOn: !1,
         sessionResumeMode: "silent",
         sessionResumeDesign: "default",
@@ -2469,8 +2445,7 @@
       "www.youtube.com",
     ]);
     try {
-      (S.sbServer && a.add(new URL(S.sbServer).host),
-        S.remoteSelectorsURL && a.add(new URL(S.remoteSelectorsURL).host));
+      (S.remoteSelectorsURL && a.add(new URL(S.remoteSelectorsURL).host));
     } catch (e) {}
     let n;
     try {
@@ -2479,35 +2454,53 @@
       throw new Error("bad URL");
     }
     if (!a.has(n)) throw new Error("host not allowed: " + n);
-    return "function" == typeof GM_xmlhttpRequest
-      ? new Promise((a, n) => {
-          GM_xmlhttpRequest({
-            method: t.method || "GET",
-            url: e,
-            headers: t.headers || {},
-            data: t.body,
-            timeout: 1e4,
-            onload(e) {
-              a({
-                ok: e.status >= 200 && e.status < 300,
-                status: e.status,
-                text: () => e.responseText,
-                json: () => {
-                  try {
-                    return JSON.parse(e.responseText);
-                  } catch (e) {
-                    return null;
-                  }
-                },
-              });
-            },
-            onerror: n,
-            ontimeout() {
-              n(new Error("timeout"));
-            },
-          });
-        })
-      : fetch(e, t);
+
+    const signal = t.signal;
+    if (signal && signal.aborted) {
+      throw new DOMException("Aborted", "AbortError");
+    }
+
+    if ("function" == typeof GM_xmlhttpRequest) {
+      return new Promise((a, n) => {
+        const req = GM_xmlhttpRequest({
+          method: t.method || "GET",
+          url: e,
+          headers: t.headers || {},
+          data: t.body,
+          timeout: t.timeout || 1e4,
+          onload(e) {
+            a({
+              ok: e.status >= 200 && e.status < 300,
+              status: e.status,
+              text: () => e.responseText,
+              json: () => {
+                try {
+                  return JSON.parse(e.responseText);
+                } catch (e) {
+                  return null;
+                }
+              },
+            });
+          },
+          onerror(err) {
+            n(err || new Error("Network error"));
+          },
+          ontimeout() {
+            n(new Error("timeout"));
+          },
+        });
+
+        if (signal) {
+          const onAbort = () => {
+            try { req.abort(); } catch (_) {}
+            n(new DOMException("Aborted", "AbortError"));
+          };
+          signal.addEventListener("abort", onAbort, { once: true });
+        }
+      });
+    } else {
+      return fetch(e, t);
+    }
   }
   let ve = 0,
     ke = null,
@@ -3777,8 +3770,7 @@
       originalMuted: false,
       lastSkipTime: 0,
       lastSkipTarget: 0,
-      playerElement: null,
-      listenerCleanup: null,
+      listenersAttached: false,
     };
 
     // ─── Metrics Module ──────────────────────────────────────────────────────
@@ -3860,13 +3852,11 @@
         Categories.forEach(c => {
           if (!S["sb_" + c.id + "_en"]) return;
           const act = S["sb_" + c.id + "_act"] || "skip";
-          if (act === "skip") types.add("skip");
-          if (act === "mute") { types.add("skip"); types.add("mute"); }
-          if (act === "poi") types.add("poi");
-          if (act === "chapter") types.add("chapter");
-          if (act === "full") types.add("full");
-          // When disabled we still may want to fetch for display; include skip as fallback
-          if (act === "disabled" && c.id !== "exclusive_access") types.add("skip");
+          if (act === "skip" || act === "mute") types.add("skip");
+          if (act === "mute") types.add("mute");
+          if (c.id === "poi_highlight" && act !== "disabled") types.add("poi");
+          if (c.id === "chapter" && act !== "disabled") types.add("chapter");
+          if (c.id === "exclusive_access" && act !== "disabled") types.add("full");
         });
         return Array.from(types);
       };
@@ -3880,12 +3870,10 @@
         const cats = getEnabledCategories().sort().join(",");
         const acts = getActionTypes().sort().join(",");
         const privacy = S.sbPrivacy ? "1" : "0";
-        const server = S.sbServerPreset || "ajay";
-        return `${cats}|${acts}|${privacy}|${server}`;
+        return `${cats}|${acts}|${privacy}`;
       };
 
       const getServerUrl = () => {
-        if (S.sbServerPreset === "custom" && S.sbServer) return S.sbServer;
         return "https://sponsor.ajay.app";
       };
 
@@ -3897,7 +3885,7 @@
 
     // ─── Cache Module ────────────────────────────────────────────────────────
     const Cache = (() => {
-      const memCache = new ZenResources.BoundedCache(128, "sb-segments");
+      const memCache = new Map();
       const inFlight = new Map();
 
       const computeChecksum = (data) => {
@@ -3963,7 +3951,6 @@
               Metrics.recordStaleServed();
               return { data: entry.segments, fresh: false };
             }
-            // Fully expired — clean up
             if (entry.expiresAt + STALE_GRACE_MS < now) {
               await x("kv", "cache:" + cacheKey);
             }
@@ -3994,7 +3981,6 @@
         memCache.set(cacheKey, entry);
         evictIfNeeded();
 
-        // Persistent write (fire-and-forget with long TTL)
         const persistEntry = Object.assign({}, entry, {
           expiresAt: now + PERSIST_TTL_MS,
         });
@@ -4034,7 +4020,6 @@
             .join("")
             .slice(0, 4);
         } catch (_) {
-          // Fallback: simple hash if SubtleCrypto unavailable
           let h = 0;
           for (let i = 0; i < videoId.length; i++) h = ((h << 5) - h + videoId.charCodeAt(i)) | 0;
           return Math.abs(h).toString(16).padStart(4, "0").slice(0, 4);
@@ -4047,8 +4032,6 @@
 
         if (usePrivacy) {
           const prefix = await hashPrefix(videoId);
-          const catParams = categories.map(c => "&category=" + encodeURIComponent(c)).join("");
-          const actParams = actionTypes.map(a => "&actionType=" + encodeURIComponent(a)).join("");
           return base + "/api/skipSegments/" + prefix + "?categories=" +
             encodeURIComponent(JSON.stringify(categories)) +
             (actionTypes.length ? "&actionTypes=" + encodeURIComponent(JSON.stringify(actionTypes)) : "");
@@ -4071,7 +4054,6 @@
 
         if (!isFinite(start) || !isFinite(end)) return null;
         if (start < 0 || end < 0) return null;
-        // Allow start === end for POI types
         if (start > end && !(start === 0 && end === 0)) return null;
 
         const category = typeof seg.category === "string" ? seg.category : "";
@@ -4089,8 +4071,6 @@
 
       const fetchSegments = async (videoId, abortSignal) => {
         const usePrivacy = !!S.sbPrivacy;
-        // Always fetch ALL categories and action types so segments persist in cache
-        // even when the user toggles categories on/off later
         const allCategories = Categories.map(c => c.id);
         const allActionTypes = ["skip", "mute", "poi", "chapter", "full"];
 
@@ -4105,10 +4085,10 @@
         }
 
         try {
-          const response = await fetch(url, { signal: controller.signal });
+          const response = await he(url, { signal: controller.signal });
           clearTimeout(timeoutId);
 
-          if (response.status === 404) return []; // No segments for this video
+          if (response.status === 404) return [];
           if (response.status === 400) {
             throw new Error("Bad request (400) — invalid parameters");
           }
@@ -4123,7 +4103,6 @@
             throw new Error("Malformed JSON response");
           }
 
-          // Parse hash-prefix response format
           if (usePrivacy && Array.isArray(body)) {
             const videoHit = body.find(v => v && v.videoID === videoId);
             body = (videoHit && Array.isArray(videoHit.segments)) ? videoHit.segments : [];
@@ -4131,14 +4110,12 @@
 
           if (!Array.isArray(body)) return [];
 
-          // Validate each segment
           const valid = [];
           for (let idx = 0; idx < body.length; idx++) {
             const seg = validateSegment(body[idx], idx);
             if (seg) valid.push(seg);
           }
 
-          // Sort by start time for binary search
           valid.sort((a, b) => a.segment[0] - b.segment[0]);
 
           return valid;
@@ -4160,7 +4137,6 @@
             if (attempt < MAX_RETRIES) {
               const delay = RETRY_BASE_MS * Math.pow(2, attempt);
               await new Promise(r => setTimeout(r, delay));
-              // Check if aborted during delay
               if (abortSignal && abortSignal.aborted) throw new DOMException("Aborted", "AbortError");
             }
           }
@@ -4176,7 +4152,7 @@
           UUID: uuid, userID: userId, type: String(type),
         });
         try {
-          const resp = await fetch(base + "/api/voteOnSponsorTime?" + params, {
+          const resp = await he(base + "/api/voteOnSponsorTime?" + params, {
             method: "POST", signal: AbortSignal.timeout(API_TIMEOUT_MS),
           });
           return resp.ok;
@@ -4187,8 +4163,8 @@
         if (!uuid) return;
         const base = Settings.getServerUrl();
         try {
-          await fetch(base + "/api/viewedVideoSponsorTime?UUID=" + encodeURIComponent(uuid), {
-            method: "POST", keepalive: true,
+          await he(base + "/api/viewedVideoSponsorTime?UUID=" + encodeURIComponent(uuid), {
+            method: "POST",
           });
         } catch (_) {}
       };
@@ -4197,7 +4173,7 @@
         if (!userId) return null;
         const base = Settings.getServerUrl();
         try {
-          const resp = await fetch(base + "/api/userInfo?userID=" + encodeURIComponent(userId), {
+          const resp = await he(base + "/api/userInfo?userID=" + encodeURIComponent(userId), {
             signal: AbortSignal.timeout(API_TIMEOUT_MS),
           });
           if (!resp.ok) return null;
@@ -4214,7 +4190,6 @@
         const segs = State.segments;
         if (!segs.length) return -1;
 
-        // Binary search for the segment containing this time
         let lo = 0, hi = segs.length - 1;
         while (lo <= hi) {
           const mid = (lo + hi) >> 1;
@@ -4257,7 +4232,7 @@
       };
 
       const handlePlaybackTick = () => {
-        // Skip if ad is showing, dialog is open, or tab is hidden
+        if (ie.isAd && ie.isAd()) return;
         if (typeof _a === "function" && _a()) return;
 
         const videoEl = ie.el();
@@ -4267,22 +4242,13 @@
           return;
         }
 
-        // Skip all segment processing on live streams (seeking breaks live playback)
-        if (_isLiveStream()) {
-          resetMuteState();
-          State.activeSegmentIndex = -1;
-          return;
-        }
-
         const currentTime = videoEl.currentTime;
         const segs = State.segments;
         let idx = State.activeSegmentIndex;
 
-        // Check if we're still in the active segment
         if (idx >= 0 && idx < segs.length && segs[idx]) {
           const s = segs[idx];
           if (currentTime >= s.segment[0] && currentTime < s.segment[1]) {
-            // Still inside — handle mute continuation
             const action = Settings.getCategoryAction(s.category);
             if (action === "mute" && State.mutedActive) return;
             if (action !== "skip" && action !== "mute") {
@@ -4290,13 +4256,11 @@
               return;
             }
           } else {
-            // Left the segment
             resetMuteState();
             idx = -1;
           }
         }
 
-        // Find new active segment if needed
         if (idx < 0 || idx >= segs.length || !segs[idx] ||
             currentTime < segs[idx].segment[0] || currentTime >= segs[idx].segment[1]) {
           idx = findSegmentAtTime(currentTime);
@@ -4311,33 +4275,11 @@
         const seg = segs[idx];
         const action = Settings.getCategoryAction(seg.category);
 
-        if (action === "disabled") {
+        if (action === "disabled" || action === "poi" || action === "full" || action === "chapter") {
           resetMuteState();
           return;
         }
 
-        // POI: show toast notification at the highlight point
-        if (action === "poi") {
-          const uuid = seg.UUID || ("poi-" + idx + "-" + seg.segment[0]);
-          if (!State.processedUUIDs.has(uuid)) {
-            State.processedUUIDs.add(uuid);
-            if (S.sbToast) {
-              const catMeta = Categories.find(c => c.id === seg.category) || { label: seg.category };
-              const desc = seg.description || catMeta.label;
-              pe(desc + " at " + ce(seg.segment[0]), S.sbToastDur || 2200, "info");
-            }
-          }
-          resetMuteState();
-          return;
-        }
-
-        // Chapter and full: display-only, no playback action
-        if (action === "chapter" || action === "full") {
-          resetMuteState();
-          return;
-        }
-
-        // Mute action
         if (action === "mute") {
           if (!State.mutedActive) {
             State.originalVolume = videoEl.volume;
@@ -4348,12 +4290,10 @@
           return;
         }
 
-        // Skip action
         if (action === "skip") {
           const uuid = seg.UUID || ("idx-" + idx + "-" + seg.segment[0]);
           const targetTime = seg.segment[1];
 
-          // Guard against duplicate/repeated skips
           if (State.processedUUIDs.has(uuid) && shouldSkipGuard(targetTime)) return;
 
           if (!State.processedUUIDs.has(uuid)) {
@@ -4361,20 +4301,16 @@
             const savedSec = Math.max(0, targetTime - currentTime);
             Metrics.recordSkip(savedSec);
 
-            // Show toast notification
             if (S.sbToast) {
               const catMeta = Categories.find(c => c.id === seg.category) || { label: seg.category };
               pe("Skipped " + catMeta.label + " (" + ce(savedSec) + ")", S.sbToastDur || 2200, "success");
             }
 
-            // Report view to SponsorBlock (fire-and-forget)
             API.reportViewed(uuid);
 
-            // Update HUD
             try { ft(); } catch (_) {}
           }
 
-          // Execute seek (with guard)
           if (!shouldSkipGuard(targetTime)) {
             recordSkip(targetTime);
             try { videoEl.currentTime = targetTime; } catch (_) {}
@@ -4388,7 +4324,6 @@
       };
 
       const handleRateChange = () => {
-        // Rate change doesn't require special handling — currentTime is always absolute
         State.activeSegmentIndex = -1;
       };
 
@@ -4398,62 +4333,61 @@
         State.processedUUIDs.clear();
       };
 
-      const attachListeners = () => {
+      const handleEvent = (ev) => {
         const videoEl = ie.el();
-        if (!videoEl) return;
-        if (State.playerElement === videoEl) return; // Already attached
+        if (!videoEl || ev.target !== videoEl) return;
 
-        // Clean up previous listeners
-        detachListeners();
+        switch (ev.type) {
+          case "timeupdate":
+            handlePlaybackTick();
+            break;
+          case "seeked":
+            handleSeeked();
+            UI.renderSeekbarMarks();
+            break;
+          case "seeking":
+            State.activeSegmentIndex = -1;
+            break;
+          case "ratechange":
+            handleRateChange();
+            break;
+          case "emptied":
+            handleVideoEmptied();
+            break;
+          case "loadedmetadata":
+          case "durationchange":
+            UI.renderSeekbarMarks();
+            break;
+          case "ended":
+            resetMuteState();
+            State.activeSegmentIndex = -1;
+            break;
+          case "pause":
+            resetMuteState();
+            break;
+        }
+      };
 
-        State.playerElement = videoEl;
+      const events = ["timeupdate", "seeked", "seeking", "ratechange", "emptied", "loadedmetadata", "durationchange", "ended", "pause"];
 
-        const onTimeupdate = () => handlePlaybackTick();
-        const onSeeked = () => { handleSeeked(); UI.renderSeekbarMarks(); };
-        const onSeeking = () => { State.activeSegmentIndex = -1; };
-        const onRateChange = () => handleRateChange();
-        const onEmptied = () => handleVideoEmptied();
-        const onLoadedMeta = () => UI.renderSeekbarMarks();
-        const onDurationChange = () => UI.renderSeekbarMarks();
-        const onEnded = () => { resetMuteState(); State.activeSegmentIndex = -1; };
-        const onPause = () => resetMuteState();
+      const attachListeners = () => {
+        if (State.listenersAttached) return;
+        events.forEach(type => {
+          document.addEventListener(type, handleEvent, true);
+        });
+        State.listenersAttached = true;
 
-        videoEl.addEventListener("timeupdate", onTimeupdate);
-        videoEl.addEventListener("seeked", onSeeked);
-        videoEl.addEventListener("seeking", onSeeking);
-        videoEl.addEventListener("ratechange", onRateChange);
-        videoEl.addEventListener("emptied", onEmptied);
-        videoEl.addEventListener("loadedmetadata", onLoadedMeta);
-        videoEl.addEventListener("durationchange", onDurationChange);
-        videoEl.addEventListener("ended", onEnded);
-        videoEl.addEventListener("pause", onPause);
-
-        State.listenerCleanup = () => {
-          try {
-            videoEl.removeEventListener("timeupdate", onTimeupdate);
-            videoEl.removeEventListener("seeked", onSeeked);
-            videoEl.removeEventListener("seeking", onSeeking);
-            videoEl.removeEventListener("ratechange", onRateChange);
-            videoEl.removeEventListener("emptied", onEmptied);
-            videoEl.removeEventListener("loadedmetadata", onLoadedMeta);
-            videoEl.removeEventListener("durationchange", onDurationChange);
-            videoEl.removeEventListener("ended", onEnded);
-            videoEl.removeEventListener("pause", onPause);
-          } catch (_) {}
-        };
-
-        // Register cleanup with the feature system
         Yt["sponsorblock"].push(() => {
           detachListeners();
         });
       };
 
       const detachListeners = () => {
-        if (State.listenerCleanup) {
-          State.listenerCleanup();
-          State.listenerCleanup = null;
-        }
-        State.playerElement = null;
+        if (!State.listenersAttached) return;
+        events.forEach(type => {
+          document.removeEventListener(type, handleEvent, true);
+        });
+        State.listenersAttached = false;
       };
 
       return {
@@ -4471,15 +4405,6 @@
       let watchdogTimer = 0;
 
       const getColorForCategory = (catId) => {
-        // Check for user override
-        if (S.sbColorOverrides) {
-          try {
-            const overrides = JSON.parse(S.sbColorOverrides);
-            if (overrides[catId] && /^#[0-9a-fA-F]{6}$/.test(overrides[catId])) {
-              return overrides[catId];
-            }
-          } catch (_) {}
-        }
         const meta = Categories.find(c => c.id === catId);
         return (meta && meta.color) || "#ffffff";
       };
@@ -4496,7 +4421,6 @@
         const duration = videoEl.duration;
         const segments = State.segments;
 
-        // Skip re-render if nothing changed
         const configKey = Settings.getConfigKey();
         if (duration === lastRenderedDuration &&
             segments.length === lastRenderedSegmentCount &&
@@ -4512,7 +4436,6 @@
         lastRenderedSegmentCount = segments.length;
         lastRenderedConfigKey = configKey;
 
-        // Build desired marks
         const desired = new Map();
         for (let idx = 0; idx < segments.length; idx++) {
           const seg = segments[idx];
@@ -4521,7 +4444,6 @@
           desired.set(key, { seg, idx });
         }
 
-        // Remove marks no longer needed
         for (const [k, el] of St_seekbarMarks) {
           if (!desired.has(k)) {
             try { el.remove(); } catch (_) {}
@@ -4529,7 +4451,6 @@
           }
         }
 
-        // Create/update marks
         for (const [key, info] of desired) {
           const seg = info.seg;
           const start = (seg.segment[0] / duration) * 100;
@@ -4564,7 +4485,6 @@
       const startWatchdog = () => {
         if (watchdogTimer) { clearInterval(watchdogTimer); watchdogTimer = 0; }
 
-        // Only run watchdog when segments exist and seekbar is enabled
         watchdogTimer = setInterval(() => {
           if (!S.sponsorblockOn || !S.sbSeekbar) return;
           if (typeof _a === "function" && _a()) return;
@@ -4572,7 +4492,6 @@
           try { renderSeekbarMarks(); } catch (_) {}
         }, 3000);
 
-        // Reduced MutationObserver — only watch progress bar container
         if (seekbarObserver) { seekbarObserver.disconnect(); seekbarObserver = null; }
         try {
           const player = document.querySelector("#movie_player") || document.querySelector(".html5-video-player");
@@ -4603,25 +4522,17 @@
 
     // ─── Orchestrator ────────────────────────────────────────────────────────
     const init = async (videoId) => {
-      // Cancel previous request if navigating to a new video
       if (State.abortController) {
         try { State.abortController.abort(); } catch (_) {}
         State.abortController = null;
       }
 
-      // Reset state
       Player.resetMuteState();
       Player.detachListeners();
       State.videoId = null;
       State.segments = [];
       State.processedUUIDs.clear();
       State.activeSegmentIndex = -1;
-
-      // Skip SponsorBlock entirely on live streams (no segments to skip, seeking breaks playback)
-      if (_isLiveStream()) {
-        UI.clearMarks();
-        return;
-      }
 
       if (!S.sponsorblockOn || !videoId) {
         UI.clearMarks();
@@ -4638,7 +4549,6 @@
         const categories = Settings.getEnabledCategories();
         if (!categories.length) return;
 
-        // Try fresh cache first
         let cached = await Cache.get(videoId, configKey, false);
 
         if (cached && cached.fresh) {
@@ -4648,12 +4558,10 @@
           Player.attachListeners();
           UI.startWatchdog();
           g.emit("sb.segments", { videoId, count: State.segments.length, cached: true });
-          // Background refresh (stale-while-revalidate pattern)
           backgroundRefresh(videoId, configKey, inFlightKey);
           return;
         }
 
-        // Try stale cache for instant display
         let staleData = cached || await Cache.get(videoId, configKey, true);
         if (staleData) {
           State.segments = staleData.data;
@@ -4664,13 +4572,11 @@
           g.emit("sb.segments", { videoId, count: State.segments.length, cached: true, stale: true });
         }
 
-        // Check for existing in-flight request (deduplication)
         const existing = Cache.getInFlight(inFlightKey);
         if (existing) {
           Metrics.recordDeduped();
           State.segments = await existing;
         } else {
-          // Start new fetch
           State.abortController = new AbortController();
           const fetchPromise = (async () => {
             try {
@@ -4681,7 +4587,6 @@
             } catch (err) {
               if (err.name === "AbortError") return State.segments;
               Metrics.recordApiError();
-              // Return stale data on failure
               const fallback = await Cache.get(videoId, configKey, true);
               return (fallback && fallback.data) || State.segments;
             }
@@ -4717,7 +4622,6 @@
           const ctrl = new AbortController();
           const segments = await API.fetchWithRetry(videoId, ctrl.signal);
           await Cache.set(videoId, configKey, segments);
-          // If still on same video, update
           if (State.videoId === videoId) {
             State.segments = segments;
             UI.invalidateRenderCache();
@@ -4751,7 +4655,7 @@
       if (videoId) {
         Cache.invalidate(videoId);
         if (State.videoId === videoId) {
-          init(videoId); // Re-fetch
+          init(videoId);
         }
       }
     };
@@ -4765,6 +4669,7 @@
       getSegments: () => State.segments.slice(),
     };
   })();
+
 
   let St_wtInterval = 0;
   let St_progObs = null;
@@ -7711,25 +7616,9 @@
       masterKey: "sponsorblockOn",
       keys: [
         "sponsorblockOn",
-        "sbServer",
-        "sbServerPreset",
         "sbPrivacy",
         "sbToast",
         "sbToastDur",
-        "sbMinVotes",
-        "sbMinViews",
-        "sbMaxViews",
-        "sbIncludeLocked",
-        "sbIncludeHidden",
-        "sbIncludeIgnored",
-        "sbTrimUUIDs",
-        "sbSegOverrides",
-        "sbChanOverrides",
-        "sbChapterRules",
-        "sbUpNextSec",
-        "sbColorOverrides",
-        "sbHud",
-        "sbHudStatus",
         "sbSeekbar",
       ].concat(i.flatMap((e) => ["sb_" + e.id + "_en", "sb_" + e.id + "_act"])),
       apply(e) {
@@ -7739,89 +7628,28 @@
             void ft()
           );
         const t = ie.videoId();
-        if (
-          (t && St(t),
-          e.onNav(() =>
-            e.addTimeout(() => {
-              const e = ie.videoId();
-              e && St(e);
-            }, 1200),
-          ),
-          S.sbSeekbar)
-        ) {
+        if (t) St(t);
+        e.onNav(() => {
+          e.addTimeout(() => {
+            const t2 = ie.videoId();
+            if (t2) St(t2);
+          }, 1200);
+        });
+        if (S.sbSeekbar) {
           e.addInterval(Ct, 2500);
-          const t = ie.el();
-          t &&
-            (e.addListener(t, "loadedmetadata", Ct),
-            e.addListener(t, "durationchange", Ct));
         }
       },
       settings(e) {
+        e.appendChild(
+          Io("Privacy mode (hide video IDs from database server)", "sbPrivacy")
+        );
+        e.appendChild(
+          Io("Show notifications on skip", "sbToast")
+        );
+        e.appendChild(
+          Io("Show segments on the video timeline", "sbSeekbar")
+        );
 
-        const presetRow = To("div", "ytp-row");
-        presetRow.appendChild(To("span", "ytp-lbl", "Server"));
-        const presetSel = document.createElement("select");
-        presetSel.className = "ytp-sel";
-        presetSel.dataset.key = "sbServerPreset";
-        Zi.forEach((z) => {
-          const opt = document.createElement("option");
-          opt.value = z.id;
-          opt.textContent = z.name;
-          presetSel.appendChild(opt);
-        });
-        presetSel.value = S.sbServerPreset || "ajay";
-        presetSel.addEventListener("change", () =>
-          Ta("sbServerPreset", presetSel.value),
-        );
-        presetRow.appendChild(presetSel);
-        e.appendChild(presetRow);
-        e.appendChild(_o("Custom server URL (when Server = Custom)", "sbServer"));
-        e.appendChild(
-          Io("Privacy mode (hide video IDs from database server)", "sbPrivacy"),
-        );
-        e.appendChild(Io("Skip notifications", "sbToast"));
-        e.appendChild(
-          No(
-            "Notify duration",
-            "sbToastDur",
-            500,
-            6e3,
-            100,
-            (e2) => (e2 / 1e3).toFixed(1) + "s",
-          ),
-        );
-        e.appendChild(
-          No("Minimum votes", "sbMinVotes", 0, 100, 1, (e2) => e2 + " votes"),
-        );
-        e.appendChild(
-          No("Minimum views (0 = no min)", "sbMinViews", 0, 1e6, 10, (e2) =>
-            Math.round(e2).toString(),
-          ),
-        );
-        e.appendChild(
-          No("Maximum views (0 = no max)", "sbMaxViews", 0, 1e7, 100, (e2) =>
-            Math.round(e2).toString(),
-          ),
-        );
-        e.appendChild(Io("Include locked segments", "sbIncludeLocked"));
-        e.appendChild(Io("Include hidden segments", "sbIncludeHidden"));
-        e.appendChild(Io("Include ignored segments", "sbIncludeIgnored"));
-        e.appendChild(Io("Trim UUIDs from response", "sbTrimUUIDs"));
-        e.appendChild(Io("Show sponsorship status box on screen", "sbHud"));
-        e.appendChild(Io("Show server status in HUD", "sbHudStatus"));
-        e.appendChild(
-          Io("Show sponsorship sections on the video timeline", "sbSeekbar"),
-        );
-        e.appendChild(
-          No(
-            "Up-next preview (seconds, 0 = off)",
-            "sbUpNextSec",
-            0,
-            60,
-            1,
-            (e2) => e2 + "s",
-          ),
-        );
         const t = To("div", "ytp-sub");
 
         i.forEach((e2) => {
@@ -7837,84 +7665,9 @@
           o.appendChild(lbl);
           o.appendChild(Bo(a));
           o.appendChild(Po(n, Yi));
-          const sw = document.createElement("input");
-          sw.type = "color";
-          sw.className = "ytp-cp-native";
-          sw.style.cssText =
-            "width:30px;height:28px;padding:0;border:1px solid rgba(255,255,255,.12);border-radius:6px;background:transparent;cursor:pointer";
-          try {
-            let cur = null;
-            try {
-              cur =
-                S.sbColorOverrides && JSON.parse(S.sbColorOverrides || "{}")[e2.id];
-            } catch (e3) {
-              cur = null;
-            }
-            sw.value = /^#[0-9a-fA-F]{6}$/.test(cur || "")
-              ? cur
-              : /^#[0-9a-fA-F]{6}$/.test(e2.color)
-                ? e2.color
-                : "#00d400";
-          } catch (e3) {
-            sw.value = "#00d400";
-          }
-          sw.addEventListener("input", () => {
-            let cur = {};
-            try {
-              cur = S.sbColorOverrides
-                ? JSON.parse(S.sbColorOverrides || "{}")
-                : {};
-            } catch (e4) {
-              cur = {};
-            }
-            cur[e2.id] = sw.value;
-            Ta(
-              "sbColorOverrides",
-              Object.keys(cur).length ? JSON.stringify(cur) : "",
-            );
-            Bt_invalidateMarks();
-          });
-          sw.addEventListener("dblclick", () => {
-            let cur = {};
-            try {
-              cur = JSON.parse(S.sbColorOverrides || "{}");
-            } catch (e5) {
-              cur = {};
-            }
-            delete cur[e2.id];
-            Ta(
-              "sbColorOverrides",
-              Object.keys(cur).length ? JSON.stringify(cur) : "",
-            );
-            sw.value = e2.color;
-            Bt_invalidateMarks();
-          });
-          o.appendChild(sw);
           t.appendChild(o);
         });
         e.appendChild(t);
-
-        e.appendChild(
-          Ho(
-            "Per-segment overrides (JSON: {uuid: 'skip'|'mute'|'poi'|'disabled'})",
-            "sbSegOverrides",
-            "Paste a JSON object. UUIDs are in /api/skipSegments response.",
-          ),
-        );
-        e.appendChild(
-          Ho(
-            "Per-channel overrides (JSON: {channelId: 'skip'|'mute'|'poi'|'disabled'})",
-            "sbChanOverrides",
-            "Channel IDs are the trailing path segment of /channel/<id> URLs.",
-          ),
-        );
-        e.appendChild(
-          Ho(
-            "Chapter title regex skip (JSON: {channelId: '/regex/flags'})",
-            "sbChapterRules",
-            "Chapter title (auto-generated) matching the channel's regex is auto-skipped.",
-          ),
-        );
 
         e.appendChild(To("div", "ytp-section-hdr", "This video"));
         const ctrls = To("div", "ytp-rowb");
@@ -7928,63 +7681,24 @@
               );
             },
             "ytp-danger",
-          ),
+          )
         );
         ctrls.appendChild(
           Oo(
-            "Un-hide SB on this video",
+            "Show SB on this video",
             () => {
               Bt_unHideVideo().then(
                 () => g.emit("sb.hidden"),
-                (e2) => pe("Un-hide failed: " + e2.message, 2e3, "error"),
+                (e2) => pe("Restore failed: " + e2.message, 2e3, "error"),
               );
             },
-          ),
-        );
-        ctrls.appendChild(
-          Oo(
-            "Reload segments",
-            () => {
-              const vid = ie.videoId();
-              if (vid) St(vid);
-            },
-            "primary",
-          ),
+            "ytp-normal",
+          )
         );
         e.appendChild(ctrls);
-
-        if (S.sbSubmitUserId) {
-          const statsRow = To("div", "ytp-sbsub-status");
-          statsRow.textContent = "Loading SB user stats...";
-          e.appendChild(statsRow);
-          Bt_getUserInfo().then((info) => {
-            if (!info) {
-              statsRow.textContent =
-                "No SB user stats (userID not registered).";
-              return;
-            }
-            const min = Math.round(info.minutesSaved || 0);
-            statsRow.textContent =
-              "SB stats: " +
-              (info.userName || "(no username)") +
-              " - " +
-              min +
-              " min saved - " +
-              (info.segmentCount || 0) +
-              " segments";
-          });
-        } else {
-          e.appendChild(
-            To(
-              "div",
-              "ytp-hist-note",
-              "Turn on “Submit Sponsorship Segments” to track your own SB stats (time saved, segment count, etc.) on the SB server.",
-            ),
-          );
-        }
       },
     }),
-    xa.register({
+xa.register({
       id: "session-restore",
       name: "Session History",
       summary:

@@ -5909,7 +5909,7 @@
       }
     };
 
-    const performInit = async (videoId) => {
+    const performInit = async (videoId, options = {}) => {
       initUserId();
       const generation = ++State.generation;
       abortActiveRequests();
@@ -5930,6 +5930,7 @@
         State.lastInitCompletedAt = Date.now();
         return [];
       }
+      if (options.force || options.revalidate) Cache.clearInFlightForVideo(videoId);
 
       attachLifecycleListeners();
       State.videoId = videoId;
@@ -6011,7 +6012,7 @@
       if (!force && !revalidate && videoId && State.videoId === videoId && Date.now() - State.lastInitCompletedAt < recentWindowMs) {
         return State.segments.slice();
       }
-      const promise = performInit(videoId).finally(() => {
+      const promise = performInit(videoId, { force, revalidate }).finally(() => {
         if (State.initPromise === promise) {
           State.initPromise = null;
           State.initPromiseVideoId = null;

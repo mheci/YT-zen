@@ -64,15 +64,16 @@
         window.GM_info = {
           script: {
             name: "YT-zen",
-            version: "3.5.1"
+            version: "3.5.5"
           }
         };
 
         window.GM_xmlhttpRequest = (details) => {
+          const reqId = Math.random().toString(36).slice(2);
           // Bridge to background worker for cross-origin fetches (CORS bypass)
           window.dispatchEvent(new CustomEvent("YTZEN_XMLHTTPREQUEST", {
             detail: {
-              id: Math.random().toString(36).slice(2),
+              id: reqId,
               details: {
                 method: details.method || "GET",
                 url: details.url,
@@ -83,8 +84,8 @@
           }));
           
           // Capture asynchronous response
-          const onResponse = (e) => {
-            if (e.detail.url === details.url) {
+          const onResponse = (ev) => {
+            if (ev.detail.id === reqId) {
               window.removeEventListener("YTZEN_XMLHTTPREQUEST_RESPONSE", onResponse);
               if (e.detail.success) {
                 if (typeof details.onload === "function") {

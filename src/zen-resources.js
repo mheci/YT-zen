@@ -38,6 +38,7 @@
         this._name = String(name || "cache");
         this._ttl = Math.max(0, finite(options.ttlMs, 0));
         this._onEvict = typeof options.onEvict === "function" ? options.onEvict : null;
+        this._pending = new Map();
         this._hits = 0;
         this._misses = 0;
         this._evictions = 0;
@@ -131,6 +132,7 @@
       }
 
       set(key, value, ttlMs) {
+        this._pending.delete(key);
         if (this._map.has(key)) this._map.delete(key);
         this._map.set(key, this._entry(value, ttlMs));
         this._trim();
@@ -138,17 +140,27 @@
       }
 
       getOrSet(key, factory, ttlMs) {
-        const existing = this.get(key);
-        if (existing !== undefined) return existing;
+        const existing = this.peek(key);
+        if (existing !== undefined || this._map.has(key)) return this.get(key);
+        const pending = this._pending.get(key);
+        if (pending) return pending;
         const value = typeof factory === "function" ? factory(key) : factory;
         if (value && typeof value.then === "function") {
-          return value.then((resolved) => {
-            this.set(key, resolved, ttlMs);
+          let pendingPromise;
+          pendingPromise = Promise.resolve(value).then((resolved) => {
+            if (this._pending.get(key) === pendingPromise) {
+              this._pending.delete(key);
+              this.set(key, resolved, ttlMs);
+            }
             return resolved;
+          }, (error) => {
+            if (this._pending.get(key) === pendingPromise) this._pending.delete(key);
+            throw error;
           });
+          this._pending.set(key, pendingPromise);
+          return pendingPromise;
         }
-        this.set(key, value, ttlMs);
-        return value;
+        return this.set(key, value, ttlMs);
       }
 
       touch(key, ttlMs) {
@@ -165,7 +177,10 @@
 
       has(key) { return this.peek(key) !== undefined; }
       delete(key) { return this._remove(key); }
-      clear() { for (const key of Array.from(this._map.keys())) this._remove(key, "clear"); }
+      clear() {
+        this._pending.clear();
+        for (const key of Array.from(this._map.keys())) this._remove(key, "clear");
+      }
       keys() { this.cleanupExpired(); return Array.from(this._map.keys()); }
       values() { this.cleanupExpired(); return Array.from(this._map.values(), (entry) => entry.value); }
       entries() { this.cleanupExpired(); return Array.from(this._map.entries(), ([key, entry]) => [key, entry.value]); }
@@ -177,6 +192,7 @@
         return {
           name: this._name,
           size: this._map.size,
+          pending: this._pending.size,
           max: this._max,
           ttlMs: this._ttl,
           hits: this._hits,

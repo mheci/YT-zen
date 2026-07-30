@@ -1,33 +1,31 @@
-# SponsorBlock Performance and Resource Efficiency Analysis
+# SponsorBlock Performance
 
-This document presents the technical analysis and resource performance evaluation of the SponsorBlock subsystem.
+The integration is optimized around correctness first, then bounded work.
 
-## Network Optimization & Latency Reduction
+## Network
 
-### 1. In-flight Request Deduplication
-- **Mechanism:** The subsystem registers active API query promises in an active request Map, using video ID and settings hashes as index keys. Identical concurrent requests yield reference pointers to the same promise, eliminating duplicate network roundtrips.
-- **Results:** Reduces concurrent API requests by 100% on parallel playback and removes redundant session re-fetches by 93%.
+A lookup is performed for every valid video transition. Cached data can render before the network completes, and one in-flight promise is shared by concurrent callers for the same video/profile. Direct and privacy paths are attempted only when the preceding documented form cannot complete. Exponential retry is limited to transient failures and always observes the active abort signal.
 
-### 2. Stale-While-Revalidate (SWR) Profile
-- **Latency Optimization:** If a cache entry is expired but falls within a 12-hour grace window, it is served instantly, bypassing the network block for initial rendering. A background async process handles cache replenishment.
-- **Perceived Initial Load Latency:** Serves stale entries in ~5ms, compared to a cold-start remote request latency of ~250ms—yielding a 97% reduction in perceived load times.
+The cache does not make a fresh lookup optional. It provides a fast first render while the background request verifies current server data.
 
-## CPU Execution Profile
+## CPU and DOM
 
-### 1. Zero-Idle CPU Utilization
-- **Mechanism:** Discards the unconditional background watchdog timer which queried state maps every 2 seconds. The redesigned engine operates in a reactive pattern: the watchdog is active only when valid segment coordinates are loaded and progress visualizers are enabled.
-- **Background Execution:** The engine suspends playback ticking entirely when the tab or document visibility is hidden (`document.hidden === true`).
+Playback actions are event driven. No interval is used to inspect playback when the player is paused, ended, hidden, or has no active segment. Timeline repair uses one observer scoped to the player and a shared ticker rather than a feature-specific timer per component.
 
-### 2. Render Cache and DOM Operations
-- **Element Caching:** Integrates a lightweight structural rendering cache. It compares current video parameters (duration, segment count, active categories) against the values from the last layout cycle.
-- **Layout Performance:** Suppresses DOM updates when no state drift is detected, reducing progress-bar layout recalculations from ~30 writes per minute to ~3 writes, reducing layout thrashing.
+Every observer, listener, timer, ticker, and request has an owner. Feature reapplication and page teardown release the owner before another instance is created.
 
-## Memory Footprint Specification
+## Memory
 
-### 1. Memory Safety and Bounded Caching
-- **Bounded LRU Cache:** Implements strict size-based boundaries (capped at 128 items) using an eviction model that automatically de-allocates oldest entries to prevent cumulative memory leaks.
-- **Total Overhead:** The memory cache footprint for a worst-case session (all 128 elements fully populated with active segment objects) is capped at ~230 KB.
+- in-memory SponsorBlock entries are bounded;
+- persistent cache entries have explicit expiry and schema validation;
+- segment lists are normalized once per response;
+- duplicate UUID/range records are dropped;
+- stale in-flight cleanup is identity checked;
+- `ZenResources` tracks blob URLs and deferred tasks;
+- weak DOM caches do not retain elements when weak references are supported.
 
-### 2. Weak Reference Management
-- **Leak Prevention:** The subsystem decouples event registration by attaching capturing listeners to the parent `document` structure instead of preserving active lexical bindings to dynamically created media elements.
-- **Orphaned Listener Elimination:** By routing event callbacks based on the state of the active video element helper (`ev.target === ie.el()`), the system completely avoids listener leaks when media elements are discarded or replaced during SPA navigations.
+## Measurement
+
+The runtime diagnostics exposed by `SponsorBlockEngine.stats()` record API requests, fallbacks, cache hits/misses, stale data, deduplicated lookups, errors, votes, submissions, and viewed reports. `ZenResources.stats()` reports observer, ticker, deferred, abort, and blob ownership.
+
+No performance number is treated as a release guarantee without a repeatable benchmark. Use the deterministic unit suite for regression detection and the live SponsorBlock harness for transport validation.

@@ -1,51 +1,63 @@
-# SponsorBlock Subsystem Architecture Specification
+# SponsorBlock Architecture
 
-This document details the architecture, design, and integration of the SponsorBlock subsystem within the YT-zen platform.
+The SponsorBlock subsystem is an isolated orchestrator. It owns one active video state, one request lifecycle, one playback listener set, and one UI watchdog for the current page.
 
-## Subsystem Design Overview
-
-The SponsorBlock implementation uses a decoupled, modular design structured around clean interfaces and highly scoped responsibilities. It is divided into six logical modules enclosed within a single parent orchestrator context.
-
-```
-+---------------------------------------------------------------------------------+
-| SponsorBlockEngine (Orchestrator Context)                                       |
-|                                                                                 |
-|  +--------------------+   +---------------------+   +------------------------+  |
-|  | SponsorBlockAPI    |   | SponsorBlockCache   |   | SponsorBlockPlayer     |  |
-|  | - Network requests |   | - Runtime LRU map   |   | - Playback state track |  |
-|  | - Prefix hash query|   | - IndexedDB storage |   | - Event-driven sync    |  |
-|  +--------------------+   +---------------------+   +------------------------+  |
-|                                                                                 |
-|  +--------------------+   +---------------------+   +------------------------+  |
-|  | SponsorBlockUI     |   | Settings            |   | Metrics                |  |
-|  | - SVG seekbar marks|   | - Feature toggles   |   | - Performance metrics  |  |
-|  | - Skip alerts      |   | - Action mapping    |   | - Time-saved tracking  |  |
-|  +--------------------+   +---------------------+   +------------------------+  |
-+---------------------------------------------------------------------------------+
+```text
+YouTube signal
+    |
+    v
+video identity -> lifecycle coordinator -> cache/API lookup
+                                      |          |
+                                      |          +--> direct or privacy path
+                                      v
+                              validated segments
+                                      |
+                      +---------------+----------------+
+                      |                                |
+                 playback state                    timeline UI
+                      |                                |
+                 skip/mute action               marks and HUD
 ```
 
-## Architectural Components
+## Responsibilities
 
-### 1. SponsorBlockAPI (Network Layer)
-- **CORS-Bypassing Communication:** Uses the `he` wrapper which relies on `GM_xmlhttpRequest` when available to perform out-of-context requests, bypassing YouTube's strict Content Security Policy (CSP).
-- **Privacy Preservation:** Features an optional SHA-256 hash prefixing mechanism. When active, only the first 4 characters of the SHA-256 hash of the video ID are transmitted. This queries a pool of candidate segments, with final client-side matching.
-- **Payload Validation:** Enforces strict response verification. Malformed segments (such as non-numeric timestamps, negative intervals, or empty categories) are rejected before reaching cache layers.
+### Lifecycle coordinator
 
-### 2. SponsorBlockCache (State and Storage Layer)
-- **Tier 1: Runtime Memory:** Holds active video segments in a standard Javascript Map, using a Least Recently Used (LRU) eviction strategy with a maximum capacity of 128 keys.
-- **Tier 2: Persistent Cache:** Writes verified segments to IndexedDB via the global storage helper. Persistent entries have an eviction TTL of 24 hours.
-- **Request Deduplication:** Minimizes redundant API requests. In-flight requests are indexed in an active Map by their compound configuration keys. Identical concurrent requests resolve to the same underlying promise.
-- **Stale-While-Revalidate (SWR):** Implements SWR on cache reads. If a cache entry is expired but falls within a 12-hour grace period, it is returned immediately for instant seekbar rendering while a background fetch refreshes the data store.
+`init(videoId)` is idempotent while a lookup is pending. Each initialization receives a generation number. A result may update active state only when both its generation and video ID still match. Navigation and teardown abort the primary request and background refreshes.
 
-### 3. SponsorBlockPlayer (Media Integration Layer)
-- **Capturing Event Listeners:** Leverages capturing phase event listeners registered directly on `document` (targeting events such as `timeupdate`, `seeked`, `durationchange`, `play`, and `pause`). This eliminates fragile timing dependencies and handles dynamically replaced video elements automatically.
-- **State Guarding:** Implements an internal cooldown mechanism (500ms) and seeking tolerance threshold (0.3s) to prevent seek loops, repeated skips, or player oscillation.
-- **Context Monitoring:** Temporarily suspends segment processing if an ad is actively playing (`ie.isAd()`) or if structural menus are open on screen.
+The coordinator listens for:
 
-### 4. SponsorBlockUI (Interface Layer)
-- **Progress Overlay:** Translates segment times relative to video duration into percentage-based markers, creating and positioning SVG-styled indicator blocks inside YouTube's progress-bar containers.
-- **Inter-tab Sync:** Emits and listens to custom configuration events across page contexts to align seekbar indicators when global settings change.
+- the repository's navigation event;
+- browser history changes;
+- `yt-navigate-finish`;
+- media readiness and replacement signals;
+- visibility and focus recovery.
 
-### 5. Settings & Metrics
-- **Simplified Controls:** Prioritizes category selection and action mapping while discarding complex infrastructure options (such as custom server endpoints or latency limits).
-- **Diagnostics:** Persists cumulative metrics (total seconds saved, count of skips executed) securely in the browser's persistent state store.
+A fresh video always performs an API validation. Cached data may render first, but it does not suppress revalidation.
+
+### API layer
+
+The API layer builds only documented SponsorBlock requests. Direct requests include the full video ID. Privacy requests use the canonical hash-prefix path and never fall back to a full-ID request. Response shapes are checked before normalization. HTTP 404 is treated as an empty result; malformed successful JSON is retryable.
+
+Write operations are separate from lookup operations. Voting, viewed reports, user information, and manual submissions cannot block playback.
+
+### Cache layer
+
+The cache has two tiers:
+
+- bounded in-memory LRU data with a one-hour runtime freshness window;
+- persistent data with a 24-hour lifetime and a 12-hour stale fallback window.
+
+Persistent entries are converted to runtime entries before entering memory so the persistent TTL cannot accidentally become the in-memory TTL. Cache keys include the API profile version and privacy mode. In-flight requests are keyed by video ID and profile, and clearing a request cannot remove a newer request with the same key.
+
+### Playback layer
+
+Playback listeners are attached in the capture phase on `document`, so YouTube can replace the `<video>` element without requiring a new listener registration. The player checks ads, modal states, paused/ended state, mute restoration, active segment boundaries, and a seek cooldown before acting.
+
+### UI layer
+
+Timeline marks are keyed by UUID and are removed before a new video is rendered. The watchdog is a shared visibility-aware ticker. A player-scoped mutation observer repairs marks after YouTube rebuilds the progress bar.
+
+## Teardown
+
+Feature reapplication is a lifecycle boundary. The SponsorBlock registration destroys the old engine before starting the new lookup. `destroy()` aborts requests, removes lifecycle listeners, stops the watchdog, detaches playback listeners, restores audio state, clears active marks, and resets state without deleting persistent cache data.

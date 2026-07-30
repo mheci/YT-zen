@@ -78,6 +78,8 @@ const privacyMiss = engine.api.normalizeSegments([
   { videoID: "otherVideo", segments: [] },
 ], "abcdefghijk");
 assert.strictEqual(privacyMiss.matched, false, "privacy candidate misses are distinguishable from an empty direct response");
+const malformed = engine.api.normalizeSegments({ unexpected: true }, "abcdefghijk");
+assert.strictEqual(malformed.valid, false, "successful non-array payloads are rejected as malformed");
 
 const cache = new BoundedCache(2, "test", { ttlMs: 1000 });
 cache.set("a", 1); cache.set("b", 2); assert.strictEqual(cache.get("a"), 1);
@@ -93,6 +95,18 @@ assert.strictEqual(elementCache.cleanupDisconnected(), 1);
 assert.strictEqual(elementCache.has("element"), false);
 
 (async () => {
+  let factoryCalls = 0;
+  const asyncCache = new BoundedCache(4, "async");
+  const asyncFactory = () => {
+    factoryCalls++;
+    return new Promise((resolve) => setTimeout(() => resolve("shared"), 10));
+  };
+  const firstValue = asyncCache.getOrSet("key", asyncFactory);
+  const secondValue = asyncCache.getOrSet("key", asyncFactory);
+  assert.strictEqual(firstValue, secondValue, "async cache factories are deduplicated");
+  assert.strictEqual(await firstValue, "shared");
+  assert.strictEqual(factoryCalls, 1);
+
   const requests = [];
   context.S.sbPrivacy = false;
   context.he = async (url) => {

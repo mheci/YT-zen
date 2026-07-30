@@ -55,6 +55,9 @@
       userId: null,
       lastFetchPlan: "",
       lastLookupTrace: [],
+      initPromise: null,
+      initPromiseVideoId: null,
+      lastInitCompletedAt: 0,
       // Submission Creator Editor State
       editor: {
         active: false,
@@ -740,7 +743,7 @@
         const bodyData = {
           videoID: videoId,
           userID: State.userId,
-          userAgent: "YT-zen/" + (typeof GM_info !== "undefined" ? GM_info.script.version : "3.7.0"),
+          userAgent: "YT-zen/" + (typeof GM_info !== "undefined" ? GM_info.script.version : "3.7.1"),
           service: "YouTube",
           segments: [{
             segment: [start, end],
@@ -1385,10 +1388,10 @@
     })();
 
     // ─── Orchestrator ────────────────────────────────────────────────────────
-    const init = async (videoId) => {
+    const performInit = async (videoId) => {
       initUserId();
 
-      if (State.abortController) {
+      if (State.abortController && State.initPromiseVideoId !== videoId) {
         try { State.abortController.abort(); } catch (_) {}
         State.abortController = null;
       }
@@ -1402,18 +1405,20 @@
 
       if (!videoId) {
         UI.clearMarks();
-        return;
+        return [];
       }
 
       if (await HiddenVideos.isHidden(videoId)) {
         UI.clearMarks();
         g.emit("sb.hidden", { videoId, hidden: true });
-        return;
+        State.lastInitCompletedAt = Date.now();
+        return [];
       }
 
       if (!S.sponsorblockOn) {
         UI.clearMarks();
-        return;
+        State.lastInitCompletedAt = Date.now();
+        return [];
       }
 
       State.videoId = videoId;
@@ -1433,7 +1438,8 @@
           UI.startWatchdog();
           g.emit("sb.segments", { videoId, count: State.segments.length, cached: true });
           backgroundRefresh(videoId, configKey, inFlightKey);
-          return;
+          State.lastInitCompletedAt = Date.now();
+          return State.segments.slice();
         }
 
         let staleData = cached || await Cache.get(videoId, configKey, true);
@@ -1486,6 +1492,32 @@
         }
         State.segments = [];
       }
+      State.lastInitCompletedAt = Date.now();
+      return State.segments.slice();
+    };
+
+    const init = async (videoId, opts = {}) => {
+      const force = !!(opts && opts.force);
+      const recentWindowMs = 2000;
+
+      if (!force && State.initPromise && State.initPromiseVideoId === videoId) {
+        Metrics.recordDeduped();
+        return State.initPromise;
+      }
+
+      if (!force && videoId && State.videoId === videoId && Date.now() - State.lastInitCompletedAt < recentWindowMs) {
+        return State.segments.slice();
+      }
+
+      const promise = performInit(videoId).finally(() => {
+        if (State.initPromise === promise) {
+          State.initPromise = null;
+          State.initPromiseVideoId = null;
+        }
+      });
+      State.initPromise = promise;
+      State.initPromiseVideoId = videoId || null;
+      return promise;
     };
 
     const backgroundRefresh = async (videoId, configKey, inFlightKey) => {
@@ -1529,7 +1561,7 @@
       if (!videoId) return;
       await Cache.invalidate(videoId);
       if (State.videoId === videoId) {
-        await init(videoId);
+        await init(videoId, { force: true });
       }
     };
 

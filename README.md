@@ -40,6 +40,7 @@ This repository now ships and maintains only the userscript build:
 
 - validate with `node --check yt-zen.user.js`
 - validate module mirrors with `node --check src/*.js`
+- run `node scripts/test-sponsorblock.js JQb9eGeclQw` to exercise the SponsorBlock fetch plans against a known test video
 - SponsorBlock logic lives in `src/sponsorblock-engine-v2.js`
 - shared resource primitives live in `src/zen-resources.js`
 

@@ -155,6 +155,27 @@ assert.strictEqual(elementCache.has("element"), false);
   assert.strictEqual(engine.debugInfo().hidden, true, "hidden videos suppress actions without suppressing lookup");
   engine.destroy();
 
+  context.v = async () => null;
+  context.ie.videoId = () => "lmnopqrstuv";
+  context.he = async (url) => {
+    const requestedId = new URL(url).searchParams.get("videoID") || "privacy";
+    const delay = requestedId === "lmnopqrstuv" ? 30 : 5;
+    await new Promise((resolve) => setTimeout(resolve, delay));
+    return {
+      ok: true,
+      status: 200,
+      json: async () => [{ UUID: requestedId, category: "sponsor", segment: [1, 2] }],
+    };
+  };
+  const oldLookup = engine.init("lmnopqrstuv", { force: true });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  context.ie.videoId = () => "lmnopqrstu1";
+  const currentLookup = engine.init("lmnopqrstu1", { force: true });
+  const [oldSegments, currentSegments] = await Promise.all([oldLookup, currentLookup]);
+  assert.strictEqual(oldSegments.length, 0, "superseded lookups cannot commit old state");
+  assert.strictEqual(currentSegments[0].UUID, "lmnopqrstu1");
+  engine.destroy();
+
   let calls = 0;
   const id = DeferredTask.debounce("unit", () => { calls++; }, 10);
   assert.ok(id > 0);

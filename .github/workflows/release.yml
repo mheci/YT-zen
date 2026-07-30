@@ -1,0 +1,44 @@
+name: Stable release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Validate and publish release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out tag
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Deterministic gate
+        run: npm test
+      - name: SponsorBlock smoke test
+        run: node scripts/test-sponsorblock.js JQb9eGeclQw
+      - name: Verify tag matches package version
+        shell: bash
+        run: |
+          expected="v$(node -p 'require("./package.json").version')"
+          test "$GITHUB_REF_NAME" = "$expected"
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "YT-zen ${GITHUB_REF_NAME#v}" \
+            --generate-notes \
+            yt-zen.user.js \
+            yt-zen.meta.js

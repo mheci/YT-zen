@@ -1,48 +1,75 @@
 # YT-zen
 
-YT-zen is a userscript-first YouTube overhaul focused on fast client-side customization, aggressive playback cleanup, and a hardened SponsorBlock integration.
+YT-zen is a userscript-first YouTube customization project. It adds optional playback, layout, discovery, history, filtering, and diagnostics features without requiring an extension build or a backend service.
 
-This repository now ships and maintains only the userscript build:
-- `yt-zen.user.js`
-- `yt-zen.meta.js`
+The installable artifacts are:
 
-## Current direction
+- `yt-zen.user.js` — the complete userscript;
+- `yt-zen.meta.js` — update metadata for script managers.
 
-- userscript-only distribution
-- full SponsorBlock-first playback cleanup
-- no browser-extension packaging in-repo
-- leaner maintenance surface
+## Install
 
-## SponsorBlock highlights
-
-- lookup is performed on watch-page load and navigation retries
-- all supported SponsorBlock segment categories are enabled by default
-- all segment categories default to `skip`
-- resilient multi-plan fetch paths for segment retrieval
-- built-in vote, undo-vote, category-change, viewed-report, submission, and user-info API helpers
-- timeline marks, skip HUD, local hide/unhide, and per-video refresh controls
-
-## Installation
-
-1. Install a userscript manager such as Violentmonkey, Tampermonkey, or Greasemonkey.
-2. Open the latest release.
+1. Install Violentmonkey, Tampermonkey, or another userscript manager.
+2. Open the current GitHub release.
 3. Install `yt-zen.user.js`.
-4. Keep `yt-zen.meta.js` available for update checks if your manager uses it.
+4. Allow updates from the release metadata when prompted.
 
-## Repository layout
+YT-zen runs on YouTube, YouTube Music, and mobile YouTube matches declared in the userscript header. Features are disabled by default unless their individual setting says otherwise. SponsorBlock is the exception: it is enabled with every supported category enabled and automatic skip actions selected.
 
-- `yt-zen.user.js` — canonical shipped userscript
-- `yt-zen.meta.js` — update metadata
-- `src/` — source-side modular mirrors for major subsystems
-- `docs/` — architecture and test notes
+## SponsorBlock
 
-## Development notes
+SponsorBlock is initialized automatically for every valid YouTube video identifier detected during watch-page initialization, SPA navigation, playlist changes, autoplay transitions, player replacement, browser-history navigation, and tab wake-up.
 
-- validate with `node --check yt-zen.user.js`
-- validate module mirrors with `node --check src/*.js`
-- run `node scripts/test-sponsorblock.js JQb9eGeclQw` to exercise the SponsorBlock fetch plans against a known test video
-- SponsorBlock logic lives in `src/sponsorblock-engine-v2.js`
-- shared resource primitives live in `src/zen-resources.js`
+The integration:
+
+- queries the official SponsorBlock server using the complete category and action-type profile;
+- supports both direct and privacy-preserving hash-prefix lookups;
+- filters privacy responses by exact video ID;
+- validates and de-duplicates every segment before playback sees it;
+- serves bounded cached data while revalidating on every video load;
+- aborts obsolete requests during navigation;
+- keeps errors, telemetry, votes, and manual submissions isolated from playback;
+- lets each category be disabled or assigned a playback action;
+- retains timeline marks, skip notifications, local hide/unhide, voting, user information, and manual segment submission.
+
+The API contract is documented in [`docs/SPONSORBLOCK_API_CONTRACT.md`](docs/SPONSORBLOCK_API_CONTRACT.md). Manual submissions remain explicitly user initiated; YT-zen never submits segments automatically.
+
+## Architecture
+
+The userscript is the canonical distribution. High-risk subsystems have reviewable source mirrors and are synchronized into the bundle by `scripts/build-userscript.js`.
+
+- `src/sponsorblock-engine-v2.js` — SponsorBlock state, API, cache, playback, UI, and lifecycle orchestration;
+- `src/zen-resources.js` — bounded caches, shared observers/tickers, deferred work, abort groups, blob URLs, and disposable scopes;
+- `src/zen-engine-v3.js` — source mirror for the Zen feature ecosystem;
+- `src/advanced-features.js`, `src/algo-engine.js`, `src/ublock-filter-engine.js` — source mirrors for the remaining feature families;
+- `scripts/` — build, release checks, deterministic tests, and the live SponsorBlock harness;
+- `docs/` — current architecture, API, performance, testing, and contributor documentation.
+
+## Development
+
+Node.js 18 or newer is required. The project intentionally has no runtime npm dependencies.
+
+```bash
+npm test
+node scripts/test-sponsorblock.js JQb9eGeclQw
+```
+
+`npm test` rebuilds the userscript, checks every JavaScript file, verifies release invariants, and runs deterministic tests for resource ownership, cache behavior, segment normalization, direct API lookups, privacy lookup matching, and hidden-video lookup behavior.
+
+The live harness checks the official direct repeated-query, direct JSON, privacy path repeated-query, and privacy path JSON forms. Network availability is required only for the live harness; the normal test gate is deterministic.
+
+## Releases
+
+Releases use semantic version tags such as `v3.9.0`. Before creating a tag:
+
+```bash
+npm test
+git status --short
+git tag -a vX.Y.Z -m "YT-zen X.Y.Z stable release"
+git push origin main --follow-tags
+```
+
+Attach `yt-zen.user.js` and `yt-zen.meta.js` to the GitHub release. Do not publish a release from a dirty working tree.
 
 ## License
 

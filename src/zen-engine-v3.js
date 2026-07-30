@@ -23,6 +23,13 @@
   // ===========================================================================
 
   // ─── ZenEngine (Core) ─────────────────────────────────────────────────────
+  const zenEscapeHtml = (value) => String(value == null ? "" : value).replace(/[&<>\"']/g, (char) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    "\"": "&quot;",
+    "'": "&#39;",
+  }[char]));
   const ZenEngine = (() => {
     "use strict";
     const CSS = `
@@ -149,21 +156,41 @@ body.zen-mood-learn ytd-watch-flexy #secondary{display:none!important}
       panel.id = id;
       panel.className = "zen-card";
       panel.style.cssText = "margin:8px 12px";
-      panel.innerHTML = '<div class="zen-row" style="justify-content:space-between;margin-bottom:6px">' +
-        '<span style="font-size:13px;font-weight:700;color:#fff">' + title + '</span>' +
-        '<span class="zen-meta" id="' + id + '-status"></span></div>' +
-        '<div id="' + id + '-results" style="display:flex;flex-direction:column;gap:4px"></div>';
+      const header = document.createElement("div");
+      header.className = "zen-row";
+      header.style.cssText = "justify-content:space-between;margin-bottom:6px";
+      const heading = document.createElement("span");
+      heading.style.cssText = "font-size:13px;font-weight:700;color:#fff";
+      heading.textContent = String(title || "");
+      const status = document.createElement("span");
+      status.className = "zen-meta";
+      status.id = id + "-status";
+      header.append(heading, status);
+      const results = document.createElement("div");
+      results.id = id + "-results";
+      results.style.cssText = "display:flex;flex-direction:column;gap:4px";
+      panel.append(header, results);
       return panel;
     };
     const createVideoRow = (videoId, title, channel, onClick) => {
       const row = document.createElement("div");
       row.className = "zen-row";
       row.style.cssText = "padding:4px 0;cursor:pointer";
-      const thumb = "https://i.ytimg.com/vi/" + videoId + "/mqdefault.jpg";
-      row.innerHTML = '<div class="zen-thumb" style="width:80px;height:45px;background-image:url(\'' +
-        sanitizeUrlForCSS(thumb) + '\')"></div>' +
-        '<div style="flex:1;min-width:0"><div class="zen-title" style="-webkit-line-clamp:1">' +
-        (title || videoId) + '</div><div class="zen-meta">' + (channel || "") + '</div></div>';
+      const thumb = document.createElement("div");
+      thumb.className = "zen-thumb";
+      thumb.style.cssText = "width:80px;height:45px";
+      thumb.style.backgroundImage = "url('" + sanitizeUrlForCSS(ie.thumb(videoId, "mqdefault")) + "')";
+      const copy = document.createElement("div");
+      copy.style.cssText = "flex:1;min-width:0";
+      const titleNode = document.createElement("div");
+      titleNode.className = "zen-title";
+      titleNode.style.webkitLineClamp = "1";
+      titleNode.textContent = String(title || videoId || "");
+      const channelNode = document.createElement("div");
+      channelNode.className = "zen-meta";
+      channelNode.textContent = String(channel || "");
+      copy.append(titleNode, channelNode);
+      row.append(thumb, copy);
       if (onClick) row.addEventListener("click", onClick);
       return row;
     };
@@ -408,11 +435,85 @@ body.zen-mood-learn ytd-watch-flexy #secondary{display:none!important}
   //  FEATURE REGISTRATIONS (22 features)
   // ═══════════════════════════════════════════════════════════════════════════
 
-  xa.register({ id: "time-machine", name: "Time Machine Feed", summary: "Surface videos from subscriptions uploaded on this date in a previous year.", masterKey: "timeMachineOn", keys: ["timeMachineOn", "timeMachineYears", "timeMachineMonths"],
-    apply(ctx) { if (!S.timeMachineOn) return; ZenEngine.injectCSS(); const panel = ZenDiscovery.createFeedPanel("ytp-zen-tm", "Time Machine"); const goBtn = document.createElement("button"); goBtn.className = "zen-btn primary"; goBtn.textContent = "Load time capsule"; goBtn.style.marginTop = "6px"; panel.appendChild(goBtn); ZenDiscovery.insertIntoFeed(panel, ctx);
-      goBtn.addEventListener("click", () => { const status = panel.querySelector("#ytp-zen-tm-status"); const results = panel.querySelector("#ytp-zen-tm-results"); status.textContent = "Searching..."; const years = S.timeMachineYears || 1; const months = S.timeMachineMonths || 0; const target = new Date(); target.setFullYear(target.getFullYear() - years); target.setMonth(target.getMonth() - months); status.textContent = "Looking for videos from " + target.toLocaleDateString() + "...";
-        ZenEngine.innerTube("search", { context: Mt(), query: "uploaded:" + target.toISOString().slice(0, 10) }).then(r => { if (!r || !r.ok || !r.json) { status.textContent = "No results."; return; } status.textContent = "Found content from " + target.toLocaleDateString(); results.innerHTML = ""; try { const contents = r.json.contents && r.json.contents.twoColumnSearchResultsRenderer && r.json.contents.twoColumnSearchResultsRenderer.primaryContents && r.json.contents.twoColumnSearchResultsRenderer.primaryContents.sectionListRenderer && r.json.contents.twoColumnSearchResultsRenderer.primaryContents.sectionListRenderer.contents; if (contents) { let count = 0; for (const section of contents) { const vids = section.itemSectionRenderer && section.itemSectionRenderer.contents; if (vids) for (const v of vids) { if (v.videoRenderer && count < 12) { const vr = v.videoRenderer; results.appendChild(ZenDiscovery.createVideoRow(vr.videoId, (vr.title && vr.title.simpleText) || vr.videoId, (vr.ownerText && vr.ownerText.simpleText) || "", () => { e.location.href = "/watch?v=" + vr.videoId; })); count++; } } } } catch (_) {} }).catch(() => { status.textContent = "Search failed."; }); }); },
-    settings(en) { en.appendChild(Io("Enable Time Machine Feed", "timeMachineOn")); en.appendChild(No("Years back", "timeMachineYears", 1, 10, 1, v => v + " year" + (v > 1 ? "s" : ""))); en.appendChild(No("Additional months", "timeMachineMonths", 0, 11, 1, v => v + " months")); } });
+  xa.register({
+    id: "time-machine",
+    name: "Time Machine Feed",
+    summary: "Surface videos from subscriptions uploaded on this date in a previous year.",
+    masterKey: "timeMachineOn",
+    keys: ["timeMachineOn", "timeMachineYears", "timeMachineMonths"],
+    apply(ctx) {
+      if (!S.timeMachineOn) return;
+      ZenEngine.injectCSS();
+      const panel = ZenDiscovery.createFeedPanel("ytp-zen-tm", "Time Machine");
+      const goBtn = document.createElement("button");
+      goBtn.className = "zen-btn primary";
+      goBtn.textContent = "Load time capsule";
+      goBtn.style.marginTop = "6px";
+      panel.appendChild(goBtn);
+      ZenDiscovery.insertIntoFeed(panel, ctx);
+
+      const search = () => {
+        const status = panel.querySelector("#ytp-zen-tm-status");
+        const results = panel.querySelector("#ytp-zen-tm-results");
+        const years = Number(S.timeMachineYears) || 1;
+        const months = Number(S.timeMachineMonths) || 0;
+        const target = new Date();
+        target.setFullYear(target.getFullYear() - years);
+        target.setMonth(target.getMonth() - months);
+        status.textContent = "Looking for videos from " + target.toLocaleDateString() + "...";
+        ZenEngine.innerTube("search", {
+          context: Mt(),
+          query: "uploaded:" + target.toISOString().slice(0, 10),
+        }).then((response) => {
+          if (!response || !response.ok || !response.json) {
+            status.textContent = "No results.";
+            return;
+          }
+          status.textContent = "Found content from " + target.toLocaleDateString();
+          results.replaceChildren();
+          try {
+            const sections = response.json.contents &&
+              response.json.contents.twoColumnSearchResultsRenderer &&
+              response.json.contents.twoColumnSearchResultsRenderer.primaryContents &&
+              response.json.contents.twoColumnSearchResultsRenderer.primaryContents.sectionListRenderer &&
+              response.json.contents.twoColumnSearchResultsRenderer.primaryContents.sectionListRenderer.contents;
+            let count = 0;
+            for (const section of sections || []) {
+              const videos = section.itemSectionRenderer && section.itemSectionRenderer.contents;
+              for (const item of videos || []) {
+                const renderer = item.videoRenderer;
+                if (!renderer || !renderer.videoId || count >= 12) continue;
+                const title = renderer.title && (renderer.title.simpleText ||
+                  (renderer.title.runs && renderer.title.runs.map((run) => run.text).join("")));
+                const channel = renderer.ownerText && (renderer.ownerText.simpleText ||
+                  (renderer.ownerText.runs && renderer.ownerText.runs.map((run) => run.text).join("")));
+                results.appendChild(ZenDiscovery.createVideoRow(
+                  renderer.videoId,
+                  title || renderer.videoId,
+                  channel || "",
+                  () => { e.location.href = "/watch?v=" + renderer.videoId; },
+                ));
+                count++;
+              }
+              if (count >= 12) break;
+            }
+          } catch (_) {
+            status.textContent = "Could not parse results.";
+          }
+        }).catch(() => {
+          status.textContent = "Search failed.";
+        });
+      };
+
+      goBtn.addEventListener("click", search);
+      Yt["time-machine"].push(() => goBtn.removeEventListener("click", search));
+    },
+    settings(en) {
+      en.appendChild(Io("Enable Time Machine Feed", "timeMachineOn"));
+      en.appendChild(No("Years back", "timeMachineYears", 1, 10, 1, (value) => value + " year" + (value > 1 ? "s" : "")));
+      en.appendChild(No("Additional months", "timeMachineMonths", 0, 11, 1, (value) => value + " months"));
+    },
+  });
 
   xa.register({ id: "small-creator-spotlight", name: "Small Creator Spotlight", summary: "Discovery feed for channels under your subscriber threshold.", masterKey: "smallCreatorOn", keys: ["smallCreatorOn", "smallCreatorMaxSubs"],
     apply(ctx) { if (!S.smallCreatorOn) return; ZenEngine.injectCSS(); },
@@ -463,7 +564,7 @@ body.zen-mood-learn ytd-watch-flexy #secondary{display:none!important}
     settings(en) { en.appendChild(Io("Enable Search Remix", "searchRemixOn")); } });
 
   xa.register({ id: "dead-link-detector", name: "Outdated Content Detector", summary: "Flags broken links and adds age badges to old videos.", masterKey: "deadLinkOn", keys: ["deadLinkOn"],
-    apply(ctx) { if (!S.deadLinkOn) return; ZenEngine.injectCSS(); const check = () => { const desc = document.querySelector("#description ytd-text-inline-expander, #description"); if (!desc || desc.dataset.zenChecked) return; desc.dataset.zenChecked = "1"; desc.querySelectorAll('a[href^="http"]').forEach(link => { const href = link.getAttribute("href"); if (!href || href.includes("youtube.com") || href.includes("youtu.be")) return; fetch(href, { method: "HEAD", mode: "no-cors", signal: AbortSignal.timeout(5000) }).then(r => { if (!r.ok && r.status !== 0) { link.style.cssText += "text-decoration:line-through;opacity:.5"; link.title = "May be broken"; } }).catch(() => {}); }); const ud = document.querySelector("#info-strings yt-formatted-string, ytd-video-primary-info-renderer #info span"); if (ud) { const dm = (ud.textContent || "").match(/(\w+ \d+, \d{4})/); if (dm) { const age = Date.now() - new Date(dm[1]).getTime(); if (age > 365 * 24 * 60 * 60 * 1000 * 2) { const badge = document.createElement("span"); badge.className = "zen-pill"; badge.style.cssText = "background:rgba(255,152,0,.15);color:#ffb74d;margin-left:8px"; badge.textContent = Math.floor(age / (365 * 24 * 60 * 60 * 1000)) + " years old"; badge.title = "Over 2 years old. May be outdated."; const info = document.querySelector("#info-strings, #info"); if (info) info.appendChild(badge); } } } }; ctx.addTimeout(check, 3000); ctx.onNav(() => ctx.addTimeout(check, 3000)); },
+    apply(ctx) { if (!S.deadLinkOn) return; ZenEngine.injectCSS(); const check = () => { const desc = document.querySelector("#description ytd-text-inline-expander, #description"); if (!desc || desc.dataset.zenChecked) return; desc.dataset.zenChecked = "1"; desc.querySelectorAll('a[href^="http"]').forEach(link => { const href = link.getAttribute("href"); if (!href || href.includes("youtube.com") || href.includes("youtu.be")) return; fetch(href, { method: "HEAD", mode: "no-cors", signal: (() => { const controller = new AbortController(); setTimeout(() => controller.abort(), 5000); return controller.signal; })() }).then(r => { if (!r.ok && r.status !== 0) { link.style.cssText += "text-decoration:line-through;opacity:.5"; link.title = "May be broken"; } }).catch(() => {}); }); const ud = document.querySelector("#info-strings yt-formatted-string, ytd-video-primary-info-renderer #info span"); if (ud) { const dm = (ud.textContent || "").match(/(\w+ \d+, \d{4})/); if (dm) { const age = Date.now() - new Date(dm[1]).getTime(); if (age > 365 * 24 * 60 * 60 * 1000 * 2) { const badge = document.createElement("span"); badge.className = "zen-pill"; badge.style.cssText = "background:rgba(255,152,0,.15);color:#ffb74d;margin-left:8px"; badge.textContent = Math.floor(age / (365 * 24 * 60 * 60 * 1000)) + " years old"; badge.title = "Over 2 years old. May be outdated."; const info = document.querySelector("#info-strings, #info"); if (info) info.appendChild(badge); } } } }; ctx.addTimeout(check, 3000); ctx.onNav(() => ctx.addTimeout(check, 3000)); },
     settings(en) { en.appendChild(Io("Enable Outdated Content Detector", "deadLinkOn")); } });
 
   xa.register({ id: "watch-genome", name: "Watch Genome", summary: "Transparent preference model. Shows compatibility scores on thumbnails.", masterKey: "watchGenomeOn", keys: ["watchGenomeOn"],
@@ -471,11 +572,11 @@ body.zen-mood-learn ytd-watch-flexy #secondary{display:none!important}
     settings(en) { en.appendChild(Io("Enable Watch Genome", "watchGenomeOn")); const snap = ZenSession.genome.snapshot(); const info = document.createElement("div"); info.className = "zen-meta"; info.style.cssText = "margin-top:6px;padding:8px;background:rgba(255,255,255,.03);border-radius:6px"; info.textContent = "Sessions: " + (snap.sessions || 0) + " | Topics: " + (ZenSession.genome.getTopTopics(3).join(", ") || "none") + " | Length: " + ZenSession.genome.getLengthPref(); en.appendChild(info); en.appendChild(Oo("Reset genome", () => { ZenSession.genome.reset(); pe("Watch genome reset.", 1500, "success"); }, "ytp-danger")); } });
 
   xa.register({ id: "curated-collections", name: "Curated Collections", summary: "Themed video collections with descriptions and progress tracking.", masterKey: "collectionsOn", keys: ["collectionsOn"],
-    apply(ctx) { if (!S.collectionsOn) return; ZenEngine.injectCSS(); const vid = ie.videoId(); if (!vid) return; const panel = document.createElement("div"); panel.id = "ytp-zen-collections"; panel.className = "zen-card"; panel.style.cssText = "margin:8px 0"; const rebuild = () => { const cols = ZenSession.collections.list(); let html = '<div style="font-size:13px;font-weight:700;color:#fff;margin-bottom:6px">Add to Collection</div><div class="zen-row" style="flex-wrap:wrap;gap:4px">'; cols.forEach(c => { html += '<button class="zen-btn" data-col="' + c.id + '">' + c.name + ' (' + c.videos.length + ')</button>'; }); html += '<button class="zen-btn primary" id="ytp-zen-col-new">+ New</button></div>'; panel.innerHTML = html; }; rebuild(); const insert = () => { const below = document.querySelector("#below") || document.querySelector("#description"); if (below && !document.getElementById("ytp-zen-collections")) below.appendChild(panel); }; ctx.addTimeout(insert, 2000); panel.addEventListener("click", (ev) => { const btn = ev.target.closest("[data-col]"); if (btn) { ZenSession.collections.addVideo(btn.dataset.col, { videoId: vid, title: ie.title() || vid }); pe("Added to collection.", 1500, "success"); rebuild(); } if (ev.target.id === "ytp-zen-col-new") { const name = prompt("Collection name:"); if (name) { ZenSession.collections.create(name); pe("Created: " + name, 1500, "success"); rebuild(); } } }); },
-    settings(en) { en.appendChild(Io("Enable Curated Collections", "collectionsOn")); const cols = ZenSession.collections.list(); if (cols.length) { const list = document.createElement("div"); list.style.cssText = "margin-top:6px;font-size:11px;color:#aaa"; cols.forEach(c => { list.innerHTML += '<div style="padding:2px 0">' + c.name + ' (' + c.videos.length + ' videos)</div>'; }); en.appendChild(list); } } });
+    apply(ctx) { if (!S.collectionsOn) return; ZenEngine.injectCSS(); const vid = ie.videoId(); if (!vid) return; const panel = document.createElement("div"); panel.id = "ytp-zen-collections"; panel.className = "zen-card"; panel.style.cssText = "margin:8px 0"; const rebuild = () => { const cols = ZenSession.collections.list(); let html = '<div style="font-size:13px;font-weight:700;color:#fff;margin-bottom:6px">Add to Collection</div><div class="zen-row" style="flex-wrap:wrap;gap:4px">'; cols.forEach(c => { html += '<button class="zen-btn" data-col="' + zenEscapeHtml(c.id) + '">' + zenEscapeHtml(c.name) + ' (' + c.videos.length + ')</button>'; }); html += '<button class="zen-btn primary" id="ytp-zen-col-new">+ New</button></div>'; panel.innerHTML = html; }; rebuild(); const insert = () => { const below = document.querySelector("#below") || document.querySelector("#description"); if (below && !document.getElementById("ytp-zen-collections")) below.appendChild(panel); }; ctx.addTimeout(insert, 2000); panel.addEventListener("click", (ev) => { const btn = ev.target.closest("[data-col]"); if (btn) { ZenSession.collections.addVideo(btn.dataset.col, { videoId: vid, title: ie.title() || vid }); pe("Added to collection.", 1500, "success"); rebuild(); } if (ev.target.id === "ytp-zen-col-new") { const name = prompt("Collection name:"); if (name) { ZenSession.collections.create(name); pe("Created: " + name, 1500, "success"); rebuild(); } } }); },
+    settings(en) { en.appendChild(Io("Enable Curated Collections", "collectionsOn")); const cols = ZenSession.collections.list(); if (cols.length) { const list = document.createElement("div"); list.style.cssText = "margin-top:6px;font-size:11px;color:#aaa"; cols.forEach(c => { list.innerHTML += '<div style="padding:2px 0">' + zenEscapeHtml(c.name) + ' (' + c.videos.length + ' videos)</div>'; }); en.appendChild(list); } } });
 
   xa.register({ id: "session-memory", name: "Session Memory", summary: "YouTube remembers your browsing context when you return.", masterKey: "sessionMemoryOn", keys: ["sessionMemoryOn"],
-    apply(ctx) { if (!S.sessionMemoryOn) return; ZenEngine.injectCSS(); ZenSession.session.begin(); const trackCurrent = () => { const vid = ie.videoId(); if (vid) ZenSession.session.trackVideo({ videoId: vid, title: ie.title(), channel: ie.channel() }); if (location.pathname === "/results") { const q = new URLSearchParams(location.search).get("search_query"); if (q) ZenSession.session.trackSearch(q); } }; ctx.addTimeout(trackCurrent, 1500); ctx.onNav(() => ctx.addTimeout(trackCurrent, 1500)); const showMemory = () => { const sess = ZenSession.session.get(); if (!sess.videos.length && !sess.searches.length) return; const panel = document.createElement("div"); panel.id = "ytp-zen-session"; let html = '<div style="font-size:13px;font-weight:700;color:#fff;margin-bottom:6px">Welcome back</div>'; if (sess.searches.length) { html += '<div class="zen-meta" style="margin-bottom:4px">Recent searches:</div>'; sess.searches.slice(0, 3).forEach(q => { html += '<button class="zen-chip" style="margin:2px" data-search="' + q.replace(/"/g, "&quot;") + '">' + q + '</button>'; }); } if (sess.videos.length) { html += '<div class="zen-meta" style="margin:6px 0 4px">Recently watched:</div>'; sess.videos.slice(-3).reverse().forEach(v => { html += '<div class="zen-row" style="cursor:pointer;padding:3px 0" data-vid="' + v.videoId + '"><div class="zen-thumb" style="width:50px;height:28px;background-image:url(\'' + sanitizeUrlForCSS(ie.thumb(v.videoId, "mqdefault")) + '\')"></div><div style="flex:1;min-width:0;font-size:11px;color:#dde;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + (v.title || v.videoId) + '</div></div>'; }); } html += '<div style="margin-top:8px;text-align:right"><button class="zen-btn" id="ytp-zen-sess-dismiss">Dismiss</button></div>'; panel.innerHTML = html; document.body.appendChild(panel); panel.addEventListener("click", (ev) => { if (ev.target.closest("[data-search]")) { e.location.href = "/results?search_query=" + encodeURIComponent(ev.target.closest("[data-search]").dataset.search); return; } if (ev.target.closest("[data-vid]")) { e.location.href = "/watch?v=" + ev.target.closest("[data-vid]").dataset.vid; return; } if (ev.target.id === "ytp-zen-sess-dismiss") panel.remove(); }); ctx.addTimeout(() => { if (panel.parentNode) panel.remove(); }, 15000); }; ctx.addTimeout(showMemory, 1500); },
+    apply(ctx) { if (!S.sessionMemoryOn) return; ZenEngine.injectCSS(); ZenSession.session.begin(); const trackCurrent = () => { const vid = ie.videoId(); if (vid) ZenSession.session.trackVideo({ videoId: vid, title: ie.title(), channel: ie.channel() }); if (location.pathname === "/results") { const q = new URLSearchParams(location.search).get("search_query"); if (q) ZenSession.session.trackSearch(q); } }; ctx.addTimeout(trackCurrent, 1500); ctx.onNav(() => ctx.addTimeout(trackCurrent, 1500)); const showMemory = () => { const sess = ZenSession.session.get(); if (!sess.videos.length && !sess.searches.length) return; const panel = document.createElement("div"); panel.id = "ytp-zen-session"; let html = '<div style="font-size:13px;font-weight:700;color:#fff;margin-bottom:6px">Welcome back</div>'; if (sess.searches.length) { html += '<div class="zen-meta" style="margin-bottom:4px">Recent searches:</div>'; sess.searches.slice(0, 3).forEach(q => { html += '<button class="zen-chip" style="margin:2px" data-search="' + zenEscapeHtml(q) + '">' + zenEscapeHtml(q) + '</button>'; }); } if (sess.videos.length) { html += '<div class="zen-meta" style="margin:6px 0 4px">Recently watched:</div>'; sess.videos.slice(-3).reverse().forEach(v => { html += '<div class="zen-row" style="cursor:pointer;padding:3px 0" data-vid="' + zenEscapeHtml(v.videoId) + '"><div class="zen-thumb" style="width:50px;height:28px;background-image:url(\'' + sanitizeUrlForCSS(ie.thumb(v.videoId, "mqdefault")) + '\')"></div><div style="flex:1;min-width:0;font-size:11px;color:#dde;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + zenEscapeHtml(v.title || v.videoId) + '</div></div>'; }); } html += '<div style="margin-top:8px;text-align:right"><button class="zen-btn" id="ytp-zen-sess-dismiss">Dismiss</button></div>'; panel.innerHTML = html; document.body.appendChild(panel); panel.addEventListener("click", (ev) => { if (ev.target.closest("[data-search]")) { e.location.href = "/results?search_query=" + encodeURIComponent(ev.target.closest("[data-search]").dataset.search); return; } if (ev.target.closest("[data-vid]")) { e.location.href = "/watch?v=" + ev.target.closest("[data-vid]").dataset.vid; return; } if (ev.target.id === "ytp-zen-sess-dismiss") panel.remove(); }); ctx.addTimeout(() => { if (panel.parentNode) panel.remove(); }, 15000); }; ctx.addTimeout(showMemory, 1500); },
     settings(en) { en.appendChild(Io("Enable Session Memory", "sessionMemoryOn")); en.appendChild(Oo("Clear session memory", () => { ZenSession.session.clear(); pe("Session memory cleared.", 1500, "success"); })); } });
 
   xa.register({ id: "time-budget", name: "Time Budget Manager", summary: "Set a session time budget. Tracks usage and suggests wrapping up.", masterKey: "timeBudgetOn", keys: ["timeBudgetOn", "timeBudgetMinutes"],

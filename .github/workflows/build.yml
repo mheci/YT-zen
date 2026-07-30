@@ -1,4 +1,4 @@
-name: Build Extensions
+name: Build Userscript
 
 on:
   push:
@@ -19,81 +19,33 @@ jobs:
       - name: Extract version
         id: version
         run: |
-          VERSION=$(grep -oP '"version":\s*"\K[^"]+' extension/manifest.json)
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Building version: $VERSION"
+          VERSION=$(grep -oP '// @version\s+\K[0-9.]+' yt-zen.user.js)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Building userscript version: $VERSION"
 
-      - name: Validate Syntax and Metadata
+      - name: Validate syntax and metadata
         run: |
-          # 1. Compile check all JS files
           node -c yt-zen.user.js
-          node -c extension/yt-zen.user.js
           node -c src/*.js
-          node -c extension/*.js
 
-          # 2. Verify version match in userscript header
           HEADER_VERSION=$(grep -oP '// @version\s+\K[0-9.]+' yt-zen.user.js)
-          MANIFEST_VERSION=${{ steps.version.outputs.version }}
-          if [ "$HEADER_VERSION" != "$MANIFEST_VERSION" ]; then
-            echo "ERROR: Userscript version ($HEADER_VERSION) does not match manifest.json version ($MANIFEST_VERSION)"
+          META_VERSION=$(grep -oP '// @version\s+\K[0-9.]+' yt-zen.meta.js)
+          if [ "$HEADER_VERSION" != "$META_VERSION" ]; then
+            echo "ERROR: yt-zen.user.js version ($HEADER_VERSION) does not match yt-zen.meta.js version ($META_VERSION)"
             exit 1
           fi
-          echo "Success: Version checks passed!"
 
-      - name: Fix GM_info version in content.js
+      - name: Prepare release assets
         run: |
-          VERSION=${{ steps.version.outputs.version }}
-          sed -i -E "s/version: \"[0-9]+\.[0-9]+\.[0-9]+\"/version: \"$VERSION\"/" extension/content.js
-
-      - name: Build Chrome extension
-        run: |
-          mkdir -p dist/chrome
-          cp -r extension/* dist/chrome/
-          cd dist/chrome
-          zip -r ../yt-zen-chrome-v${{ steps.version.outputs.version }}.zip .
-          cd ../..
-          echo "Chrome extension built: dist/yt-zen-chrome-v${{ steps.version.outputs.version }}.zip"
-
-      - name: Build Firefox extension
-        run: |
-          mkdir -p dist/firefox
-          cp -r extension/* dist/firefox/
-          # Patch manifest for Firefox compatibility
-          cd dist/firefox
-          # Add browser_specific_settings for Firefox
-          node -e "
-            const fs = require('fs');
-            const manifest = JSON.parse(fs.readFileSync('manifest.json', 'utf8'));
-            manifest.browser_specific_settings = {
-              gecko: {
-                id: 'yt-zen@mheci.github.io',
-                strict_min_version: '109.0'
-              }
-            };
-            // Firefox uses background.scripts instead of service_worker
-            if (manifest.background && manifest.background.service_worker) {
-              manifest.background.scripts = [manifest.background.service_worker];
-              delete manifest.background.service_worker;
-            }
-            fs.writeFileSync('manifest.json', JSON.stringify(manifest, null, 2));
-          "
-          zip -r ../yt-zen-firefox-v${{ steps.version.outputs.version }}.zip .
-          cd ../..
-          echo "Firefox extension built: dist/yt-zen-firefox-v${{ steps.version.outputs.version }}.zip"
-
-      - name: Copy userscript to dist
-        run: |
+          mkdir -p dist
           cp yt-zen.user.js dist/yt-zen.user.js
-          head -36 yt-zen.user.js > dist/yt-zen.meta.js
-          echo "// ==/UserScript==" >> dist/yt-zen.meta.js
+          cp yt-zen.meta.js dist/yt-zen.meta.js
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: yt-zen-v${{ steps.version.outputs.version }}
+          name: yt-zen-userscript-v${{ steps.version.outputs.version }}
           path: |
-            dist/yt-zen-chrome-v${{ steps.version.outputs.version }}.zip
-            dist/yt-zen-firefox-v${{ steps.version.outputs.version }}.zip
             dist/yt-zen.user.js
             dist/yt-zen.meta.js
 
@@ -102,8 +54,6 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: |
-            dist/yt-zen-chrome-v${{ steps.version.outputs.version }}.zip
-            dist/yt-zen-firefox-v${{ steps.version.outputs.version }}.zip
             dist/yt-zen.user.js
             dist/yt-zen.meta.js
           generate_release_notes: false

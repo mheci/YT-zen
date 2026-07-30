@@ -5,7 +5,7 @@ This document defines the functional test scenarios, automated verification proc
 ## Test Validation Scenarios
 
 ### 1. Installation, Migration & Cache Integrity
-- **Test Scenario 1.1 (Fresh Deployment):** Verify that clean installations initialize with the correct default configuration (SponsorBlock disabled by default, privacy mode active).
+- **Test Scenario 1.1 (Fresh Deployment):** Verify that clean installations initialize with the current userscript defaults (SponsorBlock enabled, timeline marks enabled, and all segment categories defaulting to skip).
 - **Test Scenario 1.2 (Cache Schema Migration):** Verify that deploying v2 over v1 detects the obsolete schema version, purges the deprecated persistent IndexedDB tables, and generates the new v2 cache structure without crashing.
 - **Test Scenario 1.3 (Deduplication validation):** Trigger 5 simultaneous calls to `SponsorBlockEngine.init(videoId)` for the same video ID. Verify that the network tab shows exactly 1 outbound HTTP query to the SponsorBlock API.
 
@@ -28,10 +28,10 @@ This document defines the functional test scenarios, automated verification proc
 The build pipeline (`.github/workflows/build.yml`) runs the following automated verification checks:
 
 ```bash
-# Verify syntax of all modified source files
+# Verify syntax of the shipped userscript and SponsorBlock source module
 node -c yt-zen.user.js
-node -c extension/yt-zen.user.js
 node -c src/sponsorblock-engine-v2.js
+node -c src/zen-resources.js
 
 # Assert that critical public methods exist in SponsorBlockEngine export
 node -e "
@@ -50,6 +50,6 @@ node -e "
 ## Regression Guard Checklist
 
 Before completing a release pass, ensure the following parameters are satisfied:
-- [ ] Userscript and manifest metadata versions match.
+- [ ] `yt-zen.user.js` and `yt-zen.meta.js` versions match.
 - [ ] Direct calls to `fetch()` targeting external SponsorBlock domains are fully replaced by the safe fetch wrapper `he` to preserve CSP compatibility.
 - [ ] The global event bus `g` receives the `sb.segments` event on successful initialization to preserve compatibility with other modules like the Heatmap.

@@ -14506,7 +14506,16 @@
               row.style.cssText="display:flex;gap:8px;padding:8px;border-bottom:1px solid rgba(255,255,255,0.05);";
               const nameEl=document.createElement("div");
               nameEl.style.cssText="flex:1;";
-              nameEl.innerHTML=`<b>${c.name}</b> <small style="color:#8b93a3;">${c.category} — ${c.purpose}</small><br><small style="color:#6b7280;">${c.value.slice(0,80)}</small>`;
+              const nameStrong = document.createElement("b");
+              nameStrong.textContent = c.name;
+              const metaSmall = document.createElement("small");
+              metaSmall.style.color = "#8b93a3";
+              metaSmall.textContent = " " + c.category + " — " + c.purpose;
+              const valueBreak = document.createElement("br");
+              const valueSmall = document.createElement("small");
+              valueSmall.style.color = "#6b7280";
+              valueSmall.textContent = String(c.value || "").slice(0, 80);
+              nameEl.append(nameStrong, metaSmall, valueBreak, valueSmall);
               const editBtn=document.createElement("button");
               editBtn.textContent="Edit";
               editBtn.style.cssText="padding:4px 8px;background:rgba(255,255,255,0.1);color:#fff;border:1px solid rgba(255,255,255,0.1);border-radius:4px;cursor:pointer;";

@@ -49,6 +49,9 @@
       hidden: false,
       generation: 0,
       backgroundControllers: new Set(),
+      lifecycleAttached: false,
+      lifecycleCleanup: null,
+      lastWakeLookupAt: 0,
       processedUUIDs: new Set(),
       activeSegmentIndex: -1,
       abortController: null,
@@ -284,9 +287,26 @@
         return Array.from(types);
       };
 
+      const getActionOptions = (categoryId) => {
+        const options = {
+          skip: Actions.skip,
+          full: Actions.full,
+          disabled: Actions.disabled,
+        };
+        if (categoryId === "poi_highlight") {
+          return { skip: Actions.skip, poi: Actions.poi, full: Actions.full, disabled: Actions.disabled };
+        }
+        if (categoryId === "chapter") {
+          return { skip: Actions.skip, chapter: Actions.chapter, full: Actions.full, disabled: Actions.disabled };
+        }
+        if (categoryId !== "exclusive_access") options.mute = Actions.mute;
+        return options;
+      };
+
       const getCategoryAction = (categoryId) => {
         if (!S["sb_" + categoryId + "_en"]) return "disabled";
-        return S["sb_" + categoryId + "_act"] || "skip";
+        const action = S["sb_" + categoryId + "_act"] || "skip";
+        return Object.prototype.hasOwnProperty.call(getActionOptions(categoryId), action) ? action : "skip";
       };
 
       const getConfigKey = () => {
@@ -311,7 +331,7 @@
       };
 
       return {
-        getEnabledCategories, getActionTypes, getCategoryAction,
+        getEnabledCategories, getActionTypes, getCategoryAction, getActionOptions,
         getConfigKey, getRenderKey, getServerUrl,
       };
     })();
@@ -344,8 +364,15 @@
       const isUsableEntry = (entry, videoId) => !!(
         entry && entry.version === CACHE_VERSION &&
         entry.videoId === videoId && Array.isArray(entry.segments) &&
-        typeof entry.expiresAt === "number"
+        typeof entry.expiresAt === "number" &&
+        typeof entry.fetchedAt === "number"
       );
+
+      const runtimeEntry = (entry) => Object.assign({}, entry, {
+        // Persistent entries live longer than the in-memory freshness window.
+        // Never accidentally promote the persistent TTL into RAM.
+        expiresAt: Math.min(entry.expiresAt, entry.fetchedAt + CACHE_TTL_MS),
+      });
 
       const get = async (videoId, configKey, allowStale = false) => {
         const cacheKey = "sb:" + videoId + ":" + configKey;
@@ -379,13 +406,13 @@
               return null;
             }
             if (entry.expiresAt > now) {
-              memCache.set(cacheKey, entry);
+              memCache.set(cacheKey, runtimeEntry(entry));
               evictIfNeeded();
               Metrics.recordCacheHit();
               return { data: entry.segments, fresh: true };
             }
             if (allowStale && entry.expiresAt + STALE_GRACE_MS > now) {
-              memCache.set(cacheKey, entry);
+              memCache.set(cacheKey, runtimeEntry(entry));
               evictIfNeeded();
               Metrics.recordStaleServed();
               return { data: entry.segments, fresh: false };
@@ -594,22 +621,23 @@
 
       const extractSegmentArray = (payload, videoId) => {
         if (Array.isArray(payload)) {
-          if (!payload.length) return { segments: [], matched: true, prefixed: false };
+          if (!payload.length) return { segments: [], matched: true, prefixed: false, valid: true };
           const prefixed = payload.some((entry) => entry && Array.isArray(entry.segments));
           if (prefixed) {
             const hit = payload.find((entry) => entry && entry.videoID === videoId && Array.isArray(entry.segments));
-            return { segments: hit ? hit.segments : [], matched: !!hit, prefixed: true };
+            return { segments: hit ? hit.segments : [], matched: !!hit, prefixed: true, valid: true };
           }
-          return { segments: payload, matched: true, prefixed: false };
+          return { segments: payload, matched: true, prefixed: false, valid: true };
         }
         if (payload && Array.isArray(payload.segments)) {
           return {
             segments: payload.segments,
             matched: !payload.videoID || payload.videoID === videoId,
             prefixed: !!payload.videoID,
+            valid: true,
           };
         }
-        return { segments: [], matched: false, prefixed: false };
+        return { segments: [], matched: false, prefixed: false, valid: false };
       };
 
       const normalizeSegments = (payload, videoId) => {
@@ -625,7 +653,12 @@
           normalized.push(valid);
         }
         normalized.sort((a, b) => a.segment[0] - b.segment[0] || a.segment[1] - b.segment[1] || a.UUID.localeCompare(b.UUID));
-        return { segments: normalized, matched: extracted.matched, prefixed: extracted.prefixed };
+        return {
+          segments: normalized,
+          matched: extracted.matched,
+          prefixed: extracted.prefixed,
+          valid: extracted.valid,
+        };
       };
 
       const requestJson = async (url, abortSignal, opts = {}) => {
@@ -706,6 +739,11 @@
           try {
             const { response, body } = await requestJson(plan.url, abortSignal);
             const normalized = normalizeSegments(body, videoId);
+            if (!normalized.valid) {
+              const malformed = new Error("SponsorBlock response was not a segment array");
+              malformed.status = response.status;
+              throw malformed;
+            }
             // A privacy response is a candidate list. A successful response
             // with no matching video is not a successful lookup; try the
             // alternate encoding instead of caching a false empty result.
@@ -1477,6 +1515,63 @@
     })();
 
     // ─── Orchestrator ────────────────────────────────────────────────────────
+    const attachLifecycleListeners = () => {
+      if (State.lifecycleAttached || typeof document === "undefined") return;
+      const cleanup = [];
+      const queueCurrentLookup = (force = false) => {
+        if (!S.sponsorblockOn) return;
+        const videoId = ie && typeof ie.videoId === "function" ? ie.videoId() : null;
+        if (!VIDEO_ID_RE.test(String(videoId || ""))) return;
+        if (!force && State.videoId === videoId) return;
+        Promise.resolve(init(videoId, force ? { revalidate: true } : {})).catch(() => {});
+      };
+      const onVisibility = () => {
+        if (document.visibilityState === "visible") {
+          const now = Date.now();
+          if (now - State.lastWakeLookupAt < 15000) return;
+          State.lastWakeLookupAt = now;
+          queueCurrentLookup(true);
+        }
+      };
+      const onNavigation = () => queueCurrentLookup(false);
+      const onMediaState = (event) => {
+        if (event.type === "timeupdate" && State.videoId) return;
+        queueCurrentLookup(false);
+      };
+      document.addEventListener("visibilitychange", onVisibility, { passive: true });
+      document.addEventListener("yt-navigate-finish", onNavigation, true);
+      document.addEventListener("loadedmetadata", onMediaState, true);
+      document.addEventListener("playing", onMediaState, true);
+      document.addEventListener("emptied", onMediaState, true);
+      cleanup.push(() => document.removeEventListener("visibilitychange", onVisibility));
+      cleanup.push(() => document.removeEventListener("yt-navigate-finish", onNavigation, true));
+      cleanup.push(() => document.removeEventListener("loadedmetadata", onMediaState, true));
+      cleanup.push(() => document.removeEventListener("playing", onMediaState, true));
+      cleanup.push(() => document.removeEventListener("emptied", onMediaState, true));
+      if (typeof window !== "undefined" && window.addEventListener) {
+        window.addEventListener("focus", onVisibility, { passive: true });
+        window.addEventListener("popstate", onNavigation, true);
+        cleanup.push(() => window.removeEventListener("focus", onVisibility));
+        cleanup.push(() => window.removeEventListener("popstate", onNavigation, true));
+      }
+      const dispose = () => {
+        while (cleanup.length) {
+          try { cleanup.pop()(); } catch (_) {}
+        }
+        State.lifecycleAttached = false;
+        State.lifecycleCleanup = null;
+      };
+      State.lifecycleAttached = true;
+      State.lifecycleCleanup = dispose;
+      if (Yt && Yt["sponsorblock"]) Yt["sponsorblock"].push(() => {
+        if (State.lifecycleCleanup === dispose) dispose();
+      });
+    };
+
+    const detachLifecycleListeners = () => {
+      if (State.lifecycleCleanup) State.lifecycleCleanup();
+    };
+
     const abortActiveRequests = () => {
       if (State.abortController) {
         try { State.abortController.abort(); } catch (_) {}
@@ -1555,6 +1650,7 @@
         return [];
       }
 
+      attachLifecycleListeners();
       State.videoId = videoId;
       // Hiding a video suppresses playback/UI actions, not the lookup. A
       // hidden video's cache must still be refreshed so the next unhide is
@@ -1625,12 +1721,13 @@
 
     const init = async (videoId, opts = {}) => {
       const force = !!(opts && opts.force);
+      const revalidate = !!(opts && opts.revalidate);
       const recentWindowMs = 2000;
       if (!force && State.initPromise && State.initPromiseVideoId === videoId) {
         Metrics.recordDeduped();
         return State.initPromise;
       }
-      if (!force && videoId && State.videoId === videoId && Date.now() - State.lastInitCompletedAt < recentWindowMs) {
+      if (!force && !revalidate && videoId && State.videoId === videoId && Date.now() - State.lastInitCompletedAt < recentWindowMs) {
         return State.segments.slice();
       }
       const promise = performInit(videoId).finally(() => {
@@ -1670,6 +1767,7 @@
       const previousVideoId = State.videoId;
       State.generation++;
       abortActiveRequests();
+      detachLifecycleListeners();
       Cache.clearInFlightForVideo(previousVideoId);
       // Do not let a promise from a disabled feature suppress the next
       // enable/navigation lookup.
@@ -1756,6 +1854,7 @@
       stats: () => Metrics.snapshot(),
       metrics: () => Metrics.snapshot(),
       debugInfo,
+      getActionOptions: Settings.getActionOptions,
       getSegments: () => State.segments.slice(),
       api: {
         fetchWithRetry: API.fetchWithRetry,

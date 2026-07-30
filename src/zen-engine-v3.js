@@ -408,11 +408,85 @@ body.zen-mood-learn ytd-watch-flexy #secondary{display:none!important}
   //  FEATURE REGISTRATIONS (22 features)
   // ═══════════════════════════════════════════════════════════════════════════
 
-  xa.register({ id: "time-machine", name: "Time Machine Feed", summary: "Surface videos from subscriptions uploaded on this date in a previous year.", masterKey: "timeMachineOn", keys: ["timeMachineOn", "timeMachineYears", "timeMachineMonths"],
-    apply(ctx) { if (!S.timeMachineOn) return; ZenEngine.injectCSS(); const panel = ZenDiscovery.createFeedPanel("ytp-zen-tm", "Time Machine"); const goBtn = document.createElement("button"); goBtn.className = "zen-btn primary"; goBtn.textContent = "Load time capsule"; goBtn.style.marginTop = "6px"; panel.appendChild(goBtn); ZenDiscovery.insertIntoFeed(panel, ctx);
-      goBtn.addEventListener("click", () => { const status = panel.querySelector("#ytp-zen-tm-status"); const results = panel.querySelector("#ytp-zen-tm-results"); status.textContent = "Searching..."; const years = S.timeMachineYears || 1; const months = S.timeMachineMonths || 0; const target = new Date(); target.setFullYear(target.getFullYear() - years); target.setMonth(target.getMonth() - months); status.textContent = "Looking for videos from " + target.toLocaleDateString() + "...";
-        ZenEngine.innerTube("search", { context: Mt(), query: "uploaded:" + target.toISOString().slice(0, 10) }).then(r => { if (!r || !r.ok || !r.json) { status.textContent = "No results."; return; } status.textContent = "Found content from " + target.toLocaleDateString(); results.innerHTML = ""; try { const contents = r.json.contents && r.json.contents.twoColumnSearchResultsRenderer && r.json.contents.twoColumnSearchResultsRenderer.primaryContents && r.json.contents.twoColumnSearchResultsRenderer.primaryContents.sectionListRenderer && r.json.contents.twoColumnSearchResultsRenderer.primaryContents.sectionListRenderer.contents; if (contents) { let count = 0; for (const section of contents) { const vids = section.itemSectionRenderer && section.itemSectionRenderer.contents; if (vids) for (const v of vids) { if (v.videoRenderer && count < 12) { const vr = v.videoRenderer; results.appendChild(ZenDiscovery.createVideoRow(vr.videoId, (vr.title && vr.title.simpleText) || vr.videoId, (vr.ownerText && vr.ownerText.simpleText) || "", () => { e.location.href = "/watch?v=" + vr.videoId; })); count++; } } } } catch (_) {} }).catch(() => { status.textContent = "Search failed."; }); }); },
-    settings(en) { en.appendChild(Io("Enable Time Machine Feed", "timeMachineOn")); en.appendChild(No("Years back", "timeMachineYears", 1, 10, 1, v => v + " year" + (v > 1 ? "s" : ""))); en.appendChild(No("Additional months", "timeMachineMonths", 0, 11, 1, v => v + " months")); } });
+  xa.register({
+    id: "time-machine",
+    name: "Time Machine Feed",
+    summary: "Surface videos from subscriptions uploaded on this date in a previous year.",
+    masterKey: "timeMachineOn",
+    keys: ["timeMachineOn", "timeMachineYears", "timeMachineMonths"],
+    apply(ctx) {
+      if (!S.timeMachineOn) return;
+      ZenEngine.injectCSS();
+      const panel = ZenDiscovery.createFeedPanel("ytp-zen-tm", "Time Machine");
+      const goBtn = document.createElement("button");
+      goBtn.className = "zen-btn primary";
+      goBtn.textContent = "Load time capsule";
+      goBtn.style.marginTop = "6px";
+      panel.appendChild(goBtn);
+      ZenDiscovery.insertIntoFeed(panel, ctx);
+
+      const search = () => {
+        const status = panel.querySelector("#ytp-zen-tm-status");
+        const results = panel.querySelector("#ytp-zen-tm-results");
+        const years = Number(S.timeMachineYears) || 1;
+        const months = Number(S.timeMachineMonths) || 0;
+        const target = new Date();
+        target.setFullYear(target.getFullYear() - years);
+        target.setMonth(target.getMonth() - months);
+        status.textContent = "Looking for videos from " + target.toLocaleDateString() + "...";
+        ZenEngine.innerTube("search", {
+          context: Mt(),
+          query: "uploaded:" + target.toISOString().slice(0, 10),
+        }).then((response) => {
+          if (!response || !response.ok || !response.json) {
+            status.textContent = "No results.";
+            return;
+          }
+          status.textContent = "Found content from " + target.toLocaleDateString();
+          results.replaceChildren();
+          try {
+            const sections = response.json.contents &&
+              response.json.contents.twoColumnSearchResultsRenderer &&
+              response.json.contents.twoColumnSearchResultsRenderer.primaryContents &&
+              response.json.contents.twoColumnSearchResultsRenderer.primaryContents.sectionListRenderer &&
+              response.json.contents.twoColumnSearchResultsRenderer.primaryContents.sectionListRenderer.contents;
+            let count = 0;
+            for (const section of sections || []) {
+              const videos = section.itemSectionRenderer && section.itemSectionRenderer.contents;
+              for (const item of videos || []) {
+                const renderer = item.videoRenderer;
+                if (!renderer || !renderer.videoId || count >= 12) continue;
+                const title = renderer.title && (renderer.title.simpleText ||
+                  (renderer.title.runs && renderer.title.runs.map((run) => run.text).join("")));
+                const channel = renderer.ownerText && (renderer.ownerText.simpleText ||
+                  (renderer.ownerText.runs && renderer.ownerText.runs.map((run) => run.text).join("")));
+                results.appendChild(ZenDiscovery.createVideoRow(
+                  renderer.videoId,
+                  title || renderer.videoId,
+                  channel || "",
+                  () => { e.location.href = "/watch?v=" + renderer.videoId; },
+                ));
+                count++;
+              }
+              if (count >= 12) break;
+            }
+          } catch (_) {
+            status.textContent = "Could not parse results.";
+          }
+        }).catch(() => {
+          status.textContent = "Search failed.";
+        });
+      };
+
+      goBtn.addEventListener("click", search);
+      Yt["time-machine"].push(() => goBtn.removeEventListener("click", search));
+    },
+    settings(en) {
+      en.appendChild(Io("Enable Time Machine Feed", "timeMachineOn"));
+      en.appendChild(No("Years back", "timeMachineYears", 1, 10, 1, (value) => value + " year" + (value > 1 ? "s" : "")));
+      en.appendChild(No("Additional months", "timeMachineMonths", 0, 11, 1, (value) => value + " months"));
+    },
+  });
 
   xa.register({ id: "small-creator-spotlight", name: "Small Creator Spotlight", summary: "Discovery feed for channels under your subscriber threshold.", masterKey: "smallCreatorOn", keys: ["smallCreatorOn", "smallCreatorMaxSubs"],
     apply(ctx) { if (!S.smallCreatorOn) return; ZenEngine.injectCSS(); },

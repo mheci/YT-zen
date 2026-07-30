@@ -25,31 +25,32 @@ This document defines the functional test scenarios, automated verification proc
 
 ## Automated Verification Pipeline
 
-The build pipeline (`.github/workflows/build.yml`) runs the following automated verification checks:
+The repository gate is deterministic and can be run without installing dependencies:
 
 ```bash
-# Verify syntax of the shipped userscript and SponsorBlock source module
-node -c yt-zen.user.js
-node -c src/sponsorblock-engine-v2.js
-node -c src/zen-resources.js
-
-# Assert that critical public methods exist in SponsorBlockEngine export
-node -e "
-  const content = require('fs').readFileSync('yt-zen.user.js', 'utf8');
-  const assertions = ['init', 'destroy', 'invalidate', 'stats', 'metrics', 'getSegments'];
-  assertions.forEach(m => {
-    if (!content.includes(m)) {
-      console.error('CRITICAL ERROR: Missing SponsorBlockEngine method export: ' + m);
-      process.exit(1);
-    }
-  });
-  console.log('Success: All SponsorBlock exports verified!');
-"
+npm test
+node scripts/test-sponsorblock.js JQb9eGeclQw
 ```
 
-## Regression Guard Checklist
+The gate rebuilds the canonical userscript from the source mirrors, runs syntax checks over the bundle and every source module, and executes `scripts/test-unit.js`. The unit suite covers:
 
-Before completing a release pass, ensure the following parameters are satisfied:
-- [ ] `yt-zen.user.js` and `yt-zen.meta.js` versions match.
-- [ ] Direct calls to `fetch()` targeting external SponsorBlock domains are fully replaced by the safe fetch wrapper `he` to preserve CSP compatibility.
-- [ ] The global event bus `g` receives the `sb.segments` event on successful initialization to preserve compatibility with other modules like the Heatmap.
+- LRU eviction and TTL-aware cache reads;
+- weak element cleanup and disposable timer scopes;
+- malformed, out-of-order, duplicate, and out-of-range segment rejection;
+- complete direct requests containing every category and action type;
+- privacy-prefix lookups that retry a candidate-list miss without ever sending the full video ID.
+
+The integration harness exercises the official direct repeated-query, direct JSON, privacy path repeated-query, and privacy path JSON forms. It intentionally does not treat the deprecated `prefix=` query form as a fallback because current SponsorBlock servers reject that form without a `videoID`.
+
+The shipped engine also exposes `SponsorBlockEngine.api.normalizeSegments` for deterministic diagnostics without issuing a network request.
+
+## Regression Guards
+
+Every release pass must verify that:
+
+- `yt-zen.user.js` and `yt-zen.meta.js` versions match;
+- SponsorBlock network calls use the safe wrapper `he`, including write operations and abort cleanup;
+- the global event bus `g` receives `sb.segments` after cached, stale, fresh, and empty lookups;
+- hidden videos still perform the API lookup but never attach playback/UI actions;
+- navigation aborts obsolete primary and background requests;
+- all supported categories and action types remain in the request profile.

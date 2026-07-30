@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YT-zen
 // @namespace    https://github.com/mheci/YT-zen
-// @version      3.5.3
+// @version      3.5.4
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      Unlicense
@@ -778,7 +778,7 @@
       ("undefined" != typeof GM_info &&
         GM_info.script &&
         GM_info.script.version) ||
-      "3.5.3",
+      "3.5.4",
     r = "https://sponsor.ajay.app",
     o = (() => {
       try {
@@ -842,8 +842,7 @@
       const e = {};
       return (
         i.forEach((t) => {
-
-          const defEn = !1;
+          const defEn = ["sponsor", "selfpromo", "interaction", "intro", "outro"].includes(t.id);
           const defAct =
             t.id === "poi_highlight" ? "poi" :
             t.id === "chapter" ? "chapter" :
@@ -3844,13 +3843,19 @@
 
     // ─── Settings Resolution ─────────────────────────────────────────────────
     const Settings = (() => {
-      const getEnabledCategories = () =>
-        Categories.filter(c => S["sb_" + c.id + "_en"]).map(c => c.id);
+      const getEnabledCategories = () => {
+        const enabled = Categories.filter(c => S["sb_" + c.id + "_en"]).map(c => c.id);
+        if (enabled.length === 0 && S.sponsorblockOn) {
+          return ["sponsor", "selfpromo", "interaction", "intro", "outro"];
+        }
+        return enabled;
+      };
 
       const getActionTypes = () => {
         const types = new Set();
+        const cats = getEnabledCategories();
         Categories.forEach(c => {
-          if (!S["sb_" + c.id + "_en"]) return;
+          if (!cats.includes(c.id)) return;
           const act = S["sb_" + c.id + "_act"] || "skip";
           if (act === "skip" || act === "mute") types.add("skip");
           if (act === "mute") types.add("mute");
@@ -3862,15 +3867,17 @@
       };
 
       const getCategoryAction = (categoryId) => {
+        const cats = getEnabledCategories();
+        if (cats.length === 5 && !S["sb_sponsor_en"] && !S["sb_selfpromo_en"]) {
+          if (["sponsor", "selfpromo", "interaction", "intro", "outro"].includes(categoryId)) return "skip";
+        }
         if (!S["sb_" + categoryId + "_en"]) return "disabled";
         return S["sb_" + categoryId + "_act"] || "skip";
       };
 
       const getConfigKey = () => {
-        const cats = getEnabledCategories().sort().join(",");
-        const acts = getActionTypes().sort().join(",");
         const privacy = S.sbPrivacy ? "1" : "0";
-        return `${cats}|${acts}|${privacy}`;
+        return `${privacy}`;
       };
 
       const getServerUrl = () => {

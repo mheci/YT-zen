@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YT-zen
 // @namespace    https://github.com/mheci/YT-zen
-// @version      3.5.1
+// @version      3.6.0
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      Unlicense
@@ -778,7 +778,7 @@
       ("undefined" != typeof GM_info &&
         GM_info.script &&
         GM_info.script.version) ||
-      "3.5.1",
+      "3.6.0",
     r = "https://sponsor.ajay.app",
     o = (() => {
       try {
@@ -789,33 +789,21 @@
     })(),
 
     i = [
-      { id: "sponsor", label: "Sponsor", color: "#00d400",
-        desc: "Paid promotions, paid referrals, and direct advertisements" },
-      { id: "selfpromo", label: "Unpaid/Self Promotion", color: "#ffff00",
-        desc: "Self-promotion, merchandise plugs, and channel shoutouts" },
-      { id: "interaction", label: "Interaction Reminder", color: "#cc00ff",
-        desc: "Subscribe, like, comment, and follow reminders" },
-      { id: "intro", label: "Intermission/Intro", color: "#00ffff",
-        desc: "Opening animations, intros, and recurring transitions" },
-      { id: "outro", label: "Endcards/Credits", color: "#0202ed",
-        desc: "End screens, credits, and closing callouts" },
-      { id: "preview", label: "Preview/Recap", color: "#008fd6",
-        desc: "Previews, recaps, and hooks before the main content" },
-      { id: "hook", label: "Hook", color: "#ff6f00",
-        desc: "Attention-grabbing teaser at the very start of a video" },
-      { id: "filler", label: "Filler/Tangent", color: "#7300ab",
-        desc: "Off-topic tangents and filler not needed to understand the main content" },
-      { id: "music_offtopic", label: "Non-Music Section", color: "#ff9900",
-        desc: "Non-music sections in music videos (spoken parts, intros)" },
-      { id: "poi_highlight", label: "Highlight", color: "#ff1684",
-        desc: "The most interesting or important moment in the video" },
-      { id: "exclusive_access", label: "Exclusive Access", color: "#008a5c",
-        desc: "Entire video is only available to paying members or subscribers" },
-      { id: "chapter", label: "Chapter", color: "#ffffff",
-        desc: "Community-defined chapter markers with titles" },
+      { id: "sponsor", label: "Sponsor", color: "#00d400", desc: "Paid promotions, paid referrals, and direct advertisements" },
+      { id: "selfpromo", label: "Unpaid/Self Promotion", color: "#ffff00", desc: "Self-promotion, merchandise plugs, and channel shoutouts" },
+      { id: "interaction", label: "Interaction Reminder", color: "#cc00ff", desc: "Subscribe, like, comment, and follow reminders" },
+      { id: "intro", label: "Intermission/Intro", color: "#00ffff", desc: "Opening animations, intros, and recurring transitions" },
+      { id: "outro", label: "Endcards/Credits", color: "#0202ed", desc: "End screens, credits, and closing callouts" },
+      { id: "preview", label: "Preview/Recap", color: "#008fd6", desc: "Previews, recaps, and hooks before the main content" },
+      { id: "hook", label: "Hook", color: "#ff6f00", desc: "Attention-grabbing teaser at the very start of a video" },
+      { id: "filler", label: "Filler/Tangent", color: "#7300ab", desc: "Off-topic tangents and filler not needed to understand the main content" },
+      { id: "music_offtopic", label: "Non-Music Section", color: "#ff9900", desc: "Non-music sections in music videos (spoken parts, intros)" },
+      { id: "poi_highlight", label: "Highlight", color: "#ff1684", desc: "The most interesting or important moment in the video" },
+      { id: "exclusive_access", label: "Exclusive Access", color: "#008a5c", desc: "Entire video is only available to paying members or subscribers" },
+      { id: "chapter", label: "Chapter", color: "#ffffff", desc: "Community-defined chapter markers with titles" }
     ],
 
-    Yi = {
+        Yi = {
       skip: "Skip",
       mute: "Mute",
       poi: "Jump to highlight",
@@ -824,10 +812,11 @@
       disabled: "Off",
     },
 
-    Zi = [
+        Zi = [
       { id: "ajay", name: "SponsorBlock (official)", url: "https://sponsor.ajay.app" },
     ],
-    d = {
+
+        d = {
       hd2160: "4K",
       hd1440: "1440p",
       hd1080: "1080p",
@@ -842,19 +831,16 @@
       const e = {};
       return (
         i.forEach((t) => {
-
-          const defEn = !1;
-          const defAct =
-            t.id === "poi_highlight" ? "poi" :
-            t.id === "chapter" ? "chapter" :
-            t.id === "exclusive_access" ? "full" : "skip";
+          const defEn = !0;
+          const defAct = "skip";
           e["sb_" + t.id + "_en"] = defEn;
           e["sb_" + t.id + "_act"] = defAct;
         }),
         e
       );
     })(),
-    s = Object.assign(
+
+        s = Object.assign(
       {
         safeMode: !1,
         privacyShieldOn: !1,
@@ -917,35 +903,11 @@
         adMute: !1,
         adSpeed: !1,
         hideBannerAds: !1,
-        sponsorblockOn: !1,
-        sbServer: r,
+        sponsorblockOn: !0,
         sbPrivacy: !1,
         sbToast: !1,
         sbToastDur: 2200,
-        sbMinVotes: 0,
-        sbHud: !0,
-        sbSeekbar: !1,
-
-        sbMinViews: 0,
-        sbMaxViews: 0, 
-        sbIncludeLocked: !1,
-        sbIncludeHidden: !1,
-        sbIncludeIgnored: !1,
-
-        sbTrimUUIDs: !1,
-
-        sbSegOverrides: "",
-        sbChanOverrides: "",
-
-        sbChapterRules: "",
-
-        sbUpNextSec: 12,
-
-        sbColorOverrides: "",
-
-        sbServerPreset: "ajay",
-
-        sbHudStatus: !1,
+        sbSeekbar: !0,
         sessionRestoreOn: !1,
         sessionResumeMode: "silent",
         sessionResumeDesign: "default",
@@ -1872,92 +1834,225 @@
       return (e.set(t, n), n);
     };
   }
+  // ═══════════════════════════════════════════════════════════════════════════
+  //  ZenResources — Memory Safety & Resource Efficiency Layer
+  // ---------------------------------------------------------------------------
+  //  Consolidated infrastructure for preventing memory leaks, reducing CPU
+  //  overhead, and bounding resource usage across all features.
+  //
+  //  Components:
+  //    BoundedCache     — LRU cache with TTLs, eviction hooks, and diagnostics
+  //    WeakElementCache — WeakRef/FinalizationRegistry-backed DOM cache helpers
+  //    SharedObserver   — Shared MutationObserver with batched subscriber dispatch
+  //    SharedTicker     — Visibility-aware cooperative scheduler for periodic work
+  //    TrackedBlobURL   — Blob URL tracker with auto-revoke and byte accounting
+  //    DeferredTask     — Idle/deferred task queue with cancellation and debounce
+  //    AbortGroup       — Grouped AbortController lifecycle management
+  //    ResourceScope    — Disposable resource bag for timers, observers, blobs, aborts
+  // ═══════════════════════════════════════════════════════════════════════════
+
   const ZenResources = (() => {
     "use strict";
 
+    const now = () => Date.now();
+    const isFiniteNumber = (value) => typeof value === "number" && isFinite(value);
+    const asPositiveInt = (value, fallback) => {
+      const n = Number(value);
+      return isFinite(n) && n > 0 ? Math.max(1, Math.floor(n)) : fallback;
+    };
+
     // ─── BoundedCache ────────────────────────────────────────────────────────
-    // LRU Map with configurable max size. Oldest entries evicted on overflow.
-    // Tracks hit/miss stats for diagnostics.
     class BoundedCache {
-      constructor(maxSize = 128, name = "cache") {
+      constructor(maxSize = 128, name = "cache", options = {}) {
+        if (typeof name === "object" && name) {
+          options = name;
+          name = options.name || "cache";
+        }
         this._map = new Map();
-        this._max = Math.max(1, maxSize);
-        this._name = name;
+        this._max = asPositiveInt(maxSize, 128);
+        this._name = String(name || "cache");
+        this._ttl = Math.max(0, Number(options.ttlMs || 0) || 0);
+        this._onEvict = typeof options.onEvict === "function" ? options.onEvict : null;
         this._hits = 0;
         this._misses = 0;
+        this._evictions = 0;
+        this._expired = 0;
       }
-      get(key) {
-        if (!this._map.has(key)) { this._misses++; return undefined; }
-        this._hits++;
-        const val = this._map.get(key);
-        // LRU: move to end
-        this._map.delete(key);
-        this._map.set(key, val);
-        return val;
+      _makeEntry(value, ttlMs) {
+        const ts = now();
+        const ttl = isFiniteNumber(ttlMs) ? Math.max(0, ttlMs) : this._ttl;
+        return {
+          value,
+          createdAt: ts,
+          updatedAt: ts,
+          expiresAt: ttl > 0 ? ts + ttl : 0,
+          hits: 0,
+        };
       }
-      set(key, val) {
-        if (this._map.has(key)) this._map.delete(key);
-        this._map.set(key, val);
-        // Evict oldest if over capacity
-        while (this._map.size > this._max) {
-          const oldest = this._map.keys().next().value;
-          this._map.delete(oldest);
+      _isExpired(entry) {
+        return !!(entry && entry.expiresAt && entry.expiresAt <= now());
+      }
+      _notifyEviction(key, entry, reason) {
+        this._evictions++;
+        if (reason === "expired") this._expired++;
+        if (this._onEvict) {
+          try { this._onEvict(key, entry ? entry.value : undefined, reason); } catch (_) {}
         }
       }
-      has(key) { return this._map.has(key); }
-      delete(key) { return this._map.delete(key); }
-      clear() { this._map.clear(); }
-      keys() { return this._map.keys(); }
-      values() { return this._map.values(); }
-      entries() { return this._map.entries(); }
-      forEach(fn) { this._map.forEach((v, k) => fn(v, k, this)); }
-      get size() { return this._map.size; }
+      _deleteInternal(key, reason) {
+        if (!this._map.has(key)) return false;
+        const entry = this._map.get(key);
+        this._map.delete(key);
+        this._notifyEviction(key, entry, reason || "delete");
+        return true;
+      }
+      _promote(key, entry) {
+        this._map.delete(key);
+        entry.updatedAt = now();
+        this._map.set(key, entry);
+      }
+      _evictOverflow() {
+        while (this._map.size > this._max) {
+          const oldest = this._map.keys().next().value;
+          if (oldest === undefined) break;
+          this._deleteInternal(oldest, "capacity");
+        }
+      }
+      cleanupExpired(limit = Infinity) {
+        let removed = 0;
+        for (const [key, entry] of Array.from(this._map.entries())) {
+          if (removed >= limit) break;
+          if (this._isExpired(entry)) {
+            this._deleteInternal(key, "expired");
+            removed++;
+          }
+        }
+        return removed;
+      }
+      get(key, fallback) {
+        const entry = this._map.get(key);
+        if (!entry) {
+          this._misses++;
+          return fallback;
+        }
+        if (this._isExpired(entry)) {
+          this._deleteInternal(key, "expired");
+          this._misses++;
+          return fallback;
+        }
+        this._hits++;
+        entry.hits++;
+        this._promote(key, entry);
+        return entry.value;
+      }
+      peek(key, fallback) {
+        const entry = this._map.get(key);
+        if (!entry) return fallback;
+        if (this._isExpired(entry)) {
+          this._deleteInternal(key, "expired");
+          return fallback;
+        }
+        return entry.value;
+      }
+      set(key, value, ttlMs) {
+        if (this._map.has(key)) this._map.delete(key);
+        this._map.set(key, this._makeEntry(value, ttlMs));
+        this._evictOverflow();
+        return value;
+      }
+      getOrSet(key, factory, ttlMs) {
+        const existing = this.get(key);
+        if (existing !== undefined) return existing;
+        const value = typeof factory === "function" ? factory(key) : factory;
+        if (value && typeof value.then === "function") {
+          return value.then((resolved) => {
+            this.set(key, resolved, ttlMs);
+            return resolved;
+          });
+        }
+        this.set(key, value, ttlMs);
+        return value;
+      }
+      touch(key, ttlMs) {
+        const entry = this._map.get(key);
+        if (!entry || this._isExpired(entry)) {
+          if (entry) this._deleteInternal(key, "expired");
+          return false;
+        }
+        const ttl = isFiniteNumber(ttlMs) ? Math.max(0, ttlMs) : this._ttl;
+        entry.expiresAt = ttl > 0 ? now() + ttl : entry.expiresAt;
+        this._promote(key, entry);
+        return true;
+      }
+      has(key) {
+        return this.peek(key) !== undefined;
+      }
+      delete(key) {
+        return this._deleteInternal(key, "delete");
+      }
+      clear() {
+        for (const key of Array.from(this._map.keys())) this._deleteInternal(key, "clear");
+      }
+      keys() { this.cleanupExpired(); return Array.from(this._map.keys()); }
+      values() { this.cleanupExpired(); return Array.from(this._map.values(), (entry) => entry.value); }
+      entries() { this.cleanupExpired(); return Array.from(this._map.entries(), ([key, entry]) => [key, entry.value]); }
+      get size() { this.cleanupExpired(); return this._map.size; }
       stats() {
+        this.cleanupExpired();
         const total = this._hits + this._misses;
-        return { name: this._name, size: this._map.size, max: this._max, hits: this._hits, misses: this._misses, hitRate: total > 0 ? Math.round((this._hits / total) * 100) : 0 };
+        return {
+          name: this._name,
+          size: this._map.size,
+          max: this._max,
+          ttlMs: this._ttl,
+          hits: this._hits,
+          misses: this._misses,
+          hitRate: total > 0 ? Math.round((this._hits / total) * 100) : 0,
+          evictions: this._evictions,
+          expired: this._expired,
+          usagePercent: Math.round((this._map.size / this._max) * 100),
+        };
       }
     }
 
     // ─── WeakElementCache ────────────────────────────────────────────────────
-    // WeakRef-based cache for DOM elements. Entries are automatically garbage
-    // collected when the DOM element is removed from the document.
-    // Uses FinalizationRegistry to clean up stale keys.
     class WeakElementCache {
       constructor(name = "weak-cache") {
         this._map = new Map();
-        this._name = name;
+        this._name = String(name || "weak-cache");
         this._cleaned = 0;
-        if (typeof FinalizationRegistry === "function") {
-          this._registry = new FinalizationRegistry((key) => {
-            this._map.delete(key);
-            this._cleaned++;
-          });
-        } else {
-          this._registry = null;
-        }
+        this._created = 0;
+        this._registry = typeof FinalizationRegistry === "function"
+          ? new FinalizationRegistry((key) => {
+              const entry = this._map.get(key);
+              if (!entry) return;
+              this._map.delete(key);
+              this._cleaned++;
+            })
+          : null;
+      }
+      _normalizeEntry(key, element) {
+        const token = { key, ts: now() };
+        const ref = typeof WeakRef === "function"
+          ? new WeakRef(element)
+          : { deref: () => element };
+        return { ref, token };
       }
       set(key, element) {
-        if (!element || typeof element !== "object") return;
-        // Clean up old entry for this key
-        const old = this._map.get(key);
-        if (old && this._registry) {
-          try { this._registry.unregister(old); } catch (_) {}
+        if (!element || typeof element !== "object") return null;
+        this.delete(key);
+        const entry = this._normalizeEntry(key, element);
+        this._map.set(key, entry);
+        this._created++;
+        if (this._registry) {
+          try { this._registry.register(element, key, entry.token); } catch (_) {}
         }
-        if (typeof WeakRef === "function") {
-          const ref = new WeakRef(element);
-          this._map.set(key, ref);
-          if (this._registry) {
-            try { this._registry.register(element, key, ref); } catch (_) {}
-          }
-        } else {
-          // Fallback: strong reference (less ideal but functional)
-          this._map.set(key, { deref: () => element });
-        }
+        return element;
       }
       get(key) {
-        const ref = this._map.get(key);
-        if (!ref) return null;
-        const el = ref.deref ? ref.deref() : null;
+        const entry = this._map.get(key);
+        if (!entry) return null;
+        const el = entry.ref && typeof entry.ref.deref === "function" ? entry.ref.deref() : null;
         if (!el) {
           this._map.delete(key);
           this._cleaned++;
@@ -1965,75 +2060,581 @@
         }
         return el;
       }
-      has(key) {
-        const el = this.get(key);
-        return el !== null;
+      getOrSet(key, factory) {
+        const existing = this.get(key);
+        if (existing) return existing;
+        if (typeof factory !== "function") return null;
+        const created = factory(key);
+        if (created) this.set(key, created);
+        return created || null;
       }
-      delete(key) { this._map.delete(key); }
-      clear() { this._map.clear(); }
+      cleanupDisconnected() {
+        let removed = 0;
+        for (const [key] of Array.from(this._map.entries())) {
+          const el = this.get(key);
+          if (!el) { removed++; continue; }
+          if (typeof el.isConnected === "boolean" && !el.isConnected) {
+            this.delete(key);
+            removed++;
+          }
+        }
+        return removed;
+      }
+      has(key) {
+        return this.get(key) !== null;
+      }
+      delete(key) {
+        const entry = this._map.get(key);
+        if (!entry) return false;
+        if (this._registry) {
+          try { this._registry.unregister(entry.token); } catch (_) {}
+        }
+        this._map.delete(key);
+        return true;
+      }
+      clear() {
+        for (const key of Array.from(this._map.keys())) this.delete(key);
+      }
       get size() { return this._map.size; }
-      stats() { return { name: this._name, size: this._map.size, cleaned: this._cleaned }; }
+      stats() {
+        return {
+          name: this._name,
+          size: this._map.size,
+          cleaned: this._cleaned,
+          created: this._created,
+        };
+      }
     }
 
     // ─── SharedObserver ──────────────────────────────────────────────────────
-    // Single MutationObserver on document.body that dispatches mutations to
-    // registered subscribers. Replaces per-feature observers (saves 10+ observers).
-    // Subscribers receive batched mutations at most once per animation frame.
     const SharedObserver = (() => {
       let observer = null;
-      const subscribers = new Map(); // id → { callback, options }
+      let observedRoot = null;
       let pendingFlush = false;
       let mutationBatch = [];
       let nextId = 1;
+      const subscribers = new Map();
+      let rearmTimer = 0;
+
+      const scheduleFlush = () => {
+        if (pendingFlush) return;
+        pendingFlush = true;
+        const runner = () => flush();
+        if (typeof requestAnimationFrame === "function" && !document.hidden) requestAnimationFrame(runner);
+        else setTimeout(runner, 16);
+      };
+
+      const isRelevantMutation = (mutation, sub) => {
+        if (!mutation || !sub) return false;
+        if (!sub.target && !sub.selector && !sub.predicate) return true;
+        const target = sub.target;
+        if (target) {
+          if (mutation.target === target) return true;
+          if (typeof target.contains === "function") {
+            if (target.contains(mutation.target)) return true;
+            for (const node of mutation.addedNodes || []) {
+              if (node === target || (node && typeof node.contains === "function" && node.contains(target)) || (target.contains && target.contains(node))) return true;
+            }
+          }
+        }
+        if (sub.selector) {
+          const selector = sub.selector;
+          const matchesNode = (node) => !!(node && node.nodeType === 1 && typeof node.matches === "function" && node.matches(selector));
+          if (matchesNode(mutation.target)) return true;
+          for (const node of mutation.addedNodes || []) {
+            if (matchesNode(node)) return true;
+            if (node && node.nodeType === 1 && typeof node.querySelector === "function" && node.querySelector(selector)) return true;
+          }
+        }
+        if (typeof sub.predicate === "function") {
+          try { return !!sub.predicate(mutation); } catch (_) { return false; }
+        }
+        return false;
+      };
 
       const flush = () => {
         pendingFlush = false;
         const batch = mutationBatch;
         mutationBatch = [];
-        for (const [, sub] of subscribers) {
-          try { sub.callback(batch); } catch (_) {}
+        for (const [id, sub] of subscribers) {
+          if (!sub) continue;
+          let relevant = batch;
+          if (sub.target || sub.selector || sub.predicate) {
+            relevant = batch.filter((mutation) => isRelevantMutation(mutation, sub));
+          }
+          if (!relevant.length && !sub.fireOnEmpty) continue;
+          try { sub.callback(relevant, { id, root: observedRoot, total: batch.length }); } catch (_) {}
         }
       };
 
+      const getRoot = () => document.body || document.documentElement || null;
+
       const ensureObserver = () => {
-        if (observer) return;
-        if (!document.body) return;
+        if (!subscribers.size) return;
+        const root = getRoot();
+        if (!root) {
+          if (!rearmTimer) {
+            rearmTimer = setTimeout(() => {
+              rearmTimer = 0;
+              ensureObserver();
+            }, 50);
+          }
+          return;
+        }
+        if (observer && observedRoot === root) return;
+        if (observer) {
+          try { observer.disconnect(); } catch (_) {}
+          observer = null;
+        }
+        observedRoot = root;
         observer = new MutationObserver((mutations) => {
           mutationBatch.push(...mutations);
-          if (!pendingFlush) {
-            pendingFlush = true;
-            requestAnimationFrame(flush);
-          }
+          scheduleFlush();
         });
-        observer.observe(document.body, { childList: true, subtree: true });
+        observer.observe(root, { childList: true, subtree: true });
       };
 
-      const subscribe = (callback) => {
+      const subscribe = (callback, options = {}) => {
         const id = nextId++;
-        subscribers.set(id, { callback });
+        subscribers.set(id, {
+          callback,
+          target: options.target || null,
+          selector: typeof options.selector === "string" && options.selector ? options.selector : "",
+          predicate: typeof options.predicate === "function" ? options.predicate : null,
+          fireOnEmpty: !!options.fireOnEmpty,
+        });
         ensureObserver();
+        if (options.immediate) {
+          try { callback([], { id, root: observedRoot, total: 0, immediate: true }); } catch (_) {}
+        }
         return id;
       };
 
       const unsubscribe = (id) => {
         subscribers.delete(id);
-        // Disconnect observer if no subscribers
         if (subscribers.size === 0 && observer) {
-          observer.disconnect();
+          try { observer.disconnect(); } catch (_) {}
           observer = null;
+          observedRoot = null;
+          mutationBatch = [];
+          pendingFlush = false;
         }
       };
+
+      const refresh = () => ensureObserver();
 
       const stats = () => ({
         subscribers: subscribers.size,
         active: observer !== null,
+        root: observedRoot ? (observedRoot.tagName || "document") : null,
         pendingMutations: mutationBatch.length,
       });
 
-      return { subscribe, unsubscribe, stats };
+      return { subscribe, unsubscribe, refresh, stats };
     })();
 
-  const oe = {
+    // ─── SharedTicker ────────────────────────────────────────────────────────
+    const SharedTicker = (() => {
+      const tasks = new Map();
+      let timerId = 0;
+      let nextId = 1;
+      let lastTickAt = 0;
+      const MIN_DELAY_MS = 16;
+      const MAX_DELAY_MS = 1000;
+
+      const stopTimer = () => {
+        if (!timerId) return;
+        clearTimeout(timerId);
+        timerId = 0;
+      };
+
+      const computeNextDelay = () => {
+        const ts = now();
+        let delay = MAX_DELAY_MS;
+        for (const [, task] of tasks) {
+          if (!task) continue;
+          if (task.pauseHidden && document.hidden) continue;
+          const remaining = Math.max(0, task.intervalMs - (ts - task.lastRun));
+          delay = Math.min(delay, remaining || MIN_DELAY_MS);
+        }
+        return Math.max(MIN_DELAY_MS, Math.min(delay, MAX_DELAY_MS));
+      };
+
+      const schedule = () => {
+        if (timerId || tasks.size === 0) return;
+        timerId = setTimeout(run, computeNextDelay());
+      };
+
+      const run = () => {
+        timerId = 0;
+        const ts = now();
+        lastTickAt = ts;
+        for (const [id, task] of Array.from(tasks.entries())) {
+          if (!task) continue;
+          if (task.pauseHidden && document.hidden) continue;
+          if (ts - task.lastRun < task.intervalMs) continue;
+          task.lastRun = ts;
+          try { task.callback({ id, now: ts, label: task.label, intervalMs: task.intervalMs }); } catch (_) {}
+          if (task.once) tasks.delete(id);
+        }
+        if (tasks.size) schedule();
+      };
+
+      const add = (callback, intervalMs, opts = {}) => {
+        const id = nextId++;
+        tasks.set(id, {
+          callback,
+          intervalMs: Math.max(MIN_DELAY_MS, Number(intervalMs) || 0),
+          lastRun: opts.immediate ? 0 : now(),
+          pauseHidden: opts.pauseHidden !== false,
+          once: !!opts.once,
+          label: String(opts.label || "ticker-task"),
+        });
+        schedule();
+        if (opts.immediate) {
+          stopTimer();
+          schedule();
+        }
+        return id;
+      };
+
+      const remove = (id) => {
+        const existed = tasks.delete(id);
+        if (!tasks.size) stopTimer();
+        return existed;
+      };
+
+      const poke = () => {
+        stopTimer();
+        if (tasks.size) schedule();
+      };
+
+      const clear = () => {
+        tasks.clear();
+        stopTimer();
+      };
+
+      if (typeof document !== "undefined" && document && document.addEventListener) {
+        document.addEventListener("visibilitychange", () => {
+          if (!document.hidden) poke();
+        }, true);
+      }
+
+      const stats = () => ({
+        tasks: tasks.size,
+        timerActive: timerId !== 0,
+        lastTickAt,
+        labels: Array.from(tasks.values(), (task) => task.label),
+      });
+
+      return { add, remove, poke, clear, stats };
+    })();
+
+    // ─── TrackedBlobURL ──────────────────────────────────────────────────────
+    const TrackedBlobURL = (() => {
+      const active = new Map();
+
+      const create = (blob, label = "blob", options = {}) => {
+        const url = URL.createObjectURL(blob);
+        const info = {
+          createdAt: now(),
+          lastTouchedAt: now(),
+          label: String(label || "blob"),
+          size: blob && typeof blob.size === "number" ? blob.size : 0,
+          autoRevokeMs: Math.max(0, Number(options.autoRevokeMs || 0) || 0),
+          timerId: 0,
+        };
+        if (info.autoRevokeMs > 0) {
+          info.timerId = setTimeout(() => revoke(url), info.autoRevokeMs);
+        }
+        active.set(url, info);
+        return url;
+      };
+
+      const touch = (url) => {
+        const info = active.get(url);
+        if (!info) return false;
+        info.lastTouchedAt = now();
+        return true;
+      };
+
+      const revoke = (url) => {
+        const info = active.get(url);
+        if (!info) return false;
+        if (info.timerId) clearTimeout(info.timerId);
+        try { URL.revokeObjectURL(url); } catch (_) {}
+        active.delete(url);
+        return true;
+      };
+
+      const revokeByLabel = (label) => {
+        let removed = 0;
+        for (const [url, info] of Array.from(active.entries())) {
+          if (info.label === label) {
+            revoke(url);
+            removed++;
+          }
+        }
+        return removed;
+      };
+
+      const revokeAll = () => {
+        for (const url of Array.from(active.keys())) revoke(url);
+      };
+
+      const revokeOlderThan = (maxAgeMs) => {
+        const cutoff = now() - Math.max(0, Number(maxAgeMs || 0) || 0);
+        for (const [url, info] of Array.from(active.entries())) {
+          const ts = info.lastTouchedAt || info.createdAt;
+          if (ts < cutoff) revoke(url);
+        }
+      };
+
+      const stats = () => ({
+        active: active.size,
+        totalBytes: Array.from(active.values()).reduce((sum, info) => sum + (info.size || 0), 0),
+        urls: Array.from(active.values()).map((info) => info.label),
+      });
+
+      return { create, touch, revoke, revokeByLabel, revokeAll, revokeOlderThan, stats };
+    })();
+
+    // ─── DeferredTask ────────────────────────────────────────────────────────
+    const DeferredTask = (() => {
+      let nextId = 1;
+      const pending = new Map();
+      const debounced = new Map();
+
+      const schedule = (fn, timeoutMs = 2000, options = {}) => {
+        const id = nextId++;
+        let cancelled = false;
+
+        const execute = () => {
+          if (cancelled) return;
+          pending.delete(id);
+          try { fn(); } catch (_) {}
+        };
+
+        if (typeof requestIdleCallback === "function" && options.mode !== "timeout") {
+          const idleId = requestIdleCallback(execute, { timeout: Math.max(1, timeoutMs || 1) });
+          pending.set(id, {
+            label: String(options.label || "idle-task"),
+            cancel: () => {
+              cancelled = true;
+              try { cancelIdleCallback(idleId); } catch (_) {}
+            },
+          });
+        } else {
+          const delay = Math.max(0, Number(options.delayMs != null ? options.delayMs : Math.min(timeoutMs, 100)) || 0);
+          const timerId = setTimeout(execute, delay);
+          pending.set(id, {
+            label: String(options.label || "timeout-task"),
+            cancel: () => {
+              cancelled = true;
+              clearTimeout(timerId);
+            },
+          });
+        }
+
+        return id;
+      };
+
+      const debounce = (key, fn, delayMs = 120) => {
+        const prev = debounced.get(key);
+        if (prev) cancel(prev);
+        const taskId = schedule(fn, delayMs, { mode: "timeout", delayMs, label: "debounce:" + key });
+        debounced.set(key, taskId);
+        return taskId;
+      };
+
+      const cancel = (id) => {
+        const task = pending.get(id);
+        if (!task) return false;
+        try { task.cancel(); } catch (_) {}
+        pending.delete(id);
+        for (const [key, taskId] of Array.from(debounced.entries())) {
+          if (taskId === id) debounced.delete(key);
+        }
+        return true;
+      };
+
+      const cancelAll = () => {
+        for (const id of Array.from(pending.keys())) cancel(id);
+        debounced.clear();
+      };
+
+      const stats = () => ({
+        pending: pending.size,
+        labels: Array.from(pending.values(), (task) => task.label),
+      });
+
+      return { schedule, debounce, cancel, cancelAll, stats };
+    })();
+
+    // ─── AbortGroup ──────────────────────────────────────────────────────────
+    const AbortGroup = (() => {
+      const groups = new Map();
+
+      const ensureGroup = (featureId) => {
+        if (!groups.has(featureId)) groups.set(featureId, new Set());
+        return groups.get(featureId);
+      };
+
+      const track = (featureId, controller) => {
+        if (!featureId || !controller || typeof controller.abort !== "function") return controller;
+        const set = ensureGroup(featureId);
+        set.add(controller);
+        if (controller.signal && typeof controller.signal.addEventListener === "function") {
+          controller.signal.addEventListener("abort", () => {
+            const group = groups.get(featureId);
+            if (!group) return;
+            group.delete(controller);
+            if (group.size === 0) groups.delete(featureId);
+          }, { once: true });
+        }
+        return controller;
+      };
+
+      const create = (featureId) => track(featureId, new AbortController());
+
+      const withTimeout = (featureId, timeoutMs) => {
+        const ctrl = create(featureId);
+        const timer = setTimeout(() => {
+          try { ctrl.abort(new DOMException("Timed out", "AbortError")); } catch (_) {
+            try { ctrl.abort(); } catch (_) {}
+          }
+        }, Math.max(1, Number(timeoutMs || 1) || 1));
+        if (ctrl.signal) ctrl.signal.addEventListener("abort", () => clearTimeout(timer), { once: true });
+        return ctrl;
+      };
+
+      const abort = (featureId) => {
+        const set = groups.get(featureId);
+        if (!set) return 0;
+        let count = 0;
+        for (const ctrl of Array.from(set)) {
+          count++;
+          try { ctrl.abort(); } catch (_) {}
+        }
+        set.clear();
+        groups.delete(featureId);
+        return count;
+      };
+
+      const abortAll = () => {
+        let total = 0;
+        for (const featureId of Array.from(groups.keys())) total += abort(featureId);
+        return total;
+      };
+
+      const stats = () => {
+        let total = 0;
+        for (const [, set] of groups) total += set.size;
+        return { groups: groups.size, controllers: total };
+      };
+
+      return { create, track, withTimeout, abort, abortAll, stats };
+    })();
+
+    // ─── ResourceScope ───────────────────────────────────────────────────────
+    class ResourceScope {
+      constructor(name = "scope") {
+        this._name = String(name || "scope");
+        this._disposed = false;
+        this._cleanups = [];
+      }
+      addCleanup(fn) {
+        if (this._disposed || typeof fn !== "function") return fn;
+        this._cleanups.push(fn);
+        return fn;
+      }
+      timeout(fn, delayMs) {
+        const id = setTimeout(() => {
+          try { fn(); } catch (_) {}
+        }, Math.max(0, Number(delayMs || 0) || 0));
+        this.addCleanup(() => clearTimeout(id));
+        return id;
+      }
+      interval(fn, delayMs) {
+        const id = setInterval(() => {
+          try { fn(); } catch (_) {}
+        }, Math.max(1, Number(delayMs || 1) || 1));
+        this.addCleanup(() => clearInterval(id));
+        return id;
+      }
+      ticker(fn, intervalMs, opts = {}) {
+        const id = SharedTicker.add(fn, intervalMs, opts);
+        this.addCleanup(() => SharedTicker.remove(id));
+        return id;
+      }
+      observer(fn, opts = {}) {
+        const id = SharedObserver.subscribe(fn, opts);
+        this.addCleanup(() => SharedObserver.unsubscribe(id));
+        return id;
+      }
+      deferred(fn, timeoutMs, opts = {}) {
+        const id = DeferredTask.schedule(fn, timeoutMs, opts);
+        this.addCleanup(() => DeferredTask.cancel(id));
+        return id;
+      }
+      abortController(groupId) {
+        const ctrl = AbortGroup.create(groupId || this._name);
+        this.addCleanup(() => {
+          try { ctrl.abort(); } catch (_) {}
+        });
+        return ctrl;
+      }
+      blobUrl(blob, label, opts = {}) {
+        const url = TrackedBlobURL.create(blob, label, opts);
+        this.addCleanup(() => TrackedBlobURL.revoke(url));
+        return url;
+      }
+      dispose() {
+        if (this._disposed) return;
+        this._disposed = true;
+        while (this._cleanups.length) {
+          const fn = this._cleanups.pop();
+          try { fn(); } catch (_) {}
+        }
+      }
+      stats() {
+        return { name: this._name, disposed: this._disposed, cleanups: this._cleanups.length };
+      }
+    }
+
+    // ─── Global Stats ────────────────────────────────────────────────────────
+    const stats = () => ({
+      sharedObserver: SharedObserver.stats(),
+      sharedTicker: SharedTicker.stats(),
+      blobURLs: TrackedBlobURL.stats(),
+      deferred: DeferredTask.stats(),
+      abortGroups: AbortGroup.stats(),
+    });
+
+    // ─── Global Cleanup ──────────────────────────────────────────────────────
+    const cleanup = () => {
+      SharedTicker.clear();
+      TrackedBlobURL.revokeAll();
+      DeferredTask.cancelAll();
+      AbortGroup.abortAll();
+    };
+
+    return {
+      BoundedCache,
+      WeakElementCache,
+      SharedObserver,
+      SharedTicker,
+      TrackedBlobURL,
+      DeferredTask,
+      AbortGroup,
+      ResourceScope,
+      stats,
+      cleanup,
+    };
+  })();
+
+
+    const oe = {
       vid: void 0,
       vidHref: "",
       title: void 0,
@@ -2247,8 +2848,7 @@
       "www.youtube.com",
     ]);
     try {
-      (S.sbServer && a.add(new URL(S.sbServer).host),
-        S.remoteSelectorsURL && a.add(new URL(S.remoteSelectorsURL).host));
+      (S.remoteSelectorsURL && a.add(new URL(S.remoteSelectorsURL).host));
     } catch (e) {}
     let n;
     try {
@@ -2257,35 +2857,54 @@
       throw new Error("bad URL");
     }
     if (!a.has(n)) throw new Error("host not allowed: " + n);
-    return "function" == typeof GM_xmlhttpRequest
-      ? new Promise((a, n) => {
-          GM_xmlhttpRequest({
-            method: t.method || "GET",
-            url: e,
-            headers: t.headers || {},
-            data: t.body,
-            timeout: 1e4,
-            onload(e) {
-              a({
-                ok: e.status >= 200 && e.status < 300,
-                status: e.status,
-                text: () => e.responseText,
-                json: () => {
-                  try {
-                    return JSON.parse(e.responseText);
-                  } catch (e) {
-                    return null;
-                  }
-                },
-              });
-            },
-            onerror: n,
-            ontimeout() {
-              n(new Error("timeout"));
-            },
-          });
-        })
-      : fetch(e, t);
+
+    const signal = t.signal;
+    if (signal && signal.aborted) {
+      throw new DOMException("Aborted", "AbortError");
+    }
+
+    const gmx = (typeof GM_xmlhttpRequest === "function") ? GM_xmlhttpRequest : (typeof window.GM_xmlhttpRequest === "function") ? window.GM_xmlhttpRequest : null;
+    if (gmx) {
+      return new Promise((a, n) => {
+        const req = gmx({
+          method: t.method || "GET",
+          url: e,
+          headers: t.headers || {},
+          data: t.body,
+          timeout: t.timeout || 1e4,
+          onload(e) {
+            a({
+              ok: e.status >= 200 && e.status < 300,
+              status: e.status,
+              text: () => e.responseText,
+              json: () => {
+                try {
+                  return JSON.parse(e.responseText);
+                } catch (e) {
+                  return null;
+                }
+              },
+            });
+          },
+          onerror(err) {
+            n(err || new Error("Network error"));
+          },
+          ontimeout() {
+            n(new Error("timeout"));
+          },
+        });
+
+        if (signal) {
+          const onAbort = () => {
+            try { req.abort(); } catch (_) {}
+            n(new DOMException("Aborted", "AbortError"));
+          };
+          signal.addEventListener("abort", onAbort, { once: true });
+        }
+      });
+    } else {
+      return fetch(e, t);
+    }
   }
   let ve = 0,
     ke = null,
@@ -3528,10 +4147,32 @@
   const SponsorBlockEngine = (() => {
     "use strict";
 
-    // ─── Constants ───────────────────────────────────────────────────────────
-    const Categories = i;
-    const Actions = Yi;
-    const CACHE_VERSION = 2;
+    // ─── Constants & Configuration ───────────────────────────────────────────
+    const Categories = [
+      { id: "sponsor", label: "Sponsor", color: "#00d400", desc: "Paid promotions, paid referrals, and direct advertisements" },
+      { id: "selfpromo", label: "Unpaid/Self Promotion", color: "#ffff00", desc: "Self-promotion, merchandise plugs, and channel shoutouts" },
+      { id: "interaction", label: "Interaction Reminder", color: "#cc00ff", desc: "Subscribe, like, comment, and follow reminders" },
+      { id: "intro", label: "Intermission/Intro", color: "#00ffff", desc: "Opening animations, intros, and recurring transitions" },
+      { id: "outro", label: "Endcards/Credits", color: "#0202ed", desc: "End screens, credits, and closing callouts" },
+      { id: "preview", label: "Preview/Recap", color: "#008fd6", desc: "Previews, recaps, and hooks before the main content" },
+      { id: "hook", label: "Hook", color: "#ff6f00", desc: "Attention-grabbing teaser at the very start of a video" },
+      { id: "filler", label: "Filler/Tangent", color: "#7300ab", desc: "Off-topic tangents and filler not needed to understand the main content" },
+      { id: "music_offtopic", label: "Non-Music Section", color: "#ff9900", desc: "Non-music sections in music videos (spoken parts, intros)" },
+      { id: "poi_highlight", label: "Highlight", color: "#ff1684", desc: "The most interesting or important moment in the video" },
+      { id: "exclusive_access", label: "Exclusive Access", color: "#008a5c", desc: "Entire video is only available to paying members or subscribers" },
+      { id: "chapter", label: "Chapter", color: "#ffffff", desc: "Community-defined chapter markers with titles" }
+    ];
+
+    const Actions = {
+      skip: "Skip",
+      mute: "Mute",
+      poi: "Jump to highlight",
+      chapter: "Show chapters",
+      full: "Label only",
+      disabled: "Off"
+    };
+
+    const CACHE_VERSION = 3;
     const CACHE_TTL_MS = 60 * 60 * 1000;          // 1 hour runtime
     const PERSIST_TTL_MS = 24 * 60 * 60 * 1000;   // 24 hours persistent
     const STALE_GRACE_MS = 12 * 60 * 60 * 1000;    // 12 hours stale grace
@@ -3541,8 +4182,9 @@
     const RETRY_BASE_MS = 500;
     const SKIP_COOLDOWN_MS = 500;
     const SEEK_TOLERANCE = 0.3; // seconds
+    const POINT_SEGMENT_EPSILON = 0.05;
 
-    // ─── Shared State ────────────────────────────────────────────────────────
+    // ─── Shared State Context ────────────────────────────────────────────────
     const State = {
       videoId: null,
       segments: [],
@@ -3555,8 +4197,36 @@
       originalMuted: false,
       lastSkipTime: 0,
       lastSkipTarget: 0,
-      playerElement: null,
-      listenerCleanup: null,
+      listenersAttached: false,
+      userId: null,
+      // Submission Creator Editor State
+      editor: {
+        active: false,
+        start: null,
+        end: null,
+        category: "sponsor",
+        description: "",
+        preview: false,
+        element: null
+      }
+    };
+
+    // Initialize local persistent User ID
+    const initUserId = () => {
+      let uid = S.sbUserId;
+      if (!uid || uid.length !== 30) {
+        const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+        uid = "";
+        try {
+          const arr = new Uint8Array(30);
+          crypto.getRandomValues(arr);
+          for (let i = 0; i < 30; i++) uid += chars.charAt(arr[i] % 62);
+        } catch (_) {
+          for (let i = 0; i < 30; i++) uid += chars.charAt(Math.floor(Math.random() * 62));
+        }
+        Ta("sbUserId", uid);
+      }
+      State.userId = uid;
     };
 
     // ─── Metrics Module ──────────────────────────────────────────────────────
@@ -3628,23 +4298,85 @@
       };
     })();
 
+    // ─── Hidden Video State ──────────────────────────────────────────────────
+    const HiddenVideos = (() => {
+      const STORAGE_KEY = "__sb_hidden__";
+      let cacheSet = null;
+      let cacheLoadedAt = 0;
+      const CACHE_TTL_MS = 15000;
+
+      const normalize = (value) => {
+        if (!Array.isArray(value)) return [];
+        return Array.from(new Set(value.filter((item) => typeof item === "string" && item)));
+      };
+
+      const load = async (force = false) => {
+        if (!force && cacheSet && (Date.now() - cacheLoadedAt) < CACHE_TTL_MS) return cacheSet;
+        let list = [];
+        try {
+          const row = await v("kv", STORAGE_KEY);
+          if (row && Array.isArray(row.v)) list = row.v;
+        } catch (_) {}
+        cacheSet = new Set(normalize(list));
+        cacheLoadedAt = Date.now();
+        return cacheSet;
+      };
+
+      const persist = async (set) => {
+        const list = Array.from(set).slice(-500);
+        cacheSet = new Set(list);
+        cacheLoadedAt = Date.now();
+        await k("kv", { k: STORAGE_KEY, v: list, updatedAt: Date.now() });
+        return list;
+      };
+
+      const isHidden = async (videoId) => {
+        if (!videoId) return false;
+        const set = await load(false);
+        return set.has(videoId);
+      };
+
+      const hide = async (videoId) => {
+        if (!videoId) return false;
+        const set = await load(false);
+        set.add(videoId);
+        await persist(set);
+        return true;
+      };
+
+      const unhide = async (videoId) => {
+        if (!videoId) return false;
+        const set = await load(false);
+        set.delete(videoId);
+        await persist(set);
+        return true;
+      };
+
+      const clearCache = () => {
+        cacheSet = null;
+        cacheLoadedAt = 0;
+      };
+
+      return { load, isHidden, hide, unhide, clearCache };
+    })();
+
     // ─── Settings Resolution ─────────────────────────────────────────────────
     const Settings = (() => {
-      const getEnabledCategories = () =>
-        Categories.filter(c => S["sb_" + c.id + "_en"]).map(c => c.id);
+      const getEnabledCategories = () => {
+        return Categories.filter(c => S["sb_" + c.id + "_en"]).map(c => c.id);
+      };
 
       const getActionTypes = () => {
         const types = new Set();
+        const cats = getEnabledCategories();
         Categories.forEach(c => {
-          if (!S["sb_" + c.id + "_en"]) return;
+          if (!cats.includes(c.id)) return;
           const act = S["sb_" + c.id + "_act"] || "skip";
-          if (act === "skip") types.add("skip");
-          if (act === "mute") { types.add("skip"); types.add("mute"); }
-          if (act === "poi") types.add("poi");
-          if (act === "chapter") types.add("chapter");
-          if (act === "full") types.add("full");
-          // When disabled we still may want to fetch for display; include skip as fallback
-          if (act === "disabled" && c.id !== "exclusive_access") types.add("skip");
+          if (act === "skip" || act === "mute") types.add("skip");
+          if (act === "mute") types.add("mute");
+          if (c.id === "poi_highlight" && act !== "disabled") types.add("poi");
+          if (c.id === "chapter" && act !== "disabled") types.add("chapter");
+          if (c.id === "exclusive_access" && act !== "disabled") types.add("full");
         });
         return Array.from(types);
       };
@@ -3655,27 +4387,32 @@
       };
 
       const getConfigKey = () => {
-        const cats = getEnabledCategories().sort().join(",");
-        const acts = getActionTypes().sort().join(",");
         const privacy = S.sbPrivacy ? "1" : "0";
-        const server = S.sbServerPreset || "ajay";
-        return `${cats}|${acts}|${privacy}|${server}`;
+        return `${privacy}`;
+      };
+
+      const getRenderKey = () => {
+        const profile = Categories.map((category) => {
+          const enabled = S["sb_" + category.id + "_en"] ? "1" : "0";
+          const action = S["sb_" + category.id + "_act"] || "skip";
+          return category.id + ":" + enabled + ":" + action;
+        }).join("|");
+        return getConfigKey() + "|" + profile;
       };
 
       const getServerUrl = () => {
-        if (S.sbServerPreset === "custom" && S.sbServer) return S.sbServer;
         return "https://sponsor.ajay.app";
       };
 
       return {
         getEnabledCategories, getActionTypes, getCategoryAction,
-        getConfigKey, getServerUrl,
+        getConfigKey, getRenderKey, getServerUrl,
       };
     })();
 
     // ─── Cache Module ────────────────────────────────────────────────────────
     const Cache = (() => {
-      const memCache = new ZenResources.BoundedCache(128, "sb-segments");
+      const memCache = new Map();
       const inFlight = new Map();
 
       const computeChecksum = (data) => {
@@ -3741,7 +4478,6 @@
               Metrics.recordStaleServed();
               return { data: entry.segments, fresh: false };
             }
-            // Fully expired — clean up
             if (entry.expiresAt + STALE_GRACE_MS < now) {
               await x("kv", "cache:" + cacheKey);
             }
@@ -3772,7 +4508,6 @@
         memCache.set(cacheKey, entry);
         evictIfNeeded();
 
-        // Persistent write (fire-and-forget with long TTL)
         const persistEntry = Object.assign({}, entry, {
           expiresAt: now + PERSIST_TTL_MS,
         });
@@ -3791,10 +4526,21 @@
       const setInFlight = (key, promise) => { inFlight.set(key, promise); };
       const clearInFlight = (key) => { inFlight.delete(key); };
 
-      const invalidate = (videoId) => {
-        for (const key of memCache.keys()) {
-          if (key.startsWith("sb:" + videoId + ":")) memCache.delete(key);
+      const invalidate = async (videoId) => {
+        if (!videoId) return;
+        const cacheKeys = new Set();
+        for (const key of Array.from(memCache.keys())) {
+          if (key.startsWith("sb:" + videoId + ":")) {
+            memCache.delete(key);
+            cacheKeys.add(key);
+          }
         }
+        for (const key of Array.from(inFlight.keys())) {
+          if (key.startsWith(videoId + ":")) inFlight.delete(key);
+        }
+        cacheKeys.add("sb:" + videoId + ":0");
+        cacheKeys.add("sb:" + videoId + ":1");
+        await Promise.all(Array.from(cacheKeys, (cacheKey) => x("kv", "cache:" + cacheKey)));
       };
 
       return { get, set, getInFlight, setInFlight, clearInFlight, invalidate };
@@ -3812,7 +4558,6 @@
             .join("")
             .slice(0, 4);
         } catch (_) {
-          // Fallback: simple hash if SubtleCrypto unavailable
           let h = 0;
           for (let i = 0; i < videoId.length; i++) h = ((h << 5) - h + videoId.charCodeAt(i)) | 0;
           return Math.abs(h).toString(16).padStart(4, "0").slice(0, 4);
@@ -3825,8 +4570,6 @@
 
         if (usePrivacy) {
           const prefix = await hashPrefix(videoId);
-          const catParams = categories.map(c => "&category=" + encodeURIComponent(c)).join("");
-          const actParams = actionTypes.map(a => "&actionType=" + encodeURIComponent(a)).join("");
           return base + "/api/skipSegments/" + prefix + "?categories=" +
             encodeURIComponent(JSON.stringify(categories)) +
             (actionTypes.length ? "&actionTypes=" + encodeURIComponent(JSON.stringify(actionTypes)) : "");
@@ -3849,7 +4592,6 @@
 
         if (!isFinite(start) || !isFinite(end)) return null;
         if (start < 0 || end < 0) return null;
-        // Allow start === end for POI types
         if (start > end && !(start === 0 && end === 0)) return null;
 
         const category = typeof seg.category === "string" ? seg.category : "";
@@ -3867,8 +4609,6 @@
 
       const fetchSegments = async (videoId, abortSignal) => {
         const usePrivacy = !!S.sbPrivacy;
-        // Always fetch ALL categories and action types so segments persist in cache
-        // even when the user toggles categories on/off later
         const allCategories = Categories.map(c => c.id);
         const allActionTypes = ["skip", "mute", "poi", "chapter", "full"];
 
@@ -3883,10 +4623,10 @@
         }
 
         try {
-          const response = await fetch(url, { signal: controller.signal });
+          const response = await he(url, { signal: controller.signal });
           clearTimeout(timeoutId);
 
-          if (response.status === 404) return []; // No segments for this video
+          if (response.status === 404) return [];
           if (response.status === 400) {
             throw new Error("Bad request (400) — invalid parameters");
           }
@@ -3901,7 +4641,6 @@
             throw new Error("Malformed JSON response");
           }
 
-          // Parse hash-prefix response format
           if (usePrivacy && Array.isArray(body)) {
             const videoHit = body.find(v => v && v.videoID === videoId);
             body = (videoHit && Array.isArray(videoHit.segments)) ? videoHit.segments : [];
@@ -3909,14 +4648,12 @@
 
           if (!Array.isArray(body)) return [];
 
-          // Validate each segment
           const valid = [];
           for (let idx = 0; idx < body.length; idx++) {
             const seg = validateSegment(body[idx], idx);
             if (seg) valid.push(seg);
           }
 
-          // Sort by start time for binary search
           valid.sort((a, b) => a.segment[0] - b.segment[0]);
 
           return valid;
@@ -3938,7 +4675,6 @@
             if (attempt < MAX_RETRIES) {
               const delay = RETRY_BASE_MS * Math.pow(2, attempt);
               await new Promise(r => setTimeout(r, delay));
-              // Check if aborted during delay
               if (abortSignal && abortSignal.aborted) throw new DOMException("Aborted", "AbortError");
             }
           }
@@ -3947,15 +4683,47 @@
         throw lastError;
       };
 
-      const voteOnSegment = async (uuid, type, userId) => {
-        if (!uuid || !userId) return false;
+      const voteOnSegment = async (uuid, type) => {
+        if (!uuid || !State.userId) return false;
         const base = Settings.getServerUrl();
         const params = new URLSearchParams({
-          UUID: uuid, userID: userId, type: String(type),
+          UUID: uuid,
+          userID: State.userId,
+          type: String(type)
         });
         try {
-          const resp = await fetch(base + "/api/voteOnSponsorTime?" + params, {
-            method: "POST", signal: AbortSignal.timeout(API_TIMEOUT_MS),
+          const resp = await he(base + "/api/voteOnSponsorTime?" + params, {
+            method: "POST",
+            signal: AbortSignal.timeout(API_TIMEOUT_MS)
+          });
+          return resp.ok;
+        } catch (_) { return false; }
+      };
+
+      const submitSegment = async (videoId, start, end, category, description = "") => {
+        if (!videoId || !State.userId) return false;
+        const base = Settings.getServerUrl();
+        const bodyData = {
+          videoID: videoId,
+          userID: State.userId,
+          userAgent: "YT-zen/" + (typeof GM_info !== "undefined" ? GM_info.script.version : "3.6.0"),
+          service: "YouTube",
+          segments: [{
+            segment: [start, end],
+            category: category,
+            actionType: category === "poi_highlight" ? "poi" : category === "exclusive_access" ? "full" : category === "chapter" ? "chapter" : "skip",
+            description: description
+          }]
+        };
+
+        try {
+          const resp = await he(base + "/api/skipSegments", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify(bodyData),
+            signal: AbortSignal.timeout(API_TIMEOUT_MS)
           });
           return resp.ok;
         } catch (_) { return false; }
@@ -3965,40 +4733,30 @@
         if (!uuid) return;
         const base = Settings.getServerUrl();
         try {
-          await fetch(base + "/api/viewedVideoSponsorTime?UUID=" + encodeURIComponent(uuid), {
-            method: "POST", keepalive: true,
+          await he(base + "/api/viewedVideoSponsorTime?UUID=" + encodeURIComponent(uuid), {
+            method: "POST"
           });
         } catch (_) {}
       };
 
-      const getUserInfo = async (userId) => {
-        if (!userId) return null;
-        const base = Settings.getServerUrl();
-        try {
-          const resp = await fetch(base + "/api/userInfo?userID=" + encodeURIComponent(userId), {
-            signal: AbortSignal.timeout(API_TIMEOUT_MS),
-          });
-          if (!resp.ok) return null;
-          return await resp.json();
-        } catch (_) { return null; }
-      };
-
-      return { fetchWithRetry, voteOnSegment, reportViewed, getUserInfo, hashPrefix };
+      return { fetchWithRetry, voteOnSegment, submitSegment, reportViewed, hashPrefix };
     })();
 
     // ─── Player Module ───────────────────────────────────────────────────────
     const Player = (() => {
+      const segmentEndOf = (seg) => Math.max(seg.segment[1], seg.segment[0] + POINT_SEGMENT_EPSILON);
+      const isTimeInSegment = (seg, time) => time >= seg.segment[0] && time < segmentEndOf(seg);
+
       const findSegmentAtTime = (time) => {
         const segs = State.segments;
         if (!segs.length) return -1;
 
-        // Binary search for the segment containing this time
         let lo = 0, hi = segs.length - 1;
         while (lo <= hi) {
           const mid = (lo + hi) >> 1;
           const s = segs[mid];
           if (s.segment[0] <= time) {
-            if (time < s.segment[1]) return mid;
+            if (time < segmentEndOf(s)) return mid;
             lo = mid + 1;
           } else {
             hi = mid - 1;
@@ -4035,7 +4793,7 @@
       };
 
       const handlePlaybackTick = () => {
-        // Skip if ad is showing, dialog is open, or tab is hidden
+        if (ie.isAd && ie.isAd()) return;
         if (typeof _a === "function" && _a()) return;
 
         const videoEl = ie.el();
@@ -4045,22 +4803,13 @@
           return;
         }
 
-        // Skip all segment processing on live streams (seeking breaks live playback)
-        if (_isLiveStream()) {
-          resetMuteState();
-          State.activeSegmentIndex = -1;
-          return;
-        }
-
         const currentTime = videoEl.currentTime;
         const segs = State.segments;
         let idx = State.activeSegmentIndex;
 
-        // Check if we're still in the active segment
         if (idx >= 0 && idx < segs.length && segs[idx]) {
           const s = segs[idx];
-          if (currentTime >= s.segment[0] && currentTime < s.segment[1]) {
-            // Still inside — handle mute continuation
+          if (isTimeInSegment(s, currentTime)) {
             const action = Settings.getCategoryAction(s.category);
             if (action === "mute" && State.mutedActive) return;
             if (action !== "skip" && action !== "mute") {
@@ -4068,15 +4817,13 @@
               return;
             }
           } else {
-            // Left the segment
             resetMuteState();
             idx = -1;
           }
         }
 
-        // Find new active segment if needed
         if (idx < 0 || idx >= segs.length || !segs[idx] ||
-            currentTime < segs[idx].segment[0] || currentTime >= segs[idx].segment[1]) {
+            currentTime < segs[idx].segment[0] || currentTime >= segmentEndOf(segs[idx])) {
           idx = findSegmentAtTime(currentTime);
           State.activeSegmentIndex = idx;
         }
@@ -4089,33 +4836,11 @@
         const seg = segs[idx];
         const action = Settings.getCategoryAction(seg.category);
 
-        if (action === "disabled") {
+        if (action === "disabled" || action === "poi" || action === "full" || action === "chapter") {
           resetMuteState();
           return;
         }
 
-        // POI: show toast notification at the highlight point
-        if (action === "poi") {
-          const uuid = seg.UUID || ("poi-" + idx + "-" + seg.segment[0]);
-          if (!State.processedUUIDs.has(uuid)) {
-            State.processedUUIDs.add(uuid);
-            if (S.sbToast) {
-              const catMeta = Categories.find(c => c.id === seg.category) || { label: seg.category };
-              const desc = seg.description || catMeta.label;
-              pe(desc + " at " + ce(seg.segment[0]), S.sbToastDur || 2200, "info");
-            }
-          }
-          resetMuteState();
-          return;
-        }
-
-        // Chapter and full: display-only, no playback action
-        if (action === "chapter" || action === "full") {
-          resetMuteState();
-          return;
-        }
-
-        // Mute action
         if (action === "mute") {
           if (!State.mutedActive) {
             State.originalVolume = videoEl.volume;
@@ -4126,12 +4851,10 @@
           return;
         }
 
-        // Skip action
         if (action === "skip") {
           const uuid = seg.UUID || ("idx-" + idx + "-" + seg.segment[0]);
-          const targetTime = seg.segment[1];
+          const targetTime = Math.max(seg.segment[1], seg.segment[0] + POINT_SEGMENT_EPSILON);
 
-          // Guard against duplicate/repeated skips
           if (State.processedUUIDs.has(uuid) && shouldSkipGuard(targetTime)) return;
 
           if (!State.processedUUIDs.has(uuid)) {
@@ -4139,20 +4862,14 @@
             const savedSec = Math.max(0, targetTime - currentTime);
             Metrics.recordSkip(savedSec);
 
-            // Show toast notification
-            if (S.sbToast) {
-              const catMeta = Categories.find(c => c.id === seg.category) || { label: seg.category };
-              pe("Skipped " + catMeta.label + " (" + ce(savedSec) + ")", S.sbToastDur || 2200, "success");
-            }
+            // Trigger floating HUD
+            UI.showFloatingHUD(seg, savedSec);
 
-            // Report view to SponsorBlock (fire-and-forget)
             API.reportViewed(uuid);
 
-            // Update HUD
             try { ft(); } catch (_) {}
           }
 
-          // Execute seek (with guard)
           if (!shouldSkipGuard(targetTime)) {
             recordSkip(targetTime);
             try { videoEl.currentTime = targetTime; } catch (_) {}
@@ -4166,7 +4883,6 @@
       };
 
       const handleRateChange = () => {
-        // Rate change doesn't require special handling — currentTime is always absolute
         State.activeSegmentIndex = -1;
       };
 
@@ -4176,62 +4892,61 @@
         State.processedUUIDs.clear();
       };
 
-      const attachListeners = () => {
+      const handleEvent = (ev) => {
         const videoEl = ie.el();
-        if (!videoEl) return;
-        if (State.playerElement === videoEl) return; // Already attached
+        if (!videoEl || ev.target !== videoEl) return;
 
-        // Clean up previous listeners
-        detachListeners();
+        switch (ev.type) {
+          case "timeupdate":
+            handlePlaybackTick();
+            break;
+          case "seeked":
+            handleSeeked();
+            UI.renderSeekbarMarks();
+            break;
+          case "seeking":
+            State.activeSegmentIndex = -1;
+            break;
+          case "ratechange":
+            handleRateChange();
+            break;
+          case "emptied":
+            handleVideoEmptied();
+            break;
+          case "loadedmetadata":
+          case "durationchange":
+            UI.renderSeekbarMarks();
+            break;
+          case "ended":
+            resetMuteState();
+            State.activeSegmentIndex = -1;
+            break;
+          case "pause":
+            resetMuteState();
+            break;
+        }
+      };
 
-        State.playerElement = videoEl;
+      const events = ["timeupdate", "seeked", "seeking", "ratechange", "emptied", "loadedmetadata", "durationchange", "ended", "pause"];
 
-        const onTimeupdate = () => handlePlaybackTick();
-        const onSeeked = () => { handleSeeked(); UI.renderSeekbarMarks(); };
-        const onSeeking = () => { State.activeSegmentIndex = -1; };
-        const onRateChange = () => handleRateChange();
-        const onEmptied = () => handleVideoEmptied();
-        const onLoadedMeta = () => UI.renderSeekbarMarks();
-        const onDurationChange = () => UI.renderSeekbarMarks();
-        const onEnded = () => { resetMuteState(); State.activeSegmentIndex = -1; };
-        const onPause = () => resetMuteState();
+      const attachListeners = () => {
+        if (State.listenersAttached) return;
+        events.forEach(type => {
+          document.addEventListener(type, handleEvent, true);
+        });
+        State.listenersAttached = true;
 
-        videoEl.addEventListener("timeupdate", onTimeupdate);
-        videoEl.addEventListener("seeked", onSeeked);
-        videoEl.addEventListener("seeking", onSeeking);
-        videoEl.addEventListener("ratechange", onRateChange);
-        videoEl.addEventListener("emptied", onEmptied);
-        videoEl.addEventListener("loadedmetadata", onLoadedMeta);
-        videoEl.addEventListener("durationchange", onDurationChange);
-        videoEl.addEventListener("ended", onEnded);
-        videoEl.addEventListener("pause", onPause);
-
-        State.listenerCleanup = () => {
-          try {
-            videoEl.removeEventListener("timeupdate", onTimeupdate);
-            videoEl.removeEventListener("seeked", onSeeked);
-            videoEl.removeEventListener("seeking", onSeeking);
-            videoEl.removeEventListener("ratechange", onRateChange);
-            videoEl.removeEventListener("emptied", onEmptied);
-            videoEl.removeEventListener("loadedmetadata", onLoadedMeta);
-            videoEl.removeEventListener("durationchange", onDurationChange);
-            videoEl.removeEventListener("ended", onEnded);
-            videoEl.removeEventListener("pause", onPause);
-          } catch (_) {}
-        };
-
-        // Register cleanup with the feature system
         Yt["sponsorblock"].push(() => {
           detachListeners();
         });
       };
 
       const detachListeners = () => {
-        if (State.listenerCleanup) {
-          State.listenerCleanup();
-          State.listenerCleanup = null;
-        }
-        State.playerElement = null;
+        if (!State.listenersAttached) return;
+        events.forEach(type => {
+          document.removeEventListener(type, handleEvent, true);
+        });
+        State.listenersAttached = false;
       };
 
       return {
@@ -4246,18 +4961,10 @@
       let lastRenderedSegmentCount = -1;
       let lastRenderedConfigKey = "";
       let seekbarObserver = null;
-      let watchdogTimer = 0;
+      let watchdogTaskId = 0;
+      let hudTimer = 0;
 
       const getColorForCategory = (catId) => {
-        // Check for user override
-        if (S.sbColorOverrides) {
-          try {
-            const overrides = JSON.parse(S.sbColorOverrides);
-            if (overrides[catId] && /^#[0-9a-fA-F]{6}$/.test(overrides[catId])) {
-              return overrides[catId];
-            }
-          } catch (_) {}
-        }
         const meta = Categories.find(c => c.id === catId);
         return (meta && meta.color) || "#ffffff";
       };
@@ -4274,8 +4981,7 @@
         const duration = videoEl.duration;
         const segments = State.segments;
 
-        // Skip re-render if nothing changed
-        const configKey = Settings.getConfigKey();
+        const configKey = Settings.getRenderKey();
         if (duration === lastRenderedDuration &&
             segments.length === lastRenderedSegmentCount &&
             configKey === lastRenderedConfigKey) {
@@ -4290,7 +4996,6 @@
         lastRenderedSegmentCount = segments.length;
         lastRenderedConfigKey = configKey;
 
-        // Build desired marks
         const desired = new Map();
         for (let idx = 0; idx < segments.length; idx++) {
           const seg = segments[idx];
@@ -4299,7 +5004,6 @@
           desired.set(key, { seg, idx });
         }
 
-        // Remove marks no longer needed
         for (const [k, el] of St_seekbarMarks) {
           if (!desired.has(k)) {
             try { el.remove(); } catch (_) {}
@@ -4307,7 +5011,6 @@
           }
         }
 
-        // Create/update marks
         for (const [key, info] of desired) {
           const seg = info.seg;
           const start = (seg.segment[0] / duration) * 100;
@@ -4339,18 +5042,22 @@
         lastRenderedConfigKey = "";
       };
 
-      const startWatchdog = () => {
-        if (watchdogTimer) { clearInterval(watchdogTimer); watchdogTimer = 0; }
+      const clearWatchdogTask = () => {
+        if (!watchdogTaskId) return;
+        try { ZenResources.SharedTicker.remove(watchdogTaskId); } catch (_) {}
+        watchdogTaskId = 0;
+      };
 
-        // Only run watchdog when segments exist and seekbar is enabled
-        watchdogTimer = setInterval(() => {
+      const startWatchdog = () => {
+        clearWatchdogTask();
+
+        watchdogTaskId = ZenResources.SharedTicker.add(() => {
           if (!S.sponsorblockOn || !S.sbSeekbar) return;
           if (typeof _a === "function" && _a()) return;
           if (document.hidden) return;
           try { renderSeekbarMarks(); } catch (_) {}
-        }, 3000);
+        }, 3000, { pauseHidden: true, label: "sb-seekbar-watchdog" });
 
-        // Reduced MutationObserver — only watch progress bar container
         if (seekbarObserver) { seekbarObserver.disconnect(); seekbarObserver = null; }
         try {
           const player = document.querySelector("#movie_player") || document.querySelector(".html5-video-player");
@@ -4365,7 +5072,7 @@
       };
 
       const stopWatchdog = () => {
-        if (watchdogTimer) { clearInterval(watchdogTimer); watchdogTimer = 0; }
+        clearWatchdogTask();
         if (seekbarObserver) { seekbarObserver.disconnect(); seekbarObserver = null; }
         clearMarks();
       };
@@ -4376,18 +5083,248 @@
         lastRenderedConfigKey = "";
       };
 
-      return { renderSeekbarMarks, clearMarks, startWatchdog, stopWatchdog, invalidateRenderCache };
+      const showFloatingHUD = (seg, savedSec) => {
+        if (!S.sbToast) return;
+        clearTimeout(hudTimer);
+
+        let hud = document.getElementById("yt-zen-sb-hud");
+        if (!hud) {
+          hud = document.createElement("div");
+          hud.id = "yt-zen-sb-hud";
+          document.body.appendChild(hud);
+        }
+
+        const catMeta = Categories.find(c => c.id === seg.category) || { label: seg.category, color: "#fff" };
+
+        hud.innerHTML = `
+          <div class="hud-header" style="border-left: 4px solid ${catMeta.color}">
+            <span style="font-weight:700">Skipped ${catMeta.label}</span>
+            <span>(${savedSec.toFixed(1)}s saved)</span>
+          </div>
+          <div class="hud-actions">
+            <button class="hud-btn undo-btn" id="hud-undo-btn">Undo</button>
+            <button class="hud-btn vote-btn" id="hud-vote-up" title="Upvote segment">👍</button>
+            <button class="hud-btn vote-btn" id="hud-vote-down" title="Downvote segment">👎</button>
+            <button class="hud-btn close-btn" id="hud-close-btn">&times;</button>
+          </div>
+        `;
+
+        hud.className = "show";
+
+        // Bind Undo Action
+        hud.querySelector("#hud-undo-btn").addEventListener("click", () => {
+          const videoEl = ie.el();
+          if (videoEl) {
+            videoEl.currentTime = seg.segment[0];
+            pe("Returned to start of " + catMeta.label, 1500, "info");
+          }
+          hud.className = "";
+        });
+
+        // Bind Vote Actions
+        hud.querySelector("#hud-vote-up").addEventListener("click", () => {
+          API.voteOnSegment(seg.UUID, 1).then(success => {
+            pe(success ? "Upvote submitted" : "Vote failed", 1500, success ? "success" : "error");
+          });
+          hud.className = "";
+        });
+
+        hud.querySelector("#hud-vote-down").addEventListener("click", () => {
+          API.voteOnSegment(seg.UUID, 0).then(success => {
+            pe(success ? "Downvote submitted" : "Vote failed", 1500, success ? "success" : "error");
+          });
+          hud.className = "";
+        });
+
+        hud.querySelector("#hud-close-btn").addEventListener("click", () => {
+          hud.className = "";
+        });
+
+        hudTimer = setTimeout(() => {
+          hud.className = "";
+        }, S.sbToastDur || 6000);
+      };
+
+      const toggleSubmissionEditor = () => {
+        if (State.editor.active) {
+          closeSubmissionEditor();
+          return;
+        }
+
+        const videoEl = ie.el();
+        if (!videoEl) {
+          pe("Open a video first", 1800, "error");
+          return;
+        }
+
+        State.editor.active = true;
+        State.editor.start = videoEl.currentTime;
+        State.editor.end = videoEl.currentTime + 10;
+        State.editor.category = "sponsor";
+        State.editor.description = "";
+
+        let panel = document.getElementById("yt-zen-sb-editor");
+        if (!panel) {
+          panel = document.createElement("div");
+          panel.id = "yt-zen-sb-editor";
+          document.body.appendChild(panel);
+        }
+
+        State.editor.element = panel;
+        renderEditorUI();
+        panel.className = "show";
+        pe("Segment submission editor opened", 1500, "info");
+      };
+
+      const renderEditorUI = () => {
+        const panel = State.editor.element;
+        if (!panel) return;
+
+        let catOptions = "";
+        Categories.forEach(c => {
+          catOptions += `<option value="${c.id}" ${State.editor.category === c.id ? "selected" : ""}>${c.label}</option>`;
+        });
+
+        panel.innerHTML = `
+          <div style="font-weight:700;font-size:14px;color:#fff;margin-bottom:12px;border-bottom:1px solid rgba(255,255,255,0.1);padding-bottom:6px">
+            Submit Sponsorship Segment
+          </div>
+          <div style="display:flex;flex-direction:column;gap:10px">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <span class="zen-meta">Start time:</span>
+              <div>
+                <input type="text" class="editor-input" id="ed-start-val" value="${State.editor.start.toFixed(2)}">
+                <button class="editor-btn mini-btn" id="ed-start-now">Set Current</button>
+              </div>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <span class="zen-meta">End time:</span>
+              <div>
+                <input type="text" class="editor-input" id="ed-end-val" value="${State.editor.end.toFixed(2)}">
+                <button class="editor-btn mini-btn" id="ed-end-now">Set Current</button>
+              </div>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <span class="zen-meta">Category:</span>
+              <select class="editor-select" id="ed-cat-val">
+                ${catOptions}
+              </select>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:4px">
+              <span class="zen-meta">Description / Chapter title:</span>
+              <input type="text" class="editor-text-input" id="ed-desc-val" value="${State.editor.description}" placeholder="Optional chapter title...">
+            </div>
+            <div style="display:flex;gap:6px;margin-top:8px">
+              <button class="editor-btn primary-btn" style="flex:1" id="ed-submit">Submit</button>
+              <button class="editor-btn" style="flex:1" id="ed-preview">Preview Segment</button>
+              <button class="editor-btn danger-btn" id="ed-cancel">Cancel</button>
+            </div>
+          </div>
+        `;
+
+        // Bind events
+        panel.querySelector("#ed-start-now").addEventListener("click", () => {
+          const videoEl = ie.el();
+          if (videoEl) {
+            State.editor.start = videoEl.currentTime;
+            panel.querySelector("#ed-start-val").value = State.editor.start.toFixed(2);
+          }
+        });
+
+        panel.querySelector("#ed-end-now").addEventListener("click", () => {
+          const videoEl = ie.el();
+          if (videoEl) {
+            State.editor.end = videoEl.currentTime;
+            panel.querySelector("#ed-end-val").value = State.editor.end.toFixed(2);
+          }
+        });
+
+        panel.querySelector("#ed-cat-val").addEventListener("change", (ev) => {
+          State.editor.category = ev.target.value;
+        });
+
+        panel.querySelector("#ed-desc-val").addEventListener("input", (ev) => {
+          State.editor.description = ev.target.value;
+        });
+
+        panel.querySelector("#ed-preview").addEventListener("click", () => {
+          const start = parseFloat(panel.querySelector("#ed-start-val").value);
+          const end = parseFloat(panel.querySelector("#ed-end-val").value);
+          if (isNaN(start) || isNaN(end) || start < 0 || end <= start) {
+            pe("Invalid segment times", 1800, "error");
+            return;
+          }
+          State.segments.push({
+            category: State.editor.category,
+            segment: [start, end],
+            UUID: "preview-uuid-" + Date.now(),
+            actionType: "skip",
+            votes: 1,
+            locked: 0,
+            videoDuration: ie.el() ? ie.el().duration : 0,
+            description: State.editor.description
+          });
+          State.segments.sort((a, b) => a.segment[0] - b.segment[0]);
+          invalidateRenderCache();
+          renderSeekbarMarks();
+          pe("Preview segment added locally", 1800, "success");
+        });
+
+        panel.querySelector("#ed-submit").addEventListener("click", () => {
+          const videoId = ie.videoId();
+          const start = parseFloat(panel.querySelector("#ed-start-val").value);
+          const end = parseFloat(panel.querySelector("#ed-end-val").value);
+          if (isNaN(start) || isNaN(end) || start < 0 || end <= start) {
+            pe("Invalid segment times", 1800, "error");
+            return;
+          }
+          pe("Submitting segment...", 1500, "info");
+          API.submitSegment(videoId, start, end, State.editor.category, State.editor.description)
+            .then(success => {
+              if (success) {
+                pe("Segment submitted successfully!", 2000, "success");
+                // Clear local previews and re-fetch
+                SponsorBlockEngine.invalidate(videoId);
+                closeSubmissionEditor();
+              } else {
+                pe("Submission failed", 2000, "error");
+              }
+            });
+        });
+
+        panel.querySelector("#ed-cancel").addEventListener("click", () => {
+          closeSubmissionEditor();
+        });
+      };
+
+      const closeSubmissionEditor = () => {
+        State.editor.active = false;
+        const panel = document.getElementById("yt-zen-sb-editor");
+        if (panel) {
+          panel.className = "";
+        }
+      };
+
+      return {
+        renderSeekbarMarks,
+        clearMarks,
+        startWatchdog,
+        stopWatchdog,
+        invalidateRenderCache,
+        showFloatingHUD,
+        toggleSubmissionEditor
+      };
     })();
 
     // ─── Orchestrator ────────────────────────────────────────────────────────
     const init = async (videoId) => {
-      // Cancel previous request if navigating to a new video
+      initUserId();
+
       if (State.abortController) {
         try { State.abortController.abort(); } catch (_) {}
         State.abortController = null;
       }
 
-      // Reset state
       Player.resetMuteState();
       Player.detachListeners();
       State.videoId = null;
@@ -4395,13 +5332,18 @@
       State.processedUUIDs.clear();
       State.activeSegmentIndex = -1;
 
-      // Skip SponsorBlock entirely on live streams (no segments to skip, seeking breaks playback)
-      if (_isLiveStream()) {
+      if (!videoId) {
         UI.clearMarks();
         return;
       }
 
-      if (!S.sponsorblockOn || !videoId) {
+      if (await HiddenVideos.isHidden(videoId)) {
+        UI.clearMarks();
+        g.emit("sb.hidden", { videoId, hidden: true });
+        return;
+      }
+
+      if (!S.sponsorblockOn) {
         UI.clearMarks();
         return;
       }
@@ -4416,7 +5358,6 @@
         const categories = Settings.getEnabledCategories();
         if (!categories.length) return;
 
-        // Try fresh cache first
         let cached = await Cache.get(videoId, configKey, false);
 
         if (cached && cached.fresh) {
@@ -4426,12 +5367,10 @@
           Player.attachListeners();
           UI.startWatchdog();
           g.emit("sb.segments", { videoId, count: State.segments.length, cached: true });
-          // Background refresh (stale-while-revalidate pattern)
           backgroundRefresh(videoId, configKey, inFlightKey);
           return;
         }
 
-        // Try stale cache for instant display
         let staleData = cached || await Cache.get(videoId, configKey, true);
         if (staleData) {
           State.segments = staleData.data;
@@ -4442,13 +5381,11 @@
           g.emit("sb.segments", { videoId, count: State.segments.length, cached: true, stale: true });
         }
 
-        // Check for existing in-flight request (deduplication)
         const existing = Cache.getInFlight(inFlightKey);
         if (existing) {
           Metrics.recordDeduped();
           State.segments = await existing;
         } else {
-          // Start new fetch
           State.abortController = new AbortController();
           const fetchPromise = (async () => {
             try {
@@ -4459,7 +5396,6 @@
             } catch (err) {
               if (err.name === "AbortError") return State.segments;
               Metrics.recordApiError();
-              // Return stale data on failure
               const fallback = await Cache.get(videoId, configKey, true);
               return (fallback && fallback.data) || State.segments;
             }
@@ -4495,7 +5431,6 @@
           const ctrl = new AbortController();
           const segments = await API.fetchWithRetry(videoId, ctrl.signal);
           await Cache.set(videoId, configKey, segments);
-          // If still on same video, update
           if (State.videoId === videoId) {
             State.segments = segments;
             UI.invalidateRenderCache();
@@ -4525,24 +5460,42 @@
       State.activeSegmentIndex = -1;
     };
 
-    const invalidate = (videoId) => {
-      if (videoId) {
-        Cache.invalidate(videoId);
-        if (State.videoId === videoId) {
-          init(videoId); // Re-fetch
-        }
+    const invalidate = async (videoId) => {
+      if (!videoId) return;
+      await Cache.invalidate(videoId);
+      if (State.videoId === videoId) {
+        await init(videoId);
       }
+    };
+
+    const hideVideo = async (videoId) => {
+      if (!videoId) return false;
+      await HiddenVideos.hide(videoId);
+      await invalidate(videoId);
+      return true;
+    };
+
+    const unhideVideo = async (videoId) => {
+      if (!videoId) return false;
+      await HiddenVideos.unhide(videoId);
+      await invalidate(videoId);
+      return true;
     };
 
     return {
       init,
       destroy,
       invalidate,
+      hideVideo,
+      unhideVideo,
+      isVideoHidden: (videoId) => HiddenVideos.isHidden(videoId),
       stats: () => Metrics.snapshot(),
       metrics: () => Metrics.snapshot(),
       getSegments: () => State.segments.slice(),
+      toggleSubmissionEditor: () => UI.toggleSubmissionEditor()
     };
   })();
+
 
   let St_wtInterval = 0;
   let St_progObs = null;
@@ -4566,12 +5519,7 @@
     const vid = ie.videoId();
     if (!vid) throw new Error("No video");
     try {
-      let hidden = [];
-      const row = await v("kv", "__sb_hidden__");
-      if (row && Array.isArray(row.v)) hidden = row.v;
-      if (!hidden.includes(vid)) hidden.push(vid);
-      if (hidden.length > 500) hidden = hidden.slice(-500);
-      await k("kv", { k: "__sb_hidden__", v: hidden });
+      await SponsorBlockEngine.hideVideo(vid);
     } catch (err) {
       throw new Error("Storage write failed");
     }
@@ -4581,11 +5529,7 @@
     const vid = ie.videoId();
     if (!vid) throw new Error("No video");
     try {
-      let hidden = [];
-      const row = await v("kv", "__sb_hidden__");
-      if (row && Array.isArray(row.v)) hidden = row.v;
-      hidden = hidden.filter(id => id !== vid);
-      await k("kv", { k: "__sb_hidden__", v: hidden });
+      await SponsorBlockEngine.unhideVideo(vid);
     } catch (err) {
       throw new Error("Storage write failed");
     }
@@ -4595,8 +5539,8 @@
     const userId = S.sbSubmitUserId;
     if (!userId) return null;
     try {
-      const base = S.sbServerPreset === "custom" && S.sbServer ? S.sbServer : "https://sponsor.ajay.app";
-      const resp = await fetch(base + "/api/userInfo?userID=" + encodeURIComponent(userId), {
+      const base = "https://sponsor.ajay.app";
+      const resp = await he(base + "/api/userInfo?userID=" + encodeURIComponent(userId), {
         signal: AbortSignal.timeout(8000),
       });
       if (!resp.ok) return null;
@@ -4616,21 +5560,8 @@
       }
     } catch (_) {}
   }
-  function Tt() {
-    const e =
-      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-    let t = "";
-    try {
-      const a = new Uint8Array(16);
-      crypto.getRandomValues(a);
-      for (let n = 0; n < 16; n++) t += e.charAt(a[n] % 64);
-      return t;
-    } catch (a) {
-      for (let a = 0; a < 16; a++)
-        t += e.charAt(Math.floor(64 * Math.random()));
-      return t;
-    }
-  }
+
+
   function Ot(t, a, n) {
     return (
       (n = n || {}),
@@ -7481,6 +8412,7 @@
       },
       settings() {},
     }),
+
     xa.register({
       id: "sponsorblock",
       name: "SponsorBlock",
@@ -7489,119 +8421,51 @@
       masterKey: "sponsorblockOn",
       keys: [
         "sponsorblockOn",
-        "sbServer",
-        "sbServerPreset",
         "sbPrivacy",
         "sbToast",
         "sbToastDur",
-        "sbMinVotes",
-        "sbMinViews",
-        "sbMaxViews",
-        "sbIncludeLocked",
-        "sbIncludeHidden",
-        "sbIncludeIgnored",
-        "sbTrimUUIDs",
-        "sbSegOverrides",
-        "sbChanOverrides",
-        "sbChapterRules",
-        "sbUpNextSec",
-        "sbColorOverrides",
-        "sbHud",
-        "sbHudStatus",
         "sbSeekbar",
       ].concat(i.flatMap((e) => ["sb_" + e.id + "_en", "sb_" + e.id + "_act"])),
       apply(e) {
-        if ((ft(), !S.sponsorblockOn))
-          return (
-            SponsorBlockEngine.destroy(),
-            void ft()
-          );
-        const t = ie.videoId();
-        if (
-          (t && St(t),
-          e.onNav(() =>
-            e.addTimeout(() => {
-              const e = ie.videoId();
-              e && St(e);
-            }, 1200),
-          ),
-          S.sbSeekbar)
-        ) {
-          e.addInterval(Ct, 2500);
-          const t = ie.el();
-          t &&
-            (e.addListener(t, "loadedmetadata", Ct),
-            e.addListener(t, "durationchange", Ct));
+        ft();
+        if (!S.sponsorblockOn) {
+          SponsorBlockEngine.destroy();
+          ft();
+          return;
         }
+        const scheduleLookup = () => {
+          let attempts = 0;
+          const run = () => {
+            attempts++;
+            const vid = ie.videoId();
+            const videoEl = ie.el();
+            if (vid) St(vid);
+            if (attempts >= 7) return;
+            if (!vid || !videoEl) {
+              e.addTimeout(run, vid ? 650 : 250);
+            }
+          };
+          run();
+        };
+        scheduleLookup();
+        e.onNav(() => {
+          e.addTimeout(scheduleLookup, 120);
+          e.addTimeout(scheduleLookup, 850);
+          e.addTimeout(scheduleLookup, 1700);
+        });
       },
       settings(e) {
+        e.appendChild(
+          Io("Privacy mode (hide video IDs from database server)", "sbPrivacy")
+        );
+        e.appendChild(
+          Io("Show notifications on skip", "sbToast")
+        );
+        e.appendChild(
+          Io("Show segments on the video timeline", "sbSeekbar")
+        );
 
-        const presetRow = To("div", "ytp-row");
-        presetRow.appendChild(To("span", "ytp-lbl", "Server"));
-        const presetSel = document.createElement("select");
-        presetSel.className = "ytp-sel";
-        presetSel.dataset.key = "sbServerPreset";
-        Zi.forEach((z) => {
-          const opt = document.createElement("option");
-          opt.value = z.id;
-          opt.textContent = z.name;
-          presetSel.appendChild(opt);
-        });
-        presetSel.value = S.sbServerPreset || "ajay";
-        presetSel.addEventListener("change", () =>
-          Ta("sbServerPreset", presetSel.value),
-        );
-        presetRow.appendChild(presetSel);
-        e.appendChild(presetRow);
-        e.appendChild(_o("Custom server URL (when Server = Custom)", "sbServer"));
-        e.appendChild(
-          Io("Privacy mode (hide video IDs from database server)", "sbPrivacy"),
-        );
-        e.appendChild(Io("Skip notifications", "sbToast"));
-        e.appendChild(
-          No(
-            "Notify duration",
-            "sbToastDur",
-            500,
-            6e3,
-            100,
-            (e2) => (e2 / 1e3).toFixed(1) + "s",
-          ),
-        );
-        e.appendChild(
-          No("Minimum votes", "sbMinVotes", 0, 100, 1, (e2) => e2 + " votes"),
-        );
-        e.appendChild(
-          No("Minimum views (0 = no min)", "sbMinViews", 0, 1e6, 10, (e2) =>
-            Math.round(e2).toString(),
-          ),
-        );
-        e.appendChild(
-          No("Maximum views (0 = no max)", "sbMaxViews", 0, 1e7, 100, (e2) =>
-            Math.round(e2).toString(),
-          ),
-        );
-        e.appendChild(Io("Include locked segments", "sbIncludeLocked"));
-        e.appendChild(Io("Include hidden segments", "sbIncludeHidden"));
-        e.appendChild(Io("Include ignored segments", "sbIncludeIgnored"));
-        e.appendChild(Io("Trim UUIDs from response", "sbTrimUUIDs"));
-        e.appendChild(Io("Show sponsorship status box on screen", "sbHud"));
-        e.appendChild(Io("Show server status in HUD", "sbHudStatus"));
-        e.appendChild(
-          Io("Show sponsorship sections on the video timeline", "sbSeekbar"),
-        );
-        e.appendChild(
-          No(
-            "Up-next preview (seconds, 0 = off)",
-            "sbUpNextSec",
-            0,
-            60,
-            1,
-            (e2) => e2 + "s",
-          ),
-        );
         const t = To("div", "ytp-sub");
-
         i.forEach((e2) => {
           const a = "sb_" + e2.id + "_en",
             n = "sb_" + e2.id + "_act",
@@ -7614,85 +8478,24 @@
           if (e2.desc) lbl.title = e2.desc;
           o.appendChild(lbl);
           o.appendChild(Bo(a));
-          o.appendChild(Po(n, Yi));
-          const sw = document.createElement("input");
-          sw.type = "color";
-          sw.className = "ytp-cp-native";
-          sw.style.cssText =
-            "width:30px;height:28px;padding:0;border:1px solid rgba(255,255,255,.12);border-radius:6px;background:transparent;cursor:pointer";
-          try {
-            let cur = null;
-            try {
-              cur =
-                S.sbColorOverrides && JSON.parse(S.sbColorOverrides || "{}")[e2.id];
-            } catch (e3) {
-              cur = null;
-            }
-            sw.value = /^#[0-9a-fA-F]{6}$/.test(cur || "")
-              ? cur
-              : /^#[0-9a-fA-F]{6}$/.test(e2.color)
-                ? e2.color
-                : "#00d400";
-          } catch (e3) {
-            sw.value = "#00d400";
-          }
-          sw.addEventListener("input", () => {
-            let cur = {};
-            try {
-              cur = S.sbColorOverrides
-                ? JSON.parse(S.sbColorOverrides || "{}")
-                : {};
-            } catch (e4) {
-              cur = {};
-            }
-            cur[e2.id] = sw.value;
-            Ta(
-              "sbColorOverrides",
-              Object.keys(cur).length ? JSON.stringify(cur) : "",
-            );
-            Bt_invalidateMarks();
-          });
-          sw.addEventListener("dblclick", () => {
-            let cur = {};
-            try {
-              cur = JSON.parse(S.sbColorOverrides || "{}");
-            } catch (e5) {
-              cur = {};
-            }
-            delete cur[e2.id];
-            Ta(
-              "sbColorOverrides",
-              Object.keys(cur).length ? JSON.stringify(cur) : "",
-            );
-            sw.value = e2.color;
-            Bt_invalidateMarks();
-          });
-          o.appendChild(sw);
+          o.appendChild(Po(n, Actions));
           t.appendChild(o);
         });
         e.appendChild(t);
 
-        e.appendChild(
-          Ho(
-            "Per-segment overrides (JSON: {uuid: 'skip'|'mute'|'poi'|'disabled'})",
-            "sbSegOverrides",
-            "Paste a JSON object. UUIDs are in /api/skipSegments response.",
-          ),
+        e.appendChild(To("div", "ytp-section-hdr", "Segment Creation"));
+        const createRow = To("div", "ytp-row");
+        createRow.style.padding = "6px 0";
+        createRow.appendChild(
+          Oo(
+            "Create & Submit New Segment",
+            () => {
+              SponsorBlockEngine.toggleSubmissionEditor();
+            },
+            "primary"
+          )
         );
-        e.appendChild(
-          Ho(
-            "Per-channel overrides (JSON: {channelId: 'skip'|'mute'|'poi'|'disabled'})",
-            "sbChanOverrides",
-            "Channel IDs are the trailing path segment of /channel/<id> URLs.",
-          ),
-        );
-        e.appendChild(
-          Ho(
-            "Chapter title regex skip (JSON: {channelId: '/regex/flags'})",
-            "sbChapterRules",
-            "Chapter title (auto-generated) matching the channel's regex is auto-skipped.",
-          ),
-        );
+        e.appendChild(createRow);
 
         e.appendChild(To("div", "ytp-section-hdr", "This video"));
         const ctrls = To("div", "ytp-rowb");
@@ -7706,62 +8509,24 @@
               );
             },
             "ytp-danger",
-          ),
+          )
         );
         ctrls.appendChild(
           Oo(
-            "Un-hide SB on this video",
+            "Show SB on this video",
             () => {
               Bt_unHideVideo().then(
                 () => g.emit("sb.hidden"),
-                (e2) => pe("Un-hide failed: " + e2.message, 2e3, "error"),
+                (e2) => pe("Restore failed: " + e2.message, 2e3, "error"),
               );
             },
-          ),
-        );
-        ctrls.appendChild(
-          Oo(
-            "Reload segments",
-            () => {
-              const vid = ie.videoId();
-              if (vid) St(vid);
-            },
-            "primary",
-          ),
+            "ytp-normal",
+          )
         );
         e.appendChild(ctrls);
-
-        if (S.sbSubmitUserId) {
-          const statsRow = To("div", "ytp-sbsub-status");
-          statsRow.textContent = "Loading SB user stats...";
-          e.appendChild(statsRow);
-          Bt_getUserInfo().then((info) => {
-            if (!info) {
-              statsRow.textContent =
-                "No SB user stats (userID not registered).";
-              return;
-            }
-            const min = Math.round(info.minutesSaved || 0);
-            statsRow.textContent =
-              "SB stats: " +
-              (info.userName || "(no username)") +
-              " - " +
-              min +
-              " min saved - " +
-              (info.segmentCount || 0) +
-              " segments";
-          });
-        } else {
-          e.appendChild(
-            To(
-              "div",
-              "ytp-hist-note",
-              "Turn on “Submit Sponsorship Segments” to track your own SB stats (time saved, segment count, etc.) on the SB server.",
-            ),
-          );
-        }
       },
     }),
+
     xa.register({
       id: "session-restore",
       name: "Session History",
@@ -12994,7 +13759,7 @@
 
         };
         const PREF_KEYS = {
-          "f5": { label: "Autoplay", type: "enum", options: {"3.5.1": "Enabled", "30000": "Disabled"} },
+          "f5": { label: "Autoplay", type: "enum", options: {"3.5.2": "Enabled", "30000": "Disabled"} },
           "f6": { label: "Layout", type: "enum", options: {"4": "Material", "8": "Old"} },
           "al": { label: "Content Language", type: "text" },
           "gl": { label: "Country", type: "text" },
@@ -23883,6 +24648,350 @@
   const ZenEngine = (() => {
     "use strict";
     const CSS = `
+#yt-zen-sb-hud {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%) translateY(-20px);
+  z-index: 2147483645;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background: rgba(18, 20, 26, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  padding: 10px 16px;
+  box-shadow: 0 12px 30px rgba(0,0,0,0.5), 0 4px 10px rgba(0,0,0,0.3);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  opacity: 0;
+  pointer-events: none;
+  transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.3s ease;
+  font-family: system-ui, sans-serif;
+  color: #fff;
+  font-size: 12.5px;
+}
+#yt-zen-sb-hud.show {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(-50%) translateY(0);
+}
+#yt-zen-sb-hud .hud-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-left: 8px;
+}
+#yt-zen-sb-hud .hud-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+#yt-zen-sb-hud .hud-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  color: #eef;
+  padding: 4px 10px;
+  cursor: pointer;
+  font-size: 11.5px;
+  font-weight: 600;
+  transition: background 0.15s, border-color 0.15s;
+}
+#yt-zen-sb-hud .hud-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.25);
+  color: #fff;
+}
+#yt-zen-sb-hud .undo-btn {
+  background: #ff1a4a;
+  border-color: rgba(255, 26, 74, 0.3);
+  color: #fff;
+}
+#yt-zen-sb-hud .undo-btn:hover {
+  background: #ff3366;
+  box-shadow: 0 2px 10px rgba(255, 26, 74, 0.3);
+}
+#yt-zen-sb-hud .vote-btn {
+  padding: 4px 6px;
+}
+#yt-zen-sb-hud .close-btn {
+  background: transparent;
+  border: 0;
+  font-size: 16px;
+  line-height: 1;
+  color: #888;
+  cursor: pointer;
+  padding: 2px 6px;
+}
+#yt-zen-sb-hud .close-btn:hover {
+  color: #fff;
+}
+
+#yt-zen-sb-editor {
+  position: fixed;
+  bottom: 80px;
+  right: 24px;
+  z-index: 2147483640;
+  width: 340px;
+  background: rgba(18, 20, 26, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 14px;
+  padding: 16px;
+  box-shadow: 0 16px 40px rgba(0,0,0,0.6);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  font-family: system-ui, sans-serif;
+  color: #fff;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(20px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+#yt-zen-sb-editor.show {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+#yt-zen-sb-editor .editor-input {
+  width: 70px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  color: #fff;
+  padding: 4px 8px;
+  font: 11px ui-monospace, SFMono-Regular, monospace;
+  text-align: center;
+}
+#yt-zen-sb-editor .editor-text-input {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  color: #fff;
+  padding: 6px 10px;
+  font-size: 11.5px;
+}
+#yt-zen-sb-editor .editor-select {
+  background: rgba(18, 20, 26, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  color: #fff;
+  padding: 4px 8px;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+#yt-zen-sb-editor .editor-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  color: #eef;
+  padding: 5px 12px;
+  cursor: pointer;
+  font-size: 11.5px;
+  font-weight: 600;
+  transition: background 0.12s, border-color 0.12s;
+}
+#yt-zen-sb-editor .editor-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.25);
+  color: #fff;
+}
+#yt-zen-sb-editor .mini-btn {
+  padding: 3px 6px;
+  font-size: 10px;
+  margin-left: 4px;
+}
+#yt-zen-sb-editor .primary-btn {
+  background: #ff1a4a;
+  border-color: rgba(255, 26, 74, 0.3);
+  color: #fff;
+}
+#yt-zen-sb-editor .primary-btn:hover {
+  background: #ff3366;
+}
+#yt-zen-sb-editor .danger-btn {
+  background: rgba(255, 80, 80, 0.15);
+  border-color: rgba(255, 80, 80, 0.25);
+  color: #ff8080;
+}
+#yt-zen-sb-editor .danger-btn:hover {
+  background: rgba(255, 80, 80, 0.3);
+  color: #fff;
+}
+
+#yt-zen-sb-hud {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%) translateY(-20px);
+  z-index: 2147483645;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background: rgba(18, 20, 26, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  padding: 10px 16px;
+  box-shadow: 0 12px 30px rgba(0,0,0,0.5), 0 4px 10px rgba(0,0,0,0.3);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  opacity: 0;
+  pointer-events: none;
+  transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.3s ease;
+  font-family: system-ui, sans-serif;
+  color: #fff;
+  font-size: 12.5px;
+}
+#yt-zen-sb-hud.show {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(-50%) translateY(0);
+}
+#yt-zen-sb-hud .hud-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-left: 8px;
+}
+#yt-zen-sb-hud .hud-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+#yt-zen-sb-hud .hud-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  color: #eef;
+  padding: 4px 10px;
+  cursor: pointer;
+  font-size: 11.5px;
+  font-weight: 600;
+  transition: background 0.15s, border-color 0.15s;
+}
+#yt-zen-sb-hud .hud-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.25);
+  color: #fff;
+}
+#yt-zen-sb-hud .undo-btn {
+  background: #ff1a4a;
+  border-color: rgba(255, 26, 74, 0.3);
+  color: #fff;
+}
+#yt-zen-sb-hud .undo-btn:hover {
+  background: #ff3366;
+  box-shadow: 0 2px 10px rgba(255, 26, 74, 0.3);
+}
+#yt-zen-sb-hud .vote-btn {
+  padding: 4px 6px;
+}
+#yt-zen-sb-hud .close-btn {
+  background: transparent;
+  border: 0;
+  font-size: 16px;
+  line-height: 1;
+  color: #888;
+  cursor: pointer;
+  padding: 2px 6px;
+}
+#yt-zen-sb-hud .close-btn:hover {
+  color: #fff;
+}
+
+#yt-zen-sb-editor {
+  position: fixed;
+  bottom: 80px;
+  right: 24px;
+  z-index: 2147483640;
+  width: 340px;
+  background: rgba(18, 20, 26, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 14px;
+  padding: 16px;
+  box-shadow: 0 16px 40px rgba(0,0,0,0.6);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  font-family: system-ui, sans-serif;
+  color: #fff;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(20px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+#yt-zen-sb-editor.show {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+#yt-zen-sb-editor .editor-input {
+  width: 70px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  color: #fff;
+  padding: 4px 8px;
+  font: 11px ui-monospace, SFMono-Regular, monospace;
+  text-align: center;
+}
+#yt-zen-sb-editor .editor-text-input {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  color: #fff;
+  padding: 6px 10px;
+  font-size: 11.5px;
+}
+#yt-zen-sb-editor .editor-select {
+  background: rgba(18, 20, 26, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  color: #fff;
+  padding: 4px 8px;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+#yt-zen-sb-editor .editor-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  color: #eef;
+  padding: 5px 12px;
+  cursor: pointer;
+  font-size: 11.5px;
+  font-weight: 600;
+  transition: background 0.12s, border-color 0.12s;
+}
+#yt-zen-sb-editor .editor-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.25);
+  color: #fff;
+}
+#yt-zen-sb-editor .mini-btn {
+  padding: 3px 6px;
+  font-size: 10px;
+  margin-left: 4px;
+}
+#yt-zen-sb-editor .primary-btn {
+  background: #ff1a4a;
+  border-color: rgba(255, 26, 74, 0.3);
+  color: #fff;
+}
+#yt-zen-sb-editor .primary-btn:hover {
+  background: #ff3366;
+}
+#yt-zen-sb-editor .danger-btn {
+  background: rgba(255, 80, 80, 0.15);
+  border-color: rgba(255, 80, 80, 0.25);
+  color: #ff8080;
+}
+#yt-zen-sb-editor .danger-btn:hover {
+  background: rgba(255, 80, 80, 0.3);
+  color: #fff;
+}
+
 #ytp-zen-bar{display:flex;gap:6px;padding:6px 12px;background:rgba(255,255,255,.03);
   border-bottom:1px solid rgba(255,255,255,.06);flex-wrap:wrap;align-items:center}
 #ytp-zen-bar .zen-chip{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;
@@ -24263,231 +25372,6 @@ body.zen-mood-learn ytd-watch-flexy #secondary{display:none!important}
     const getList = () => queue.slice();
     const clear = () => { queue = []; };
     return { add, remove, reorder, getTotalTime, getList, clear, size: () => queue.length };
-  })();
-  // ═══════════════════════════════════════════════════════════════════════════
-  //  ZenResources — Memory Safety & Resource Efficiency Layer
-  // ---------------------------------------------------------------------------
-  //  Consolidated infrastructure for preventing memory leaks, reducing CPU
-  //  overhead, and bounding resource usage across all features.
-  //
-  //  Components:
-  //    BoundedCache     — Map with LRU eviction and configurable max size
-  //    WeakElementCache — WeakRef-based cache for DOM elements (auto-GC)
-  //    SharedObserver   — Single MutationObserver dispatching to subscribers
-  //    SharedTicker     — Consolidated interval replacing multiple setIntervals
-  //    TrackedBlobURL   — Auto-revoking blob URL wrapper
-  //    DeferredTask     — requestIdleCallback wrapper with timeout fallback
-  //    AbortGroup       — Grouped AbortController for feature-scoped cancellation
-  // ═══════════════════════════════════════════════════════════════════════════
-
-
-    // ─── SharedTicker ────────────────────────────────────────────────────────
-    // Consolidated interval that runs all registered callbacks at their
-    // specified cadence. Replaces multiple setInterval calls with one timer.
-    // Pauses when the tab is hidden (saves CPU).
-    const SharedTicker = (() => {
-      const tasks = new Map(); // id → { callback, intervalMs, lastRun, pauseHidden }
-      let timerId = 0;
-      let nextId = 1;
-      const TICK_MS = 1000; // Base tick every 1 second
-
-      const tick = () => {
-        if (document.hidden) return; // Skip when tab is hidden
-        const now = Date.now();
-        for (const [, task] of tasks) {
-          if (task.pauseHidden && document.hidden) continue;
-          if (now - task.lastRun >= task.intervalMs) {
-            task.lastRun = now;
-            try { task.callback(); } catch (_) {}
-          }
-        }
-      };
-
-      const ensureTimer = () => {
-        if (timerId) return;
-        timerId = setInterval(tick, TICK_MS);
-      };
-
-      const add = (callback, intervalMs, opts = {}) => {
-        const id = nextId++;
-        tasks.set(id, {
-          callback,
-          intervalMs: Math.max(TICK_MS, intervalMs),
-          lastRun: 0,
-          pauseHidden: opts.pauseHidden !== false,
-        });
-        ensureTimer();
-        return id;
-      };
-
-      const remove = (id) => {
-        tasks.delete(id);
-        if (tasks.size === 0 && timerId) {
-          clearInterval(timerId);
-          timerId = 0;
-        }
-      };
-
-      const clear = () => {
-        tasks.clear();
-        if (timerId) { clearInterval(timerId); timerId = 0; }
-      };
-
-      const stats = () => ({ tasks: tasks.size, timerActive: timerId !== 0 });
-
-      return { add, remove, clear, stats };
-    })();
-
-    // ─── TrackedBlobURL ──────────────────────────────────────────────────────
-    // Creates blob URLs that are automatically revoked when no longer needed.
-    // Tracks all active URLs and provides bulk revocation.
-    const TrackedBlobURL = (() => {
-      const active = new Map(); // url → { createdAt, label }
-
-      const create = (blob, label = "blob") => {
-        const url = URL.createObjectURL(blob);
-        active.set(url, { createdAt: Date.now(), label });
-        return url;
-      };
-
-      const revoke = (url) => {
-        if (active.has(url)) {
-          URL.revokeObjectURL(url);
-          active.delete(url);
-        }
-      };
-
-      const revokeAll = () => {
-        for (const [url] of active) {
-          try { URL.revokeObjectURL(url); } catch (_) {}
-        }
-        active.clear();
-      };
-
-      const revokeOlderThan = (maxAgeMs) => {
-        const cutoff = Date.now() - maxAgeMs;
-        for (const [url, info] of active) {
-          if (info.createdAt < cutoff) {
-            try { URL.revokeObjectURL(url); } catch (_) {}
-            active.delete(url);
-          }
-        }
-      };
-
-      const stats = () => ({ active: active.size, urls: Array.from(active.values()).map(v => v.label) });
-
-      return { create, revoke, revokeAll, revokeOlderThan, stats };
-    })();
-
-    // ─── DeferredTask ────────────────────────────────────────────────────────
-    // Runs a task during idle time. Falls back to setTimeout if
-    // requestIdleCallback is unavailable. Supports cancellation.
-    const DeferredTask = (() => {
-      let nextId = 1;
-      const pending = new Map(); // id → { cancel }
-
-      const schedule = (fn, timeoutMs = 2000) => {
-        const id = nextId++;
-        let cancelled = false;
-
-        const execute = () => {
-          if (cancelled) return;
-          pending.delete(id);
-          try { fn(); } catch (_) {}
-        };
-
-        let timerId;
-        if (typeof requestIdleCallback === "function") {
-          const idleId = requestIdleCallback(execute, { timeout: timeoutMs });
-          timerId = null;
-          pending.set(id, { cancel: () => { cancelled = true; cancelIdleCallback(idleId); } });
-        } else {
-          timerId = setTimeout(execute, Math.min(timeoutMs, 100));
-          pending.set(id, { cancel: () => { cancelled = true; clearTimeout(timerId); } });
-        }
-
-        return id;
-      };
-
-      const cancel = (id) => {
-        const task = pending.get(id);
-        if (task) { task.cancel(); pending.delete(id); }
-      };
-
-      const cancelAll = () => {
-        for (const [, task] of pending) { task.cancel(); }
-        pending.clear();
-      };
-
-      const stats = () => ({ pending: pending.size });
-
-      return { schedule, cancel, cancelAll, stats };
-    })();
-
-    // ─── AbortGroup ──────────────────────────────────────────────────────────
-    // Groups multiple AbortControllers under a single feature ID.
-    // Calling abort(id) cancels all controllers for that feature.
-    const AbortGroup = (() => {
-      const groups = new Map(); // featureId → Set<AbortController>
-
-      const create = (featureId) => {
-        const ctrl = new AbortController();
-        if (!groups.has(featureId)) groups.set(featureId, new Set());
-        groups.get(featureId).add(ctrl);
-        return ctrl;
-      };
-
-      const abort = (featureId) => {
-        const set = groups.get(featureId);
-        if (!set) return;
-        for (const ctrl of set) {
-          try { ctrl.abort(); } catch (_) {}
-        }
-        set.clear();
-        groups.delete(featureId);
-      };
-
-      const abortAll = () => {
-        for (const [id] of groups) abort(id);
-      };
-
-      const stats = () => {
-        let total = 0;
-        for (const [, set] of groups) total += set.size;
-        return { groups: groups.size, controllers: total };
-      };
-
-      return { create, abort, abortAll, stats };
-    })();
-
-    // ─── Global Stats ────────────────────────────────────────────────────────
-    const stats = () => ({
-      sharedObserver: SharedObserver.stats(),
-      sharedTicker: SharedTicker.stats(),
-      blobURLs: TrackedBlobURL.stats(),
-      deferred: DeferredTask.stats(),
-      abortGroups: AbortGroup.stats(),
-    });
-
-    // ─── Global Cleanup ──────────────────────────────────────────────────────
-    const cleanup = () => {
-      SharedTicker.clear();
-      TrackedBlobURL.revokeAll();
-      DeferredTask.cancelAll();
-      AbortGroup.abortAll();
-    };
-
-    return {
-      BoundedCache,
-      WeakElementCache,
-      SharedObserver,
-      SharedTicker,
-      TrackedBlobURL,
-      DeferredTask,
-      AbortGroup,
-      stats,
-      cleanup,
-    };
   })();
   // ═══════════════════════════════════════════════════════════════════════════
   //  Algorithm Intelligence Engine (AlgoEngine)
@@ -25168,12 +26052,16 @@ body.zen-mood-learn ytd-watch-flexy #secondary{display:none!important}
     apply(ctx) { if (!S.sceneJumperOn) return; ZenEngine.injectCSS(); let strip = null; const build = () => { const vid = ie.el(); if (!vid || !vid.duration || !isFinite(vid.duration) || vid.duration < 30) return; const container = document.querySelector(".ytp-progress-bar-container"); if (!container) return; if (strip && strip.parentNode) strip.remove(); strip = document.createElement("div"); strip.id = "ytp-zen-scene"; strip.title = "Click a marker to jump to a scene"; container.style.position = "relative"; container.appendChild(strip); ZenPlayback.detectScenes(vid, vid.duration).then(scenes => { ZenPlayback.renderSceneStrip(strip, vid.duration, scenes); }); }; ctx.addTimeout(build, 3000); ctx.onNav(() => ctx.addTimeout(build, 3000)); const vid = ie.el(); if (vid) ctx.addListener(vid, "loadedmetadata", () => ctx.addTimeout(build, 1000)); Yt["scene-jumper"].push(() => { if (strip && strip.parentNode) strip.remove(); strip = null; }); },
     settings(en) { en.appendChild(Io("Enable Scene Jumper", "sceneJumperOn")); } });
 
+
+
   xa.register({ id: "smart-queue", name: "Smart Watch Queue", summary: "Intelligent queue with smart ordering, time estimates, and session planning.", masterKey: "smartQueueOn", keys: ["smartQueueOn"], apply(ctx) { if (!S.smartQueueOn) return; ZenEngine.injectCSS(); }, settings(en) { en.appendChild(Io("Enable Smart Watch Queue", "smartQueueOn")); const info = document.createElement("div"); info.className = "zen-meta"; info.style.marginTop = "6px"; info.textContent = "Queue: " + ZenQueue.size() + " videos, " + ce(ZenQueue.getTotalTime()) + " total"; en.appendChild(info); } });
   xa.register({ id: "parallel-player", name: "Parallel Player", summary: "Watch two videos side by side with synchronized playback.", masterKey: "parallelPlayerOn", keys: ["parallelPlayerOn"], apply(ctx) { if (!S.parallelPlayerOn) return; ZenEngine.injectCSS(); }, settings(en) { en.appendChild(Io("Enable Parallel Player", "parallelPlayerOn")); } });
 
   xa.register({ id: "video-dna", name: "Video DNA Timeline", summary: "Composite energy visualization overlaid on the progress bar. Click to seek.", masterKey: "videoDnaOn", keys: ["videoDnaOn"],
     apply(ctx) { if (!S.videoDnaOn) return; ZenEngine.injectCSS(); let dnaEl = null; const build = () => { const vid = ie.el(); if (!vid || !vid.duration || !isFinite(vid.duration)) return; const progressBar = document.querySelector(".ytp-progress-bar-container"); if (!progressBar) return; if (dnaEl && dnaEl.parentNode) dnaEl.remove(); dnaEl = document.createElement("div"); dnaEl.id = "ytp-zen-dna"; const canvas = document.createElement("canvas"); canvas.width = 800; canvas.height = 18; dnaEl.appendChild(canvas); progressBar.style.position = "relative"; progressBar.appendChild(dnaEl); ZenPlayback.renderDNA(canvas, vid.duration); dnaEl.addEventListener("click", (ev) => { ev.stopPropagation(); if (_isLiveStream()) return; const rect = dnaEl.getBoundingClientRect(); vid.currentTime = ((ev.clientX - rect.left) / rect.width) * vid.duration; }); }; ctx.addTimeout(build, 2500); ctx.onNav(() => ctx.addTimeout(build, 2500)); Yt["video-dna"].push(() => { if (dnaEl && dnaEl.parentNode) dnaEl.remove(); dnaEl = null; }); },
     settings(en) { en.appendChild(Io("Enable Video DNA Timeline", "videoDnaOn")); } });
+
+
 
   xa.register({ id: "smart-speed", name: "Smart Speed", summary: "Automatically adjusts playback speed based on content density.", masterKey: "smartSpeedOn", keys: ["smartSpeedOn", "smartSpeedBase", "smartSpeedFast"],
     apply(ctx) { if (!S.smartSpeedOn) return; const baseRate = S.smartSpeedBase || 1; const fastRate = S.smartSpeedFast || 1.5; const tick = () => { const vid = ie.el(); if (!vid || vid.paused || vid.ended) return; if (_isLiveStream()) { if (Math.abs(vid.playbackRate - 1) > 0.01) vid.playbackRate = 1; return; } const a = ZenPlayback.analyzeEnergy(vid); let target = baseRate; if (a.isSpeech && !a.isQuiet) target = fastRate; if (a.isQuiet) target = fastRate; if (Math.abs(vid.playbackRate - target) > 0.1) vid.playbackRate = target; }; const start = () => { if (ie.el()) ctx.addInterval(tick, 2000); }; ctx.addTimeout(start, 2000); ctx.onNav(() => ctx.addTimeout(start, 2000)); Yt["smart-speed"].push(() => { const vid = ie.el(); if (vid) vid.playbackRate = S.speedDefault || 1; }); },

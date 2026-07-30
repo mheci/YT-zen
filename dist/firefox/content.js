@@ -64,12 +64,42 @@
         window.GM_info = {
           script: {
             name: "YT-zen",
-            version: "3.5.8"
+            version: "3.6.0"
           }
         };
 
         window.GM_xmlhttpRequest = (details) => {
           const reqId = Math.random().toString(36).slice(2);
+          let finished = false;
+          const cleanup = () => {
+            window.removeEventListener("YTZEN_XMLHTTPREQUEST_RESPONSE", onResponse);
+          };
+          const finish = () => {
+            if (finished) return false;
+            finished = true;
+            cleanup();
+            return true;
+          };
+          const onResponse = (ev) => {
+            if (!ev || !ev.detail || ev.detail.id !== reqId) return;
+            if (!finish()) return;
+            if (ev.detail.success) {
+              if (typeof details.onload === "function") {
+                details.onload({
+                  status: ev.detail.status,
+                  responseText: ev.detail.responseText,
+                  response: ev.detail.responseText,
+                  text: () => ev.detail.responseText,
+                  json: () => {
+                    try { return JSON.parse(ev.detail.responseText); } catch(_) { return null; }
+                  }
+                });
+              }
+            } else if (typeof details.onerror === "function") {
+              details.onerror(new Error(ev.detail.error || "Network error"));
+            }
+          };
+          window.addEventListener("YTZEN_XMLHTTPREQUEST_RESPONSE", onResponse);
           // Bridge to background worker for cross-origin fetches (CORS bypass)
           window.dispatchEvent(new CustomEvent("YTZEN_XMLHTTPREQUEST", {
             detail: {
@@ -82,29 +112,12 @@
               }
             }
           }));
-          
-          // Capture asynchronous response
-          const onResponse = (ev) => {
-            if (ev.detail.id === reqId) {
-              window.removeEventListener("YTZEN_XMLHTTPREQUEST_RESPONSE", onResponse);
-              if (e.detail.success) {
-                if (typeof details.onload === "function") {
-                  details.onload({
-                    status: e.detail.status,
-                    responseText: e.detail.responseText,
-                    response: e.detail.responseText,
-                    text: () => e.detail.responseText,
-                    json: () => {
-                      try { return JSON.parse(e.detail.responseText); } catch(_) { return null; }
-                    }
-                  });
-                }
-              } else if (typeof details.onerror === "function") {
-                details.onerror(new Error(e.detail.error));
-              }
+          return {
+            abort: () => {
+              if (!finish()) return;
+              if (typeof details.onabort === "function") details.onabort();
             }
           };
-          window.addEventListener("YTZEN_XMLHTTPREQUEST_RESPONSE", onResponse);
         };
       })();
     `;

@@ -60,7 +60,7 @@ The live harness checks the official direct repeated-query, direct JSON, privacy
 
 ## Releases
 
-Releases use semantic version tags such as `v3.8.0`. Before creating a tag:
+Releases use semantic version tags such as `v3.9.0`. Before creating a tag:
 
 ```bash
 npm test

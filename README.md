@@ -38,11 +38,24 @@ This repository now ships and maintains only the userscript build:
 
 ## Development notes
 
-- validate with `node --check yt-zen.user.js`
-- validate module mirrors with `node --check src/*.js`
-- run `node scripts/test-sponsorblock.js JQb9eGeclQw` to exercise the SponsorBlock fetch plans against a known test video
+The shipped userscript is generated from the high-risk source mirrors. Run the complete local gate before committing:
+
+```bash
+npm test
+node scripts/test-sponsorblock.js JQb9eGeclQw
+```
+
+`npm test` rebuilds `yt-zen.user.js`, checks every JavaScript file, and runs deterministic unit tests for cache eviction, disposal, segment normalization, direct API lookups, and privacy-prefix fallback. The integration harness exercises both supported direct encodings and both privacy-path encodings against SponsorBlock.
+
 - SponsorBlock logic lives in `src/sponsorblock-engine-v2.js`
 - shared resource primitives live in `src/zen-resources.js`
+- `scripts/build-userscript.js` keeps those mirrors synchronized with the installable bundle
+
+### SponsorBlock lookup contract
+
+Every valid watch-page video is looked up when SponsorBlock is enabled, including videos with a fresh cache entry and videos hidden locally. Fresh/stale data is rendered immediately when possible, then revalidated in the background. Concurrent lookups are deduplicated, navigation aborts obsolete requests, and a hidden video suppresses playback/UI actions without suppressing the API lookup.
+
+The request profile asks for every supported SponsorBlock category and action type. User preferences are applied client-side, so changing a category action never requires a new server profile and never hides segments from the cache.
 
 ## License
 

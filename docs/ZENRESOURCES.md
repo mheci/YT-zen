@@ -1,16 +1,39 @@
 # ZenResources
 
-`ZenResources` is the shared lifecycle layer used by the userscript's higher-cost features. It is intentionally dependency-free so it can run at `document-start` and survive YouTube's SPA DOM replacement.
+ZenResources is the shared ownership layer for timers, observers, caches, abort controllers, deferred tasks, object URLs, and feature scopes. It is available during `document-start` and does not depend on a framework.
 
-## Guarantees
+## Primitives
 
-- **BoundedCache** is an LRU cache with optional TTLs, eviction hooks, statistics, and expired-entry cleanup.
-- **WeakElementCache** does not retain DOM elements when `WeakRef` is available. Finalization callbacks are token-checked so an old element cannot delete a replacement under the same key; disconnected elements can also be swept explicitly.
-- **SharedObserver** uses one batched `MutationObserver`, scopes subscriber dispatch by target/selector/predicate, and reconfigures attributes only when a subscriber requests them.
-- **SharedTicker** coalesces periodic work into one visibility-aware timer. Tasks that pause while hidden do not wake the page once the tab is backgrounded.
-- **TrackedBlobURL** records active object URLs, byte totals, touch times, labels, and auto-revocation. All bulk revocation methods return the number of URLs released.
-- **DeferredTask** supports idle work, cancellable timeout work, and debouncing. Completed debounce entries are removed so the key map cannot grow forever.
-- **AbortGroup** tracks related `AbortController` instances and removes them when aborted or timed out.
-- **ResourceScope** owns timers, event listeners, tickers, observers, deferred work, abort controllers, and blob URLs. Disposal is idempotent and runs cleanups in reverse order.
+### `BoundedCache`
 
-`ZenResources.cleanup()` is reserved for page shutdown or a full script teardown. Feature-level teardown should use `ResourceScope` so unrelated features are not disturbed.
+An LRU cache with optional TTLs, bounded capacity, eviction callbacks, statistics, and expired-entry cleanup. `getOrSet` deduplicates concurrent asynchronous factories and will not overwrite a newer explicit `set`.
+
+### `WeakElementCache`
+
+Stores DOM elements through `WeakRef` when supported. Finalization callbacks carry an entry token so finalization of an old element cannot remove a replacement under the same key. `cleanupDisconnected()` removes detached elements deterministically.
+
+### `SharedObserver`
+
+Maintains one batched `MutationObserver`. Subscribers can scope delivery by target, selector, or predicate. Attribute and character-data observation is opt-in. The observer disconnects when the last subscriber leaves.
+
+### `SharedTicker`
+
+Coalesces periodic callbacks into one timer and stops when all remaining tasks are paused by a hidden document. Callbacks can be one-shot, can run while hidden, and are removed by owner teardown.
+
+### `TrackedBlobURL`
+
+Tracks object URLs, labels, byte totals, last-use times, automatic revocation, and bulk cleanup. Bulk methods return the number of URLs released.
+
+### `DeferredTask`
+
+Schedules idle or timeout work, supports cancellation, and removes completed debounce keys. Promise rejections are consumed so optional background work cannot become an unhandled rejection.
+
+### `AbortGroup`
+
+Groups controllers by feature and removes a controller from the group when it aborts. Groups can be timed out, aborted individually, or aborted globally.
+
+### `ResourceScope`
+
+Owns timers, intervals, event listeners, shared tickers, observers, deferred tasks, abort controllers, and blob URLs. Disposal is idempotent, reverse ordered, and safe to call repeatedly.
+
+`ZenResources.cleanup()` is reserved for page teardown. Feature-level code should use `ResourceScope` so it cannot destroy resources owned by another feature.

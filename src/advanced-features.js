@@ -1125,7 +1125,7 @@
         links.forEach(link => {
           const href = link.getAttribute("href");
           if (!href || href.includes("youtube.com") || href.includes("youtu.be")) return;
-          fetch(href, { method: "HEAD", mode: "no-cors", signal: AbortSignal.timeout(5000) })
+          fetch(href, { method: "HEAD", mode: "no-cors", signal: (() => { const controller = new AbortController(); setTimeout(() => controller.abort(), 5000); return controller.signal; })() })
             .then(r => {
               if (!r.ok && r.status !== 0) {
                 deadCount++;

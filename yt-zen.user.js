@@ -1874,6 +1874,7 @@
         this._name = String(name || "cache");
         this._ttl = Math.max(0, finite(options.ttlMs, 0));
         this._onEvict = typeof options.onEvict === "function" ? options.onEvict : null;
+        this._pending = new Map();
         this._hits = 0;
         this._misses = 0;
         this._evictions = 0;
@@ -1967,6 +1968,7 @@
       }
 
       set(key, value, ttlMs) {
+        this._pending.delete(key);
         if (this._map.has(key)) this._map.delete(key);
         this._map.set(key, this._entry(value, ttlMs));
         this._trim();
@@ -1974,17 +1976,27 @@
       }
 
       getOrSet(key, factory, ttlMs) {
-        const existing = this.get(key);
-        if (existing !== undefined) return existing;
+        const existing = this.peek(key);
+        if (existing !== undefined || this._map.has(key)) return this.get(key);
+        const pending = this._pending.get(key);
+        if (pending) return pending;
         const value = typeof factory === "function" ? factory(key) : factory;
         if (value && typeof value.then === "function") {
-          return value.then((resolved) => {
-            this.set(key, resolved, ttlMs);
+          let pendingPromise;
+          pendingPromise = Promise.resolve(value).then((resolved) => {
+            if (this._pending.get(key) === pendingPromise) {
+              this._pending.delete(key);
+              this.set(key, resolved, ttlMs);
+            }
             return resolved;
+          }, (error) => {
+            if (this._pending.get(key) === pendingPromise) this._pending.delete(key);
+            throw error;
           });
+          this._pending.set(key, pendingPromise);
+          return pendingPromise;
         }
-        this.set(key, value, ttlMs);
-        return value;
+        return this.set(key, value, ttlMs);
       }
 
       touch(key, ttlMs) {
@@ -2001,7 +2013,10 @@
 
       has(key) { return this.peek(key) !== undefined; }
       delete(key) { return this._remove(key); }
-      clear() { for (const key of Array.from(this._map.keys())) this._remove(key, "clear"); }
+      clear() {
+        this._pending.clear();
+        for (const key of Array.from(this._map.keys())) this._remove(key, "clear");
+      }
       keys() { this.cleanupExpired(); return Array.from(this._map.keys()); }
       values() { this.cleanupExpired(); return Array.from(this._map.values(), (entry) => entry.value); }
       entries() { this.cleanupExpired(); return Array.from(this._map.entries(), ([key, entry]) => [key, entry.value]); }
@@ -2013,6 +2028,7 @@
         return {
           name: this._name,
           size: this._map.size,
+          pending: this._pending.size,
           max: this._max,
           ttlMs: this._ttl,
           hits: this._hits,
@@ -26800,7 +26816,7 @@ body.zen-mood-learn ytd-watch-flexy #secondary{display:none!important}
     settings(en) { en.appendChild(Io("Enable Search Remix", "searchRemixOn")); } });
 
   xa.register({ id: "dead-link-detector", name: "Outdated Content Detector", summary: "Flags broken links and adds age badges to old videos.", masterKey: "deadLinkOn", keys: ["deadLinkOn"],
-    apply(ctx) { if (!S.deadLinkOn) return; ZenEngine.injectCSS(); const check = () => { const desc = document.querySelector("#description ytd-text-inline-expander, #description"); if (!desc || desc.dataset.zenChecked) return; desc.dataset.zenChecked = "1"; desc.querySelectorAll('a[href^="http"]').forEach(link => { const href = link.getAttribute("href"); if (!href || href.includes("youtube.com") || href.includes("youtu.be")) return; fetch(href, { method: "HEAD", mode: "no-cors", signal: AbortSignal.timeout(5000) }).then(r => { if (!r.ok && r.status !== 0) { link.style.cssText += "text-decoration:line-through;opacity:.5"; link.title = "May be broken"; } }).catch(() => {}); }); const ud = document.querySelector("#info-strings yt-formatted-string, ytd-video-primary-info-renderer #info span"); if (ud) { const dm = (ud.textContent || "").match(/(\w+ \d+, \d{4})/); if (dm) { const age = Date.now() - new Date(dm[1]).getTime(); if (age > 365 * 24 * 60 * 60 * 1000 * 2) { const badge = document.createElement("span"); badge.className = "zen-pill"; badge.style.cssText = "background:rgba(255,152,0,.15);color:#ffb74d;margin-left:8px"; badge.textContent = Math.floor(age / (365 * 24 * 60 * 60 * 1000)) + " years old"; badge.title = "Over 2 years old. May be outdated."; const info = document.querySelector("#info-strings, #info"); if (info) info.appendChild(badge); } } } }; ctx.addTimeout(check, 3000); ctx.onNav(() => ctx.addTimeout(check, 3000)); },
+    apply(ctx) { if (!S.deadLinkOn) return; ZenEngine.injectCSS(); const check = () => { const desc = document.querySelector("#description ytd-text-inline-expander, #description"); if (!desc || desc.dataset.zenChecked) return; desc.dataset.zenChecked = "1"; desc.querySelectorAll('a[href^="http"]').forEach(link => { const href = link.getAttribute("href"); if (!href || href.includes("youtube.com") || href.includes("youtu.be")) return; fetch(href, { method: "HEAD", mode: "no-cors", signal: (() => { const controller = new AbortController(); setTimeout(() => controller.abort(), 5000); return controller.signal; })() }).then(r => { if (!r.ok && r.status !== 0) { link.style.cssText += "text-decoration:line-through;opacity:.5"; link.title = "May be broken"; } }).catch(() => {}); }); const ud = document.querySelector("#info-strings yt-formatted-string, ytd-video-primary-info-renderer #info span"); if (ud) { const dm = (ud.textContent || "").match(/(\w+ \d+, \d{4})/); if (dm) { const age = Date.now() - new Date(dm[1]).getTime(); if (age > 365 * 24 * 60 * 60 * 1000 * 2) { const badge = document.createElement("span"); badge.className = "zen-pill"; badge.style.cssText = "background:rgba(255,152,0,.15);color:#ffb74d;margin-left:8px"; badge.textContent = Math.floor(age / (365 * 24 * 60 * 60 * 1000)) + " years old"; badge.title = "Over 2 years old. May be outdated."; const info = document.querySelector("#info-strings, #info"); if (info) info.appendChild(badge); } } } }; ctx.addTimeout(check, 3000); ctx.onNav(() => ctx.addTimeout(check, 3000)); },
     settings(en) { en.appendChild(Io("Enable Outdated Content Detector", "deadLinkOn")); } });
 
   xa.register({ id: "watch-genome", name: "Watch Genome", summary: "Transparent preference model. Shows compatibility scores on thumbnails.", masterKey: "watchGenomeOn", keys: ["watchGenomeOn"],

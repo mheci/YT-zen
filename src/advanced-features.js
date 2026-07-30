@@ -523,14 +523,19 @@
             const card = document.createElement("div");
             card.className = "ytp-adv-row";
             card.style.cssText = "padding:6px 0;cursor:pointer";
-            const thumb = ie.thumb(item.videoId, "mqdefault");
-            card.innerHTML = '<div class="ytp-adv-thumb" style="background-image:url(\'' +
-              sanitizeUrlForCSS(thumb) + '\')"></div>' +
-              '<div style="flex:1;min-width:0"><div style="font-size:12px;color:#fff;font-weight:600;' +
-              'white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' +
-              ((item.title && item.title.simpleText) || item.videoId) +
-              '</div><div style="font-size:10.5px;color:#888;margin-top:2px">' +
-              ((item.ownerText && item.ownerText.simpleText) || "") + '</div></div>';
+            const thumb = document.createElement("div");
+            thumb.className = "ytp-adv-thumb";
+            thumb.style.backgroundImage = "url('" + sanitizeUrlForCSS(ie.thumb(item.videoId, "mqdefault")) + "')";
+            const copy = document.createElement("div");
+            copy.style.cssText = "flex:1;min-width:0";
+            const titleNode = document.createElement("div");
+            titleNode.style.cssText = "font-size:12px;color:#fff;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis";
+            titleNode.textContent = String((item.title && item.title.simpleText) || item.videoId || "");
+            const ownerNode = document.createElement("div");
+            ownerNode.style.cssText = "font-size:10.5px;color:#888;margin-top:2px";
+            ownerNode.textContent = String((item.ownerText && item.ownerText.simpleText) || "");
+            copy.append(titleNode, ownerNode);
+            card.append(thumb, copy);
             card.addEventListener("click", () => { e.location.href = "/watch?v=" + item.videoId; });
             results.appendChild(card);
           });
@@ -618,10 +623,17 @@
             row.className = "ytp-adv-row";
             row.style.cssText = "padding:4px 0;cursor:pointer";
             const title = (v2.title && (v2.title.simpleText || (v2.title.runs && v2.title.runs[0] && v2.title.runs[0].text))) || v2.videoId;
-            row.innerHTML = '<span style="color:#ff8a96;font:700 11px system-ui;min-width:20px">' + (idx + 1) + '.</span>' +
-              '<div class="ytp-adv-thumb" style="width:80px;height:45px;background-image:url(\'' +
-              sanitizeUrlForCSS(ie.thumb(v2.videoId, "mqdefault")) + '\')"></div>' +
-              '<div style="flex:1;min-width:0;font-size:11.5px;color:#dde;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + title + '</div>';
+            const indexNode = document.createElement("span");
+            indexNode.style.cssText = "color:#ff8a96;font:700 11px system-ui;min-width:20px";
+            indexNode.textContent = (idx + 1) + ".";
+            const thumb = document.createElement("div");
+            thumb.className = "ytp-adv-thumb";
+            thumb.style.cssText = "width:80px;height:45px";
+            thumb.style.backgroundImage = "url('" + sanitizeUrlForCSS(ie.thumb(v2.videoId, "mqdefault")) + "')";
+            const titleNode = document.createElement("div");
+            titleNode.style.cssText = "flex:1;min-width:0;font-size:11.5px;color:#dde;white-space:nowrap;overflow:hidden;text-overflow:ellipsis";
+            titleNode.textContent = String(title || "");
+            row.append(indexNode, thumb, titleNode);
             row.addEventListener("click", () => { e.location.href = "/watch?v=" + v2.videoId; });
             path.appendChild(row);
           });
@@ -1125,7 +1137,7 @@
         links.forEach(link => {
           const href = link.getAttribute("href");
           if (!href || href.includes("youtube.com") || href.includes("youtu.be")) return;
-          fetch(href, { method: "HEAD", mode: "no-cors", signal: AbortSignal.timeout(5000) })
+          fetch(href, { method: "HEAD", mode: "no-cors", signal: (() => { const controller = new AbortController(); setTimeout(() => controller.abort(), 5000); return controller.signal; })() })
             .then(r => {
               if (!r.ok && r.status !== 0) {
                 deadCount++;
@@ -1280,7 +1292,10 @@
         const list = document.createElement("div");
         list.style.cssText = "margin-top:6px;font-size:11px;color:#aaa";
         cols.forEach(c => {
-          list.innerHTML += '<div style="padding:2px 0">' + c.name + ' (' + c.videos.length + ' videos)</div>';
+          const entry = document.createElement("div");
+          entry.style.cssText = "padding:2px 0";
+          entry.textContent = String(c.name || "") + " (" + c.videos.length + " videos)";
+          list.appendChild(entry);
         });
         en.appendChild(list);
       }

@@ -26,10 +26,10 @@
       disabled: "Off"
     };
 
-    const CACHE_VERSION = 4;
-    const CACHE_TTL_MS = 60 * 60 * 1000;          // 1 hour runtime
-    const PERSIST_TTL_MS = 24 * 60 * 60 * 1000;   // 24 hours persistent
-    const STALE_GRACE_MS = 12 * 60 * 60 * 1000;    // 12 hours stale grace
+    const CACHE_VERSION = 5;
+    const CACHE_TTL_MS = 60 * 60 * 1000;          // Fresh in-memory data
+    const PERSIST_TTL_MS = 24 * 60 * 60 * 1000;   // Persistent cache lifetime
+    const STALE_GRACE_MS = 12 * 60 * 60 * 1000;   // Offline fallback window
     const MAX_CACHE_ENTRIES = 128;
     const API_TIMEOUT_MS = 8000;
     const MAX_RETRIES = 2;
@@ -37,11 +37,21 @@
     const SKIP_COOLDOWN_MS = 500;
     const SEEK_TOLERANCE = 0.3; // seconds
     const POINT_SEGMENT_EPSILON = 0.05;
+    const MAX_SEGMENT_TIME = 24 * 60 * 60;
+    const VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/;
+    const PRIVACY_HASH_LENGTH = 4;
+    const API_PROFILE_VERSION = "all-categories-v2";
 
     // ─── Shared State Context ────────────────────────────────────────────────
     const State = {
       videoId: null,
       segments: [],
+      hidden: false,
+      generation: 0,
+      backgroundControllers: new Set(),
+      lifecycleAttached: false,
+      lifecycleCleanup: null,
+      lastWakeLookupAt: 0,
       processedUUIDs: new Set(),
       activeSegmentIndex: -1,
       abortController: null,
@@ -277,14 +287,34 @@
         return Array.from(types);
       };
 
+      const getActionOptions = (categoryId) => {
+        const options = {
+          skip: Actions.skip,
+          full: Actions.full,
+          disabled: Actions.disabled,
+        };
+        if (categoryId === "poi_highlight") {
+          return { skip: Actions.skip, poi: Actions.poi, full: Actions.full, disabled: Actions.disabled };
+        }
+        if (categoryId === "chapter") {
+          return { skip: Actions.skip, chapter: Actions.chapter, full: Actions.full, disabled: Actions.disabled };
+        }
+        if (categoryId !== "exclusive_access") options.mute = Actions.mute;
+        return options;
+      };
+
       const getCategoryAction = (categoryId) => {
         if (!S["sb_" + categoryId + "_en"]) return "disabled";
-        return S["sb_" + categoryId + "_act"] || "skip";
+        const action = S["sb_" + categoryId + "_act"] || "skip";
+        return Object.prototype.hasOwnProperty.call(getActionOptions(categoryId), action) ? action : "skip";
       };
 
       const getConfigKey = () => {
         const privacy = S.sbPrivacy ? "1" : "0";
-        return `${privacy}`;
+        // The API request always asks for every supported category/action type.
+        // Keep the server profile in the key so future API-profile changes can
+        // never reuse an incompatible cached response.
+        return API_PROFILE_VERSION + ":" + privacy;
       };
 
       const getRenderKey = () => {
@@ -301,7 +331,7 @@
       };
 
       return {
-        getEnabledCategories, getActionTypes, getCategoryAction,
+        getEnabledCategories, getActionTypes, getCategoryAction, getActionOptions,
         getConfigKey, getRenderKey, getServerUrl,
       };
     })();
@@ -331,6 +361,19 @@
         }
       };
 
+      const isUsableEntry = (entry, videoId) => !!(
+        entry && entry.version === CACHE_VERSION &&
+        entry.videoId === videoId && Array.isArray(entry.segments) &&
+        typeof entry.expiresAt === "number" &&
+        typeof entry.fetchedAt === "number"
+      );
+
+      const runtimeEntry = (entry) => Object.assign({}, entry, {
+        // Persistent entries live longer than the in-memory freshness window.
+        // Never accidentally promote the persistent TTL into RAM.
+        expiresAt: Math.min(entry.expiresAt, entry.fetchedAt + CACHE_TTL_MS),
+      });
+
       const get = async (videoId, configKey, allowStale = false) => {
         const cacheKey = "sb:" + videoId + ":" + configKey;
         const now = Date.now();
@@ -340,7 +383,7 @@
           const entry = memCache.get(cacheKey);
           memCache.delete(cacheKey);
           memCache.set(cacheKey, entry); // LRU: move to end
-          if (entry.version !== CACHE_VERSION) {
+          if (!isUsableEntry(entry, videoId)) {
             memCache.delete(cacheKey);
           } else if (entry.expiresAt > now) {
             Metrics.recordCacheHit();
@@ -358,18 +401,18 @@
           const row = await v("kv", "cache:" + cacheKey);
           if (row && row.v) {
             const entry = row.v;
-            if (entry.version !== CACHE_VERSION) {
+            if (!isUsableEntry(entry, videoId)) {
               await x("kv", "cache:" + cacheKey);
               return null;
             }
             if (entry.expiresAt > now) {
-              memCache.set(cacheKey, entry);
+              memCache.set(cacheKey, runtimeEntry(entry));
               evictIfNeeded();
               Metrics.recordCacheHit();
               return { data: entry.segments, fresh: true };
             }
             if (allowStale && entry.expiresAt + STALE_GRACE_MS > now) {
-              memCache.set(cacheKey, entry);
+              memCache.set(cacheKey, runtimeEntry(entry));
               evictIfNeeded();
               Metrics.recordStaleServed();
               return { data: entry.segments, fresh: false };
@@ -419,14 +462,23 @@
       };
 
       const getInFlight = (key) => inFlight.get(key);
+      const clearInFlightForVideo = (videoId) => {
+        if (!videoId) return;
+        for (const key of Array.from(inFlight.keys())) {
+          if (key.startsWith(String(videoId) + ":")) inFlight.delete(key);
+        }
+      };
       const setInFlight = (key, promise) => { inFlight.set(key, promise); };
-      const clearInFlight = (key) => { inFlight.delete(key); };
+      const clearInFlight = (key, promise) => {
+        if (!promise || inFlight.get(key) === promise) inFlight.delete(key);
+      };
 
       const invalidate = async (videoId) => {
         if (!videoId) return;
+        const prefix = "sb:" + videoId + ":";
         const cacheKeys = new Set();
         for (const key of Array.from(memCache.keys())) {
-          if (key.startsWith("sb:" + videoId + ":")) {
+          if (key.startsWith(prefix)) {
             memCache.delete(key);
             cacheKeys.add(key);
           }
@@ -434,12 +486,20 @@
         for (const key of Array.from(inFlight.keys())) {
           if (key.startsWith(videoId + ":")) inFlight.delete(key);
         }
-        cacheKeys.add("sb:" + videoId + ":0");
-        cacheKeys.add("sb:" + videoId + ":1");
+        // Enumerate the shared kv store instead of assuming the config key is
+        // only 0/1. This also removes entries written by older builds.
+        try {
+          const rows = await w("kv");
+          for (const row of Array.isArray(rows) ? rows : []) {
+            if (row && typeof row.k === "string" && row.k.startsWith("cache:" + prefix)) {
+              cacheKeys.add(row.k.slice("cache:".length));
+            }
+          }
+        } catch (_) {}
         await Promise.all(Array.from(cacheKeys, (cacheKey) => x("kv", "cache:" + cacheKey)));
       };
 
-      return { get, set, getInFlight, setInFlight, clearInFlight, invalidate };
+      return { get, set, getInFlight, setInFlight, clearInFlight, clearInFlightForVideo, invalidate };
     })();
 
     // ─── API Module ──────────────────────────────────────────────────────────
@@ -488,11 +548,13 @@
 
       const buildFetchPlans = async (videoId, usePrivacy, categories, actionTypes) => {
         const base = Settings.getServerUrl();
-        const prefix = await hashPrefix(videoId);
+        const prefix = (await hashPrefix(videoId)).slice(0, PRIVACY_HASH_LENGTH);
         const plans = [];
-        const pushPlan = (id, url) => plans.push({ id, url });
+        const pushPlan = (id, url, privacy = false) => plans.push({ id, url, privacy });
 
         if (!usePrivacy) {
+          // Both encodings are accepted by SponsorBlock deployments. The
+          // repeated form is the most compatible with older server versions.
           pushPlan(
             "direct-repeated",
             base + "/api/skipSegments?" + createParams(videoId, categories, actionTypes, "repeated").toString()
@@ -501,98 +563,102 @@
             "direct-json",
             base + "/api/skipSegments?" + createParams(videoId, categories, actionTypes, "json").toString()
           );
+        } else {
+          // A privacy lookup must never fall back to a full videoID query.
+          // The path form is the canonical API and returns candidate videos;
+          // the client filters those candidates to the requested video.
           pushPlan(
-            "direct-json-no-action-types",
-            base + "/api/skipSegments?" + createParams(videoId, categories, [], "json").toString()
+            "privacy-path-json",
+            base + "/api/skipSegments/" + prefix + "?" + createParams(null, categories, actionTypes, "json").toString(),
+            true
+          );
+          pushPlan(
+            "privacy-path-repeated",
+            base + "/api/skipSegments/" + prefix + "?" + createParams(null, categories, actionTypes, "repeated").toString(),
+            true
           );
         }
-
-        pushPlan(
-          usePrivacy ? "privacy-path-json" : "privacy-fallback-path-json",
-          base + "/api/skipSegments/" + prefix + "?" + createParams(null, categories, actionTypes, "json").toString()
-        );
-        pushPlan(
-          usePrivacy ? "privacy-path-repeated" : "privacy-fallback-path-repeated",
-          base + "/api/skipSegments/" + prefix + "?" + createParams(null, categories, actionTypes, "repeated").toString()
-        );
-        pushPlan(
-          usePrivacy ? "privacy-query-json" : "privacy-fallback-query-json",
-          base + "/api/skipSegments?" + createParams(null, categories, actionTypes, "json", prefix).toString()
-        );
-        pushPlan(
-          usePrivacy ? "privacy-query-repeated" : "privacy-fallback-query-repeated",
-          base + "/api/skipSegments?" + createParams(null, categories, actionTypes, "repeated", prefix).toString()
-        );
-
         return plans;
       };
 
       const validateSegment = (seg, index) => {
         if (!seg || typeof seg !== "object") return null;
-
         const rawSegment = Array.isArray(seg.segment) ? seg.segment : [seg.startTime, seg.endTime];
-        if (!Array.isArray(rawSegment) || rawSegment.length < 2) return null;
+        if (rawSegment.length < 2) return null;
 
         const start = Number(rawSegment[0]);
         const end = Number(rawSegment[1]);
-
-        if (!isFinite(start) || !isFinite(end)) return null;
-        if (start < 0 || end < 0) return null;
+        if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
+        if (start < 0 || end < 0 || start > MAX_SEGMENT_TIME || end > MAX_SEGMENT_TIME) return null;
         if (start > end && !(start === 0 && end === 0)) return null;
 
-        const category = typeof seg.category === "string" && seg.category ? seg.category : "sponsor";
-        const UUID = typeof seg.UUID === "string" && seg.UUID ? seg.UUID : ("idx-" + index + "-" + start);
+        const category = typeof seg.category === "string" && seg.category.trim()
+          ? seg.category.trim().slice(0, 64)
+          : "sponsor";
+        const UUID = typeof seg.UUID === "string" && seg.UUID.trim()
+          ? seg.UUID.trim().slice(0, 128)
+          : ("idx-" + index + "-" + start + "-" + end);
         const actionType = typeof seg.actionType === "string" && seg.actionType
           ? seg.actionType
           : actionTypeForCategory(category);
-        const votes = typeof seg.votes === "number" ? seg.votes : 0;
-        const locked = typeof seg.locked === "number" ? seg.locked : 0;
-        const videoDuration = typeof seg.videoDuration === "number" ? seg.videoDuration : 0;
-        const description = typeof seg.description === "string" ? seg.description : "";
-        const views = typeof seg.views === "number" ? seg.views : 0;
-        const userID = typeof seg.userID === "string" ? seg.userID : "";
-        const hidden = typeof seg.hidden === "number" ? seg.hidden : 0;
-        const shadowHidden = typeof seg.shadowHidden === "number" ? seg.shadowHidden : 0;
+        const numberOrZero = (value) => Number.isFinite(Number(value)) ? Number(value) : 0;
 
         return {
           category,
           segment: [start, end],
           UUID,
           actionType,
-          votes,
-          locked,
-          views,
-          videoDuration,
-          description,
-          userID,
-          hidden,
-          shadowHidden,
+          votes: numberOrZero(seg.votes),
+          locked: numberOrZero(seg.locked),
+          views: numberOrZero(seg.views),
+          videoDuration: Math.max(0, Math.min(MAX_SEGMENT_TIME, numberOrZero(seg.videoDuration))),
+          description: typeof seg.description === "string" ? seg.description.slice(0, 500) : "",
+          userID: typeof seg.userID === "string" ? seg.userID.slice(0, 128) : "",
+          hidden: numberOrZero(seg.hidden),
+          shadowHidden: numberOrZero(seg.shadowHidden),
         };
       };
 
       const extractSegmentArray = (payload, videoId) => {
         if (Array.isArray(payload)) {
-          if (!payload.length) return [];
-          const looksPrefixed = payload.some((entry) => entry && Array.isArray(entry.segments));
-          if (looksPrefixed) {
+          if (!payload.length) return { segments: [], matched: true, prefixed: false, valid: true };
+          const prefixed = payload.some((entry) => entry && Array.isArray(entry.segments));
+          if (prefixed) {
             const hit = payload.find((entry) => entry && entry.videoID === videoId && Array.isArray(entry.segments));
-            return hit && Array.isArray(hit.segments) ? hit.segments : [];
+            return { segments: hit ? hit.segments : [], matched: !!hit, prefixed: true, valid: true };
           }
-          return payload;
+          return { segments: payload, matched: true, prefixed: false, valid: true };
         }
-        if (payload && Array.isArray(payload.segments)) return payload.segments;
-        return [];
+        if (payload && Array.isArray(payload.segments)) {
+          return {
+            segments: payload.segments,
+            matched: !payload.videoID || payload.videoID === videoId,
+            prefixed: !!payload.videoID,
+            valid: true,
+          };
+        }
+        return { segments: [], matched: false, prefixed: false, valid: false };
       };
 
       const normalizeSegments = (payload, videoId) => {
-        const rawSegments = extractSegmentArray(payload, videoId);
+        const extracted = extractSegmentArray(payload, videoId);
         const normalized = [];
-        for (let idx = 0; idx < rawSegments.length; idx++) {
-          const valid = validateSegment(rawSegments[idx], idx);
-          if (valid) normalized.push(valid);
+        const seen = new Set();
+        for (let idx = 0; idx < extracted.segments.length; idx++) {
+          const valid = validateSegment(extracted.segments[idx], idx);
+          if (!valid) continue;
+          const key = valid.UUID + "|" + valid.segment[0] + "|" + valid.segment[1] + "|" + valid.category + "|" + valid.actionType;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          normalized.push(valid);
         }
-        normalized.sort((a, b) => a.segment[0] - b.segment[0]);
-        return normalized;
+        normalized.sort((a, b) => a.segment[0] - b.segment[0] || a.segment[1] - b.segment[1] || a.UUID.localeCompare(b.UUID));
+        return {
+          segments: normalized,
+          matched: extracted.matched,
+          prefixed: extracted.prefixed,
+          valid: extracted.valid,
+        };
       };
 
       const requestJson = async (url, abortSignal, opts = {}) => {
@@ -659,22 +725,38 @@
       };
 
       const fetchSegments = async (videoId, abortSignal) => {
+        if (!VIDEO_ID_RE.test(String(videoId || ""))) return [];
         const usePrivacy = !!S.sbPrivacy;
         const plans = await buildFetchPlans(videoId, usePrivacy, ALL_CATEGORIES, ALL_ACTION_TYPES);
         const trace = [];
         let lastError = null;
         let notFoundCount = 0;
+        let privacyNoMatch = false;
 
         for (let idx = 0; idx < plans.length; idx++) {
           const plan = plans[idx];
           if (idx > 0) Metrics.recordApiFallback();
           try {
             const { response, body } = await requestJson(plan.url, abortSignal);
-            const segments = normalizeSegments(body, videoId);
-            trace.push({ plan: plan.id, status: response.status, count: segments.length });
+            const normalized = normalizeSegments(body, videoId);
+            if (!normalized.valid) {
+              const malformed = new Error("SponsorBlock response was not a segment array");
+              malformed.status = response.status;
+              throw malformed;
+            }
+            // A privacy response is a candidate list. A successful response
+            // with no matching video is not a successful lookup; try the
+            // alternate encoding instead of caching a false empty result.
+            if (plan.privacy && normalized.prefixed && !normalized.matched) {
+              trace.push({ plan: plan.id, status: response.status, count: 0, matched: false });
+              privacyNoMatch = true;
+              lastError = new Error("Privacy response did not contain requested video");
+              continue;
+            }
+            trace.push({ plan: plan.id, status: response.status, count: normalized.segments.length, matched: true });
             Metrics.recordFetchPlan(plan.id);
             Metrics.recordLookupTrace(trace);
-            return segments;
+            return normalized.segments;
           } catch (err) {
             if (err && err.name === "AbortError") throw err;
             if (err && err.status === 404) notFoundCount++;
@@ -688,6 +770,10 @@
           Metrics.recordFetchPlan(plans[plans.length - 1].id);
           return [];
         }
+        if (privacyNoMatch) {
+          Metrics.recordFetchPlan(plans[plans.length - 1].id);
+          return [];
+        }
         throw lastError || new Error("All SponsorBlock lookup plans failed");
       };
 
@@ -698,7 +784,7 @@
             return await fetchSegments(videoId, abortSignal);
           } catch (err) {
             lastError = err;
-            if (err.name === "AbortError") throw err;
+            if (err && err.name === "AbortError") throw err;
             if (attempt < MAX_RETRIES) {
               const delay = RETRY_BASE_MS * Math.pow(2, attempt);
               await new Promise(r => setTimeout(r, delay));
@@ -710,72 +796,101 @@
         throw lastError;
       };
 
+      const requestResponse = async (url, opts = {}, abortSignal = null) => {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), opts.timeoutMs || API_TIMEOUT_MS);
+        let onAbort = null;
+        if (abortSignal) {
+          if (abortSignal.aborted) {
+            clearTimeout(timeoutId);
+            throw new DOMException("Aborted", "AbortError");
+          }
+          onAbort = () => controller.abort();
+          abortSignal.addEventListener("abort", onAbort, { once: true });
+        }
+        try {
+          const response = await he(url, {
+            method: opts.method || "GET",
+            headers: opts.headers,
+            body: opts.body,
+            signal: controller.signal,
+          });
+          if (!response || !response.ok) {
+            const error = new Error("HTTP " + (response && response.status || 0));
+            error.status = response && response.status || 0;
+            throw error;
+          }
+          return response;
+        } finally {
+          clearTimeout(timeoutId);
+          if (abortSignal && onAbort) {
+            try { abortSignal.removeEventListener("abort", onAbort); } catch (_) {}
+          }
+        }
+      };
+
+      const currentVideoId = () => State.videoId || (ie && typeof ie.videoId === "function" ? ie.videoId() : null);
+
       const postVote = async (params) => {
-        if (!params || !params.UUID || !State.userId) return false;
+        const videoId = currentVideoId();
+        if (!params || !params.UUID || !State.userId || !VIDEO_ID_RE.test(String(videoId || ""))) return false;
         const base = Settings.getServerUrl();
-        const query = new URLSearchParams(Object.assign({ userID: State.userId }, params));
+        const query = new URLSearchParams(Object.assign({
+          UUID: params.UUID,
+          videoID: videoId,
+          userID: State.userId,
+        }, params));
         try {
           Metrics.recordVoteRequest();
-          const resp = await he(base + "/api/voteOnSponsorTime?" + query.toString(), {
-            method: "POST",
-            signal: AbortSignal.timeout(API_TIMEOUT_MS)
-          });
-          return resp.ok;
+          await requestResponse(base + "/api/voteOnSponsorTime?" + query.toString(), { method: "POST" });
+          return true;
         } catch (_) { return false; }
       };
 
-      const voteOnSegment = async (uuid, type) => {
-        return postVote({ UUID: uuid, type: String(type) });
-      };
-
-      const undoVote = async (uuid) => {
-        return postVote({ UUID: uuid, type: "20" });
-      };
-
-      const changeCategory = async (uuid, category) => {
-        if (!category) return false;
-        return postVote({ UUID: uuid, category: String(category) });
-      };
+      const voteOnSegment = async (uuid, type) => postVote({ UUID: uuid, type: String(type) });
+      const undoVote = async (uuid) => postVote({ UUID: uuid, type: "20" });
+      const changeCategory = async (uuid, category) => category ? postVote({ UUID: uuid, category: String(category) }) : false;
 
       const submitSegment = async (videoId, start, end, category, description = "") => {
-        if (!videoId || !State.userId) return false;
+        if (!VIDEO_ID_RE.test(String(videoId || "")) || !State.userId) return false;
+        const cleanStart = Number(start);
+        const cleanEnd = Number(end);
+        if (!Number.isFinite(cleanStart) || !Number.isFinite(cleanEnd) || cleanStart < 0 || cleanEnd <= cleanStart || cleanEnd > MAX_SEGMENT_TIME) return false;
         const base = Settings.getServerUrl();
+        const duration = ie && typeof ie.el === "function" && ie.el() ? Number(ie.el().duration) : 0;
         const bodyData = {
           videoID: videoId,
           userID: State.userId,
-          userAgent: "YT-zen/" + (typeof GM_info !== "undefined" ? GM_info.script.version : "3.7.2"),
+          userAgent: "YT-zen/" + (typeof GM_info !== "undefined" && GM_info.script ? GM_info.script.version : "3.9.0"),
           service: "YouTube",
+          videoDuration: Number.isFinite(duration) && duration > 0 ? duration : undefined,
           segments: [{
-            segment: [start, end],
-            category: category,
+            segment: [cleanStart, cleanEnd],
+            category: String(category || "sponsor"),
             actionType: actionTypeForCategory(category),
-            description: description
-          }]
+            description: String(description || "").slice(0, 500),
+          }],
         };
-
         try {
           Metrics.recordSubmitRequest();
-          const resp = await he(base + "/api/skipSegments", {
+          await requestResponse(base + "/api/skipSegments", {
             method: "POST",
-            headers: {
-              "Content-Type": "application/json"
-            },
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify(bodyData),
-            signal: AbortSignal.timeout(API_TIMEOUT_MS)
           });
-          return resp.ok;
+          return true;
         } catch (_) { return false; }
       };
 
       const reportViewed = async (uuid) => {
-        if (!uuid) return;
+        const videoId = currentVideoId();
+        if (!uuid || !VIDEO_ID_RE.test(String(videoId || ""))) return false;
         const base = Settings.getServerUrl();
         try {
           Metrics.recordViewedReport();
-          await he(base + "/api/viewedVideoSponsorTime?UUID=" + encodeURIComponent(uuid), {
-            method: "POST"
-          });
-        } catch (_) {}
+          await requestResponse(base + "/api/viewedVideoSponsorTime?UUID=" + encodeURIComponent(uuid) + "&videoID=" + encodeURIComponent(videoId), { method: "POST" });
+          return true;
+        } catch (_) { return false; }
       };
 
       const getUserInfo = async (userId, abortSignal, force = false) => {
@@ -810,6 +925,7 @@
         reportViewed,
         getUserInfo,
         hashPrefix,
+        normalizeSegments,
       };
     })();
 
@@ -864,8 +980,15 @@
       };
 
       const handlePlaybackTick = () => {
-        if (ie.isAd && ie.isAd()) return;
-        if (typeof _a === "function" && _a()) return;
+        if (State.hidden) return;
+        if (ie.isAd && ie.isAd()) {
+          resetMuteState();
+          return;
+        }
+        if (typeof _a === "function" && _a()) {
+          resetMuteState();
+          return;
+        }
 
         const videoEl = ie.el();
         if (!videoEl || videoEl.paused || videoEl.ended) {
@@ -1041,6 +1164,10 @@
       };
 
       const renderSeekbarMarks = () => {
+        if (State.hidden) {
+          clearMarks();
+          return;
+        }
         if (!S.sponsorblockOn || !S.sbSeekbar) {
           clearMarks();
           return;
@@ -1388,128 +1515,223 @@
     })();
 
     // ─── Orchestrator ────────────────────────────────────────────────────────
-    const performInit = async (videoId) => {
-      initUserId();
+    const attachLifecycleListeners = () => {
+      if (State.lifecycleAttached || typeof document === "undefined") return;
+      const cleanup = [];
+      const queueCurrentLookup = (force = false) => {
+        if (!S.sponsorblockOn) return;
+        const videoId = ie && typeof ie.videoId === "function" ? ie.videoId() : null;
+        if (!VIDEO_ID_RE.test(String(videoId || ""))) return;
+        if (!force && State.videoId === videoId) return;
+        Promise.resolve(init(videoId, force ? { revalidate: true } : {})).catch(() => {});
+      };
+      const onVisibility = () => {
+        if (document.visibilityState === "visible") {
+          const now = Date.now();
+          if (now - State.lastWakeLookupAt < 15000) return;
+          State.lastWakeLookupAt = now;
+          queueCurrentLookup(true);
+        }
+      };
+      const onNavigation = () => queueCurrentLookup(false);
+      const onMediaState = (event) => {
+        if (event.type === "timeupdate" && State.videoId) return;
+        queueCurrentLookup(false);
+      };
+      document.addEventListener("visibilitychange", onVisibility, { passive: true });
+      document.addEventListener("yt-navigate-finish", onNavigation, true);
+      document.addEventListener("loadedmetadata", onMediaState, true);
+      document.addEventListener("playing", onMediaState, true);
+      document.addEventListener("emptied", onMediaState, true);
+      cleanup.push(() => document.removeEventListener("visibilitychange", onVisibility));
+      cleanup.push(() => document.removeEventListener("yt-navigate-finish", onNavigation, true));
+      cleanup.push(() => document.removeEventListener("loadedmetadata", onMediaState, true));
+      cleanup.push(() => document.removeEventListener("playing", onMediaState, true));
+      cleanup.push(() => document.removeEventListener("emptied", onMediaState, true));
+      if (typeof window !== "undefined" && window.addEventListener) {
+        window.addEventListener("focus", onVisibility, { passive: true });
+        window.addEventListener("popstate", onNavigation, true);
+        cleanup.push(() => window.removeEventListener("focus", onVisibility));
+        cleanup.push(() => window.removeEventListener("popstate", onNavigation, true));
+      }
+      const dispose = () => {
+        while (cleanup.length) {
+          try { cleanup.pop()(); } catch (_) {}
+        }
+        State.lifecycleAttached = false;
+        State.lifecycleCleanup = null;
+      };
+      State.lifecycleAttached = true;
+      State.lifecycleCleanup = dispose;
+      if (Yt && Yt["sponsorblock"]) Yt["sponsorblock"].push(() => {
+        if (State.lifecycleCleanup === dispose) dispose();
+      });
+    };
 
-      if (State.abortController && State.initPromiseVideoId !== videoId) {
+    const detachLifecycleListeners = () => {
+      if (State.lifecycleCleanup) State.lifecycleCleanup();
+    };
+
+    const abortActiveRequests = () => {
+      if (State.abortController) {
         try { State.abortController.abort(); } catch (_) {}
         State.abortController = null;
       }
+      for (const controller of Array.from(State.backgroundControllers || [])) {
+        try { controller.abort(); } catch (_) {}
+      }
+      if (State.backgroundControllers) State.backgroundControllers.clear();
+    };
 
+    const canCommit = (videoId, generation) =>
+      State.videoId === videoId && State.generation === generation;
+
+    const applySegments = (videoId, generation, segments, hidden, meta = {}) => {
+      if (!canCommit(videoId, generation)) return false;
+      State.segments = Array.isArray(segments) ? segments.slice() : [];
+      Metrics.recordSegments(State.segments.length);
+      State.activeSegmentIndex = -1;
+      if (hidden) {
+        Player.detachListeners();
+        UI.clearMarks();
+      } else {
+        UI.invalidateRenderCache();
+        UI.renderSeekbarMarks();
+        Player.attachListeners();
+        UI.startWatchdog();
+      }
+      g.emit("sb.segments", Object.assign({
+        videoId,
+        count: State.segments.length,
+        cached: !!meta.cached,
+        stale: !!meta.stale,
+        hidden: !!hidden,
+      }, meta));
+      if (hidden) g.emit("sb.hidden", { videoId, hidden: true });
+      return true;
+    };
+
+    const fetchAndCache = async (videoId, configKey, abortSignal) => {
+      try {
+        const segments = await API.fetchWithRetry(videoId, abortSignal);
+        await Cache.set(videoId, configKey, segments);
+        return segments;
+      } catch (err) {
+        if (err && err.name === "AbortError") throw err;
+        Metrics.recordApiError();
+        try {
+          const fallback = await Cache.get(videoId, configKey, true);
+          return fallback && Array.isArray(fallback.data) ? fallback.data : [];
+        } catch (_) {
+          return [];
+        }
+      }
+    };
+
+    const performInit = async (videoId, options = {}) => {
+      initUserId();
+      const generation = ++State.generation;
+      abortActiveRequests();
       Player.resetMuteState();
       Player.detachListeners();
       State.videoId = null;
+      State.hidden = false;
       State.segments = [];
       State.processedUUIDs.clear();
       State.activeSegmentIndex = -1;
-
-      if (!videoId) {
-        UI.clearMarks();
-        return [];
-      }
-
-      if (await HiddenVideos.isHidden(videoId)) {
-        UI.clearMarks();
-        g.emit("sb.hidden", { videoId, hidden: true });
-        State.lastInitCompletedAt = Date.now();
-        return [];
-      }
-
-      if (!S.sponsorblockOn) {
-        UI.clearMarks();
-        State.lastInitCompletedAt = Date.now();
-        return [];
-      }
-
-      State.videoId = videoId;
       UI.clearMarks();
 
+      if (!videoId || !VIDEO_ID_RE.test(String(videoId))) {
+        State.lastInitCompletedAt = Date.now();
+        return [];
+      }
+      if (!S.sponsorblockOn) {
+        State.lastInitCompletedAt = Date.now();
+        return [];
+      }
+      if (options.force || options.revalidate) Cache.clearInFlightForVideo(videoId);
+
+      attachLifecycleListeners();
+      State.videoId = videoId;
+      // Hiding a video suppresses playback/UI actions, not the lookup. A
+      // hidden video's cache must still be refreshed so the next unhide is
+      // immediate and every watch navigation performs an API check.
+      const hidden = await HiddenVideos.isHidden(videoId);
+      if (!canCommit(videoId, generation)) return [];
+      State.hidden = hidden;
       const configKey = Settings.getConfigKey();
       const inFlightKey = videoId + ":" + configKey;
 
       try {
-        let cached = await Cache.get(videoId, configKey, false);
+        const cached = await Cache.get(videoId, configKey, false);
+        if (!canCommit(videoId, generation)) return [];
 
         if (cached && cached.fresh) {
-          State.segments = cached.data;
-          Metrics.recordSegments(State.segments.length);
-          UI.renderSeekbarMarks();
-          Player.attachListeners();
-          UI.startWatchdog();
-          g.emit("sb.segments", { videoId, count: State.segments.length, cached: true });
-          backgroundRefresh(videoId, configKey, inFlightKey);
+          applySegments(videoId, generation, cached.data, hidden, { cached: true });
+          // Do not trust a fresh cache as the final authority: revalidate on
+          // every video load, while deduplicating concurrent lookups.
+          backgroundRefresh(videoId, configKey, inFlightKey, generation);
           State.lastInitCompletedAt = Date.now();
           return State.segments.slice();
         }
 
-        let staleData = cached || await Cache.get(videoId, configKey, true);
-        if (staleData) {
-          State.segments = staleData.data;
-          Metrics.recordSegments(State.segments.length);
-          UI.renderSeekbarMarks();
-          Player.attachListeners();
-          UI.startWatchdog();
-          g.emit("sb.segments", { videoId, count: State.segments.length, cached: true, stale: true });
+        const stale = cached || await Cache.get(videoId, configKey, true);
+        if (stale && canCommit(videoId, generation)) {
+          applySegments(videoId, generation, stale.data, hidden, { cached: true, stale: true });
         }
 
-        const existing = Cache.getInFlight(inFlightKey);
-        if (existing) {
+        let fetchPromise = Cache.getInFlight(inFlightKey);
+        if (fetchPromise) {
           Metrics.recordDeduped();
-          State.segments = await existing;
         } else {
-          State.abortController = new AbortController();
-          const fetchPromise = (async () => {
-            try {
-              const segments = await API.fetchWithRetry(videoId, State.abortController.signal);
-              Metrics.recordSegments(segments.length);
-              await Cache.set(videoId, configKey, segments);
-              return segments;
-            } catch (err) {
-              if (err.name === "AbortError") return State.segments;
-              Metrics.recordApiError();
-              const fallback = await Cache.get(videoId, configKey, true);
-              return (fallback && fallback.data) || State.segments;
-            }
-          })();
-
+          const controller = new AbortController();
+          State.abortController = controller;
+          fetchPromise = fetchAndCache(videoId, configKey, controller.signal);
           Cache.setInFlight(inFlightKey, fetchPromise);
-          const freshSegments = await fetchPromise;
-          Cache.clearInFlight(inFlightKey);
-
-          if (State.videoId === videoId) {
-            State.segments = freshSegments;
-            UI.invalidateRenderCache();
-            UI.renderSeekbarMarks();
-            Player.attachListeners();
-            UI.startWatchdog();
-            g.emit("sb.segments", { videoId, count: State.segments.length, cached: false });
-          }
+          fetchPromise.then(
+            () => Cache.clearInFlight(inFlightKey, fetchPromise),
+            () => Cache.clearInFlight(inFlightKey, fetchPromise),
+          );
         }
+
+        const freshSegments = await fetchPromise;
+        if (canCommit(videoId, generation)) {
+          applySegments(videoId, generation, freshSegments, hidden, { cached: false });
+          State.lastInitCompletedAt = Date.now();
+        }
+        return canCommit(videoId, generation) ? State.segments.slice() : [];
       } catch (err) {
-        if (err.name !== "AbortError") {
+        if (err && err.name !== "AbortError") {
           try { h("[SB] init error for " + videoId + ":", err); } catch (_) {}
           Metrics.recordApiError();
         }
-        State.segments = [];
+        if (canCommit(videoId, generation)) {
+          // A stale cache may already be displayed; do not erase it on a
+          // transient failure. Cold-cache failures simply expose no segments.
+          if (!State.segments.length) applySegments(videoId, generation, [], hidden, { cached: false, error: true });
+          State.lastInitCompletedAt = Date.now();
+          return State.segments.slice();
+        }
+        return [];
+      } finally {
+        if (State.abortController && State.abortController.signal && State.abortController.signal.aborted) {
+          State.abortController = null;
+        }
       }
-      State.lastInitCompletedAt = Date.now();
-      return State.segments.slice();
     };
 
     const init = async (videoId, opts = {}) => {
       const force = !!(opts && opts.force);
+      const revalidate = !!(opts && opts.revalidate);
       const recentWindowMs = 2000;
-
       if (!force && State.initPromise && State.initPromiseVideoId === videoId) {
         Metrics.recordDeduped();
         return State.initPromise;
       }
-
-      if (!force && videoId && State.videoId === videoId && Date.now() - State.lastInitCompletedAt < recentWindowMs) {
+      if (!force && !revalidate && videoId && State.videoId === videoId && Date.now() - State.lastInitCompletedAt < recentWindowMs) {
         return State.segments.slice();
       }
-
-      const promise = performInit(videoId).finally(() => {
+      const promise = performInit(videoId, { force, revalidate }).finally(() => {
         if (State.initPromise === promise) {
           State.initPromise = null;
           State.initPromiseVideoId = null;
@@ -1520,38 +1742,43 @@
       return promise;
     };
 
-    const backgroundRefresh = async (videoId, configKey, inFlightKey) => {
-      if (Cache.getInFlight(inFlightKey)) return;
-
-      const refreshPromise = (async () => {
-        try {
-          const ctrl = new AbortController();
-          const segments = await API.fetchWithRetry(videoId, ctrl.signal);
-          await Cache.set(videoId, configKey, segments);
-          if (State.videoId === videoId) {
-            State.segments = segments;
-            UI.invalidateRenderCache();
-            UI.renderSeekbarMarks();
-          }
+    const backgroundRefresh = async (videoId, configKey, inFlightKey, generation) => {
+      if (Cache.getInFlight(inFlightKey)) return Cache.getInFlight(inFlightKey);
+      const controller = new AbortController();
+      if (!State.backgroundControllers) State.backgroundControllers = new Set();
+      State.backgroundControllers.add(controller);
+      const refreshPromise = fetchAndCache(videoId, configKey, controller.signal)
+        .then((segments) => {
+          if (canCommit(videoId, generation)) applySegments(videoId, generation, segments, State.hidden, { cached: false, background: true });
           return segments;
-        } catch (_) {
-          return State.segments;
-        }
-      })();
-
+        })
+        .catch((err) => {
+          if (err && err.name !== "AbortError") Metrics.recordApiError();
+          return [];
+        })
+        .finally(() => {
+          State.backgroundControllers && State.backgroundControllers.delete(controller);
+          Cache.clearInFlight(inFlightKey, refreshPromise);
+        });
       Cache.setInFlight(inFlightKey, refreshPromise);
-      refreshPromise.finally(() => Cache.clearInFlight(inFlightKey));
+      return refreshPromise;
     };
 
     const destroy = () => {
-      if (State.abortController) {
-        try { State.abortController.abort(); } catch (_) {}
-        State.abortController = null;
-      }
+      const previousVideoId = State.videoId;
+      State.generation++;
+      abortActiveRequests();
+      detachLifecycleListeners();
+      Cache.clearInFlightForVideo(previousVideoId);
+      // Do not let a promise from a disabled feature suppress the next
+      // enable/navigation lookup.
+      State.initPromise = null;
+      State.initPromiseVideoId = null;
       Player.detachListeners();
       Player.resetMuteState();
       UI.stopWatchdog();
       State.videoId = null;
+      State.hidden = false;
       State.segments = [];
       State.processedUUIDs.clear();
       State.activeSegmentIndex = -1;
@@ -1607,7 +1834,7 @@
       segments: State.segments.length,
       lastFetchPlan: State.lastFetchPlan || "",
       lastLookupTrace: State.lastLookupTrace.slice(),
-      hidden: State.videoId ? false : null,
+      hidden: State.videoId ? !!State.hidden : null,
     });
 
     return {
@@ -1628,6 +1855,7 @@
       stats: () => Metrics.snapshot(),
       metrics: () => Metrics.snapshot(),
       debugInfo,
+      getActionOptions: Settings.getActionOptions,
       getSegments: () => State.segments.slice(),
       api: {
         fetchWithRetry: API.fetchWithRetry,
@@ -1638,6 +1866,7 @@
         reportViewed: API.reportViewed,
         getUserInfo: API.getUserInfo,
         hashPrefix: API.hashPrefix,
+        normalizeSegments: API.normalizeSegments,
       },
       toggleSubmissionEditor: () => UI.toggleSubmissionEditor()
     };

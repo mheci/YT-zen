@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YT-zen
 // @namespace    https://github.com/mheci/YT-zen
-// @version      3.7.2
+// @version      3.9.0
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      Unlicense
@@ -778,7 +778,7 @@
       ("undefined" != typeof GM_info &&
         GM_info.script &&
         GM_info.script.version) ||
-      "3.7.2",
+      "3.9.0",
     r = "https://sponsor.ajay.app",
     o = (() => {
       try {
@@ -1835,108 +1835,119 @@
     };
   }
   // ═══════════════════════════════════════════════════════════════════════════
-  //  ZenResources — Memory Safety & Resource Efficiency Layer
-  // ---------------------------------------------------------------------------
-  //  Consolidated infrastructure for preventing memory leaks, reducing CPU
-  //  overhead, and bounding resource usage across all features.
-  //
-  //  Components:
-  //    BoundedCache     — LRU cache with TTLs, eviction hooks, and diagnostics
-  //    WeakElementCache — WeakRef/FinalizationRegistry-backed DOM cache helpers
-  //    SharedObserver   — Shared MutationObserver with batched subscriber dispatch
-  //    SharedTicker     — Visibility-aware cooperative scheduler for periodic work
-  //    TrackedBlobURL   — Blob URL tracker with auto-revoke and byte accounting
-  //    DeferredTask     — Idle/deferred task queue with cancellation and debounce
-  //    AbortGroup       — Grouped AbortController lifecycle management
-  //    ResourceScope    — Disposable resource bag for timers, observers, blobs, aborts
+  //  ZenResources — bounded, disposable, visibility-aware resource primitives
   // ═══════════════════════════════════════════════════════════════════════════
-
   const ZenResources = (() => {
     "use strict";
 
     const now = () => Date.now();
-    const isFiniteNumber = (value) => typeof value === "number" && isFinite(value);
-    const asPositiveInt = (value, fallback) => {
-      const n = Number(value);
-      return isFinite(n) && n > 0 ? Math.max(1, Math.floor(n)) : fallback;
+    const finite = (value, fallback = 0) => {
+      const number = Number(value);
+      return Number.isFinite(number) ? number : fallback;
+    };
+    const positiveInt = (value, fallback) => Math.max(1, Math.floor(finite(value, fallback)) || fallback);
+    const getDocument = () => (typeof document !== "undefined" ? document : null);
+    const isHidden = () => {
+      const doc = getDocument();
+      return !!(doc && doc.hidden);
+    };
+    const reportAsyncError = (value) => {
+      if (!value || typeof value.then !== "function") return;
+      value.catch(() => {});
     };
 
     // ─── BoundedCache ────────────────────────────────────────────────────────
+    // A real LRU cache. Values are kept in a Map whose insertion order is the
+    // recency order; every successful get promotes the key to the newest slot.
     class BoundedCache {
       constructor(maxSize = 128, name = "cache", options = {}) {
-        if (typeof name === "object" && name) {
+        if (typeof maxSize === "object" && maxSize) {
+          options = maxSize;
+          maxSize = options.maxSize || 128;
+          name = options.name || "cache";
+        } else if (typeof name === "object" && name) {
           options = name;
           name = options.name || "cache";
         }
         this._map = new Map();
-        this._max = asPositiveInt(maxSize, 128);
+        this._max = positiveInt(maxSize, 128);
         this._name = String(name || "cache");
-        this._ttl = Math.max(0, Number(options.ttlMs || 0) || 0);
+        this._ttl = Math.max(0, finite(options.ttlMs, 0));
         this._onEvict = typeof options.onEvict === "function" ? options.onEvict : null;
+        this._pending = new Map();
         this._hits = 0;
         this._misses = 0;
         this._evictions = 0;
         this._expired = 0;
       }
-      _makeEntry(value, ttlMs) {
-        const ts = now();
-        const ttl = isFiniteNumber(ttlMs) ? Math.max(0, ttlMs) : this._ttl;
+
+      _entry(value, ttlMs) {
+        const createdAt = now();
+        const ttl = Math.max(0, finite(ttlMs, this._ttl));
         return {
           value,
-          createdAt: ts,
-          updatedAt: ts,
-          expiresAt: ttl > 0 ? ts + ttl : 0,
+          createdAt,
+          updatedAt: createdAt,
+          expiresAt: ttl > 0 ? createdAt + ttl : 0,
           hits: 0,
         };
       }
-      _isExpired(entry) {
-        return !!(entry && entry.expiresAt && entry.expiresAt <= now());
+
+      _expiredEntry(entry) {
+        return !!(entry && entry.expiresAt > 0 && entry.expiresAt <= now());
       }
-      _notifyEviction(key, entry, reason) {
+
+      _notify(key, entry, reason) {
         this._evictions++;
         if (reason === "expired") this._expired++;
         if (this._onEvict) {
           try { this._onEvict(key, entry ? entry.value : undefined, reason); } catch (_) {}
         }
       }
-      _deleteInternal(key, reason) {
+
+      _remove(key, reason = "delete") {
         if (!this._map.has(key)) return false;
         const entry = this._map.get(key);
         this._map.delete(key);
-        this._notifyEviction(key, entry, reason || "delete");
+        this._notify(key, entry, reason);
         return true;
       }
+
       _promote(key, entry) {
         this._map.delete(key);
         entry.updatedAt = now();
         this._map.set(key, entry);
       }
-      _evictOverflow() {
+
+      _trim() {
         while (this._map.size > this._max) {
           const oldest = this._map.keys().next().value;
           if (oldest === undefined) break;
-          this._deleteInternal(oldest, "capacity");
+          this._remove(oldest, "capacity");
         }
       }
+
       cleanupExpired(limit = Infinity) {
+        const max = Math.max(0, finite(limit, Infinity));
         let removed = 0;
         for (const [key, entry] of Array.from(this._map.entries())) {
-          if (removed >= limit) break;
-          if (this._isExpired(entry)) {
-            this._deleteInternal(key, "expired");
+          if (removed >= max) break;
+          if (this._expiredEntry(entry)) {
+            this._remove(key, "expired");
             removed++;
           }
         }
         return removed;
       }
+
       get(key, fallback) {
         const entry = this._map.get(key);
         if (!entry) {
           this._misses++;
           return fallback;
         }
-        if (this._isExpired(entry)) {
-          this._deleteInternal(key, "expired");
+        if (this._expiredEntry(entry)) {
+          this._remove(key, "expired");
           this._misses++;
           return fallback;
         }
@@ -1945,69 +1956,84 @@
         this._promote(key, entry);
         return entry.value;
       }
+
       peek(key, fallback) {
         const entry = this._map.get(key);
         if (!entry) return fallback;
-        if (this._isExpired(entry)) {
-          this._deleteInternal(key, "expired");
+        if (this._expiredEntry(entry)) {
+          this._remove(key, "expired");
           return fallback;
         }
         return entry.value;
       }
+
       set(key, value, ttlMs) {
+        this._pending.delete(key);
         if (this._map.has(key)) this._map.delete(key);
-        this._map.set(key, this._makeEntry(value, ttlMs));
-        this._evictOverflow();
+        this._map.set(key, this._entry(value, ttlMs));
+        this._trim();
         return value;
       }
+
       getOrSet(key, factory, ttlMs) {
-        const existing = this.get(key);
-        if (existing !== undefined) return existing;
+        const existing = this.peek(key);
+        if (existing !== undefined || this._map.has(key)) return this.get(key);
+        const pending = this._pending.get(key);
+        if (pending) return pending;
         const value = typeof factory === "function" ? factory(key) : factory;
         if (value && typeof value.then === "function") {
-          return value.then((resolved) => {
-            this.set(key, resolved, ttlMs);
+          let pendingPromise;
+          pendingPromise = Promise.resolve(value).then((resolved) => {
+            if (this._pending.get(key) === pendingPromise) {
+              this._pending.delete(key);
+              this.set(key, resolved, ttlMs);
+            }
             return resolved;
+          }, (error) => {
+            if (this._pending.get(key) === pendingPromise) this._pending.delete(key);
+            throw error;
           });
+          this._pending.set(key, pendingPromise);
+          return pendingPromise;
         }
-        this.set(key, value, ttlMs);
-        return value;
+        return this.set(key, value, ttlMs);
       }
+
       touch(key, ttlMs) {
         const entry = this._map.get(key);
-        if (!entry || this._isExpired(entry)) {
-          if (entry) this._deleteInternal(key, "expired");
+        if (!entry || this._expiredEntry(entry)) {
+          if (entry) this._remove(key, "expired");
           return false;
         }
-        const ttl = isFiniteNumber(ttlMs) ? Math.max(0, ttlMs) : this._ttl;
-        entry.expiresAt = ttl > 0 ? now() + ttl : entry.expiresAt;
+        const ttl = Math.max(0, finite(ttlMs, this._ttl));
+        if (ttl > 0) entry.expiresAt = now() + ttl;
         this._promote(key, entry);
         return true;
       }
-      has(key) {
-        return this.peek(key) !== undefined;
-      }
-      delete(key) {
-        return this._deleteInternal(key, "delete");
-      }
+
+      has(key) { return this.peek(key) !== undefined; }
+      delete(key) { return this._remove(key); }
       clear() {
-        for (const key of Array.from(this._map.keys())) this._deleteInternal(key, "clear");
+        this._pending.clear();
+        for (const key of Array.from(this._map.keys())) this._remove(key, "clear");
       }
       keys() { this.cleanupExpired(); return Array.from(this._map.keys()); }
       values() { this.cleanupExpired(); return Array.from(this._map.values(), (entry) => entry.value); }
       entries() { this.cleanupExpired(); return Array.from(this._map.entries(), ([key, entry]) => [key, entry.value]); }
       get size() { this.cleanupExpired(); return this._map.size; }
+
       stats() {
         this.cleanupExpired();
         const total = this._hits + this._misses;
         return {
           name: this._name,
           size: this._map.size,
+          pending: this._pending.size,
           max: this._max,
           ttlMs: this._ttl,
           hits: this._hits,
           misses: this._misses,
-          hitRate: total > 0 ? Math.round((this._hits / total) * 100) : 0,
+          hitRate: total ? Math.round((this._hits / total) * 100) : 0,
           evictions: this._evictions,
           expired: this._expired,
           usagePercent: Math.round((this._map.size / this._max) * 100),
@@ -2016,73 +2042,74 @@
     }
 
     // ─── WeakElementCache ────────────────────────────────────────────────────
+    // Finalization callbacks are tagged with the entry token. Without that
+    // check, an old element finalized after a key was replaced could delete
+    // the newer element stored under the same key.
     class WeakElementCache {
       constructor(name = "weak-cache") {
         this._map = new Map();
         this._name = String(name || "weak-cache");
-        this._cleaned = 0;
         this._created = 0;
+        this._cleaned = 0;
         this._registry = typeof FinalizationRegistry === "function"
-          ? new FinalizationRegistry((key) => {
-              const entry = this._map.get(key);
-              if (!entry) return;
-              this._map.delete(key);
+          ? new FinalizationRegistry((held) => {
+              const entry = this._map.get(held.key);
+              if (!entry || entry.token !== held.token) return;
+              this._map.delete(held.key);
               this._cleaned++;
             })
           : null;
       }
-      _normalizeEntry(key, element) {
-        const token = { key, ts: now() };
-        const ref = typeof WeakRef === "function"
-          ? new WeakRef(element)
-          : { deref: () => element };
-        return { ref, token };
-      }
+
       set(key, element) {
-        if (!element || typeof element !== "object") return null;
+        if (!element || (typeof element !== "object" && typeof element !== "function")) return null;
         this.delete(key);
-        const entry = this._normalizeEntry(key, element);
-        this._map.set(key, entry);
+        const token = {};
+        const ref = typeof WeakRef === "function" ? new WeakRef(element) : { deref: () => element };
+        this._map.set(key, { ref, token });
         this._created++;
         if (this._registry) {
-          try { this._registry.register(element, key, entry.token); } catch (_) {}
+          try { this._registry.register(element, { key, token }, token); } catch (_) {}
         }
         return element;
       }
+
       get(key) {
         const entry = this._map.get(key);
         if (!entry) return null;
-        const el = entry.ref && typeof entry.ref.deref === "function" ? entry.ref.deref() : null;
-        if (!el) {
+        const element = entry.ref && typeof entry.ref.deref === "function" ? entry.ref.deref() : null;
+        if (!element) {
           this._map.delete(key);
           this._cleaned++;
           return null;
         }
-        return el;
+        return element;
       }
+
       getOrSet(key, factory) {
         const existing = this.get(key);
         if (existing) return existing;
         if (typeof factory !== "function") return null;
         const created = factory(key);
-        if (created) this.set(key, created);
-        return created || null;
+        return created ? this.set(key, created) : null;
       }
+
       cleanupDisconnected() {
         let removed = 0;
-        for (const [key] of Array.from(this._map.entries())) {
-          const el = this.get(key);
-          if (!el) { removed++; continue; }
-          if (typeof el.isConnected === "boolean" && !el.isConnected) {
+        for (const key of Array.from(this._map.keys())) {
+          const element = this.get(key);
+          if (!element) {
+            removed++;
+          } else if (typeof element.isConnected === "boolean" && !element.isConnected) {
             this.delete(key);
             removed++;
           }
         }
         return removed;
       }
-      has(key) {
-        return this.get(key) !== null;
-      }
+
+      has(key) { return this.get(key) !== null; }
+
       delete(key) {
         const entry = this._map.get(key);
         if (!entry) return false;
@@ -2092,145 +2119,197 @@
         this._map.delete(key);
         return true;
       }
-      clear() {
-        for (const key of Array.from(this._map.keys())) this.delete(key);
-      }
+
+      clear() { for (const key of Array.from(this._map.keys())) this.delete(key); }
       get size() { return this._map.size; }
-      stats() {
-        return {
-          name: this._name,
-          size: this._map.size,
-          cleaned: this._cleaned,
-          created: this._created,
-        };
-      }
+      stats() { return { name: this._name, size: this._map.size, cleaned: this._cleaned, created: this._created }; }
     }
 
     // ─── SharedObserver ──────────────────────────────────────────────────────
     const SharedObserver = (() => {
       let observer = null;
       let observedRoot = null;
-      let pendingFlush = false;
-      let mutationBatch = [];
-      let nextId = 1;
-      const subscribers = new Map();
+      let flushTimer = 0;
       let rearmTimer = 0;
+      let pendingBatch = [];
+      let nextId = 1;
+      let observerKey = "";
+      const subscribers = new Map();
 
       const scheduleFlush = () => {
-        if (pendingFlush) return;
-        pendingFlush = true;
-        const runner = () => flush();
-        if (typeof requestAnimationFrame === "function" && !document.hidden) requestAnimationFrame(runner);
-        else setTimeout(runner, 16);
+        if (flushTimer || !pendingBatch.length) return;
+        const doc = getDocument();
+        const flush = () => {
+          flushTimer = 0;
+          const batch = pendingBatch;
+          pendingBatch = [];
+          for (const [id, sub] of subscribers) {
+            const relevant = (sub.target || sub.selector || sub.predicate)
+              ? batch.filter((mutation) => isRelevantMutation(mutation, sub))
+              : batch;
+            if (!relevant.length && !sub.fireOnEmpty) continue;
+            try { reportAsyncError(sub.callback(relevant, { id, root: observedRoot, total: batch.length })); } catch (_) {}
+          }
+        };
+        if (typeof requestAnimationFrame === "function" && doc && !doc.hidden) {
+          flushTimer = requestAnimationFrame(flush);
+        } else {
+          flushTimer = setTimeout(flush, 16);
+        }
       };
 
       const isRelevantMutation = (mutation, sub) => {
         if (!mutation || !sub) return false;
         if (!sub.target && !sub.selector && !sub.predicate) return true;
-        const target = sub.target;
-        if (target) {
+        if (sub.target) {
+          const target = sub.target;
           if (mutation.target === target) return true;
-          if (typeof target.contains === "function") {
-            if (target.contains(mutation.target)) return true;
-            for (const node of mutation.addedNodes || []) {
-              if (node === target || (node && typeof node.contains === "function" && node.contains(target)) || (target.contains && target.contains(node))) return true;
-            }
+          if (typeof target.contains === "function" && target.contains(mutation.target)) return true;
+          for (const node of mutation.addedNodes || []) {
+            if (node === target) return true;
+            if (target && typeof target.contains === "function" && target.contains(node)) return true;
+            if (node && typeof node.contains === "function" && node.contains(target)) return true;
           }
         }
         if (sub.selector) {
-          const selector = sub.selector;
-          const matchesNode = (node) => !!(node && node.nodeType === 1 && typeof node.matches === "function" && node.matches(selector));
-          if (matchesNode(mutation.target)) return true;
+          const matches = (node) => !!(node && node.nodeType === 1 && typeof node.matches === "function" && node.matches(sub.selector));
+          if (matches(mutation.target)) return true;
           for (const node of mutation.addedNodes || []) {
-            if (matchesNode(node)) return true;
-            if (node && node.nodeType === 1 && typeof node.querySelector === "function" && node.querySelector(selector)) return true;
+            if (matches(node)) return true;
+            if (node && node.nodeType === 1 && typeof node.querySelector === "function" && node.querySelector(sub.selector)) return true;
           }
         }
-        if (typeof sub.predicate === "function") {
+        if (sub.predicate) {
           try { return !!sub.predicate(mutation); } catch (_) { return false; }
         }
         return false;
       };
 
-      const flush = () => {
-        pendingFlush = false;
-        const batch = mutationBatch;
-        mutationBatch = [];
-        for (const [id, sub] of subscribers) {
-          if (!sub) continue;
-          let relevant = batch;
-          if (sub.target || sub.selector || sub.predicate) {
-            relevant = batch.filter((mutation) => isRelevantMutation(mutation, sub));
-          }
-          if (!relevant.length && !sub.fireOnEmpty) continue;
-          try { sub.callback(relevant, { id, root: observedRoot, total: batch.length }); } catch (_) {}
-        }
+      const getRoot = () => {
+        const doc = getDocument();
+        return doc && (doc.body || doc.documentElement);
       };
 
-      const getRoot = () => document.body || document.documentElement || null;
+      const getObserverConfig = () => {
+        let attributes = false;
+        let characterData = false;
+        let attributeFilter = null;
+        for (const sub of subscribers.values()) {
+          attributes = attributes || sub.attributes;
+          characterData = characterData || sub.characterData;
+          if (sub.attributeFilter && sub.attributeFilter.length) {
+            attributeFilter = attributeFilter || new Set();
+            sub.attributeFilter.forEach((name) => attributeFilter.add(name));
+          }
+        }
+        const filter = attributeFilter ? Array.from(attributeFilter).sort() : [];
+        return {
+          childList: true,
+          subtree: true,
+          attributes,
+          characterData,
+          attributeFilter: attributes && filter.length ? filter : undefined,
+        };
+      };
+
+      const configKey = (config) => JSON.stringify([
+        config.childList,
+        config.subtree,
+        config.attributes,
+        config.characterData,
+        config.attributeFilter || [],
+      ]);
 
       const ensureObserver = () => {
         if (!subscribers.size) return;
         const root = getRoot();
-        if (!root) {
+        if (!root || typeof MutationObserver !== "function") {
           if (!rearmTimer) {
             rearmTimer = setTimeout(() => {
               rearmTimer = 0;
               ensureObserver();
-            }, 50);
+            }, 100);
           }
           return;
         }
-        if (observer && observedRoot === root) return;
+        const config = getObserverConfig();
+        const key = configKey(config);
+        if (observer && observedRoot === root && observerKey === key) return;
         if (observer) {
           try { observer.disconnect(); } catch (_) {}
-          observer = null;
         }
+        observerKey = key;
         observedRoot = root;
         observer = new MutationObserver((mutations) => {
-          mutationBatch.push(...mutations);
+          if (!mutations || !mutations.length) return;
+          pendingBatch.push(...mutations);
           scheduleFlush();
         });
-        observer.observe(root, { childList: true, subtree: true });
+        try { observer.observe(root, config); } catch (_) {
+          try { observer.disconnect(); } catch (_) {}
+          observer = null;
+          observedRoot = null;
+          observerKey = "";
+        }
       };
 
       const subscribe = (callback, options = {}) => {
+        if (typeof callback !== "function") return 0;
         const id = nextId++;
         subscribers.set(id, {
           callback,
           target: options.target || null,
-          selector: typeof options.selector === "string" && options.selector ? options.selector : "",
+          selector: typeof options.selector === "string" ? options.selector : "",
           predicate: typeof options.predicate === "function" ? options.predicate : null,
           fireOnEmpty: !!options.fireOnEmpty,
+          attributes: !!options.attributes,
+          characterData: !!options.characterData,
+          attributeFilter: Array.isArray(options.attributeFilter) ? options.attributeFilter.slice() : [],
         });
         ensureObserver();
         if (options.immediate) {
-          try { callback([], { id, root: observedRoot, total: 0, immediate: true }); } catch (_) {}
+          try { reportAsyncError(callback([], { id, root: observedRoot, total: 0, immediate: true })); } catch (_) {}
         }
         return id;
       };
 
       const unsubscribe = (id) => {
-        subscribers.delete(id);
-        if (subscribers.size === 0 && observer) {
-          try { observer.disconnect(); } catch (_) {}
-          observer = null;
-          observedRoot = null;
-          mutationBatch = [];
-          pendingFlush = false;
-        }
+        const removed = subscribers.delete(id);
+        if (!subscribers.size) clear();
+        else if (removed) ensureObserver();
+        return removed;
       };
 
-      const refresh = () => ensureObserver();
+      const clear = () => {
+        subscribers.clear();
+        if (rearmTimer) clearTimeout(rearmTimer);
+        rearmTimer = 0;
+        if (flushTimer) {
+          if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(flushTimer);
+          clearTimeout(flushTimer);
+        }
+        flushTimer = 0;
+        pendingBatch = [];
+        if (observer) {
+          try { observer.disconnect(); } catch (_) {}
+        }
+        observer = null;
+        observedRoot = null;
+        observerKey = "";
+      };
 
-      const stats = () => ({
-        subscribers: subscribers.size,
-        active: observer !== null,
-        root: observedRoot ? (observedRoot.tagName || "document") : null,
-        pendingMutations: mutationBatch.length,
-      });
-
-      return { subscribe, unsubscribe, refresh, stats };
+      return {
+        subscribe,
+        unsubscribe,
+        refresh: ensureObserver,
+        clear,
+        stats: () => ({
+          subscribers: subscribers.size,
+          active: observer !== null,
+          root: observedRoot ? (observedRoot.tagName || "document") : null,
+          pendingMutations: pendingBatch.length,
+        }),
+      };
     })();
 
     // ─── SharedTicker ────────────────────────────────────────────────────────
@@ -2242,111 +2321,118 @@
       const MIN_DELAY_MS = 16;
       const MAX_DELAY_MS = 1000;
 
-      const stopTimer = () => {
+      const stop = () => {
         if (!timerId) return;
         clearTimeout(timerId);
         timerId = 0;
       };
 
-      const computeNextDelay = () => {
-        const ts = now();
+      const hasRunnableTask = () => {
+        for (const task of tasks.values()) if (!task.pauseHidden || !isHidden()) return true;
+        return false;
+      };
+
+      const nextDelay = () => {
+        const timestamp = now();
         let delay = MAX_DELAY_MS;
-        for (const [, task] of tasks) {
-          if (!task) continue;
-          if (task.pauseHidden && document.hidden) continue;
-          const remaining = Math.max(0, task.intervalMs - (ts - task.lastRun));
-          delay = Math.min(delay, remaining || MIN_DELAY_MS);
+        for (const task of tasks.values()) {
+          if (task.pauseHidden && isHidden()) continue;
+          delay = Math.min(delay, Math.max(0, task.intervalMs - (timestamp - task.lastRun)));
         }
         return Math.max(MIN_DELAY_MS, Math.min(delay, MAX_DELAY_MS));
       };
 
       const schedule = () => {
-        if (timerId || tasks.size === 0) return;
-        timerId = setTimeout(run, computeNextDelay());
+        if (timerId || !tasks.size || !hasRunnableTask()) return;
+        timerId = setTimeout(run, nextDelay());
       };
 
       const run = () => {
         timerId = 0;
-        const ts = now();
-        lastTickAt = ts;
+        const timestamp = now();
+        lastTickAt = timestamp;
         for (const [id, task] of Array.from(tasks.entries())) {
-          if (!task) continue;
-          if (task.pauseHidden && document.hidden) continue;
-          if (ts - task.lastRun < task.intervalMs) continue;
-          task.lastRun = ts;
-          try { task.callback({ id, now: ts, label: task.label, intervalMs: task.intervalMs }); } catch (_) {}
+          if (task.pauseHidden && isHidden()) continue;
+          if (timestamp - task.lastRun < task.intervalMs) continue;
+          task.lastRun = timestamp;
+          try { reportAsyncError(task.callback({ id, now: timestamp, label: task.label, intervalMs: task.intervalMs })); } catch (_) {}
           if (task.once) tasks.delete(id);
         }
-        if (tasks.size) schedule();
+        schedule();
       };
 
-      const add = (callback, intervalMs, opts = {}) => {
+      const add = (callback, intervalMs, options = {}) => {
+        if (typeof callback !== "function") return 0;
         const id = nextId++;
+        const interval = Math.max(MIN_DELAY_MS, finite(intervalMs, MIN_DELAY_MS));
         tasks.set(id, {
           callback,
-          intervalMs: Math.max(MIN_DELAY_MS, Number(intervalMs) || 0),
-          lastRun: opts.immediate ? 0 : now(),
-          pauseHidden: opts.pauseHidden !== false,
-          once: !!opts.once,
-          label: String(opts.label || "ticker-task"),
+          intervalMs: interval,
+          lastRun: options.immediate ? 0 : now(),
+          pauseHidden: options.pauseHidden !== false,
+          once: !!options.once,
+          label: String(options.label || "ticker-task"),
         });
         schedule();
-        if (opts.immediate) {
-          stopTimer();
-          schedule();
-        }
         return id;
       };
 
       const remove = (id) => {
-        const existed = tasks.delete(id);
-        if (!tasks.size) stopTimer();
-        return existed;
+        const removed = tasks.delete(id);
+        if (!tasks.size || !hasRunnableTask()) stop();
+        return removed;
       };
 
       const poke = () => {
-        stopTimer();
-        if (tasks.size) schedule();
+        stop();
+        schedule();
       };
 
       const clear = () => {
         tasks.clear();
-        stopTimer();
+        stop();
       };
 
-      if (typeof document !== "undefined" && document && document.addEventListener) {
+      if (getDocument() && typeof document.addEventListener === "function") {
         document.addEventListener("visibilitychange", () => {
-          if (!document.hidden) poke();
+          if (isHidden()) stop();
+          else poke();
         }, true);
       }
 
-      const stats = () => ({
-        tasks: tasks.size,
-        timerActive: timerId !== 0,
-        lastTickAt,
-        labels: Array.from(tasks.values(), (task) => task.label),
-      });
-
-      return { add, remove, poke, clear, stats };
+      return {
+        add,
+        remove,
+        poke,
+        clear,
+        stats: () => ({
+          tasks: tasks.size,
+          timerActive: timerId !== 0,
+          lastTickAt,
+          labels: Array.from(tasks.values(), (task) => task.label),
+        }),
+      };
     })();
 
     // ─── TrackedBlobURL ──────────────────────────────────────────────────────
     const TrackedBlobURL = (() => {
       const active = new Map();
+      const urlApi = () => (typeof URL !== "undefined" ? URL : null);
 
       const create = (blob, label = "blob", options = {}) => {
-        const url = URL.createObjectURL(blob);
+        const api = urlApi();
+        if (!api || typeof api.createObjectURL !== "function" || !blob) return "";
+        let url = "";
+        try { url = api.createObjectURL(blob); } catch (_) { return ""; }
         const info = {
           createdAt: now(),
           lastTouchedAt: now(),
           label: String(label || "blob"),
-          size: blob && typeof blob.size === "number" ? blob.size : 0,
-          autoRevokeMs: Math.max(0, Number(options.autoRevokeMs || 0) || 0),
+          size: typeof blob.size === "number" ? blob.size : 0,
           timerId: 0,
         };
-        if (info.autoRevokeMs > 0) {
-          info.timerId = setTimeout(() => revoke(url), info.autoRevokeMs);
-        }
+        const autoRevokeMs = Math.max(0, finite(options.autoRevokeMs, 0));
+        if (autoRevokeMs > 0) info.timerId = setTimeout(() => revoke(url), autoRevokeMs);
         active.set(url, info);
         return url;
       };
@@ -2362,41 +2448,48 @@
         const info = active.get(url);
         if (!info) return false;
         if (info.timerId) clearTimeout(info.timerId);
-        try { URL.revokeObjectURL(url); } catch (_) {}
+        const api = urlApi();
+        try { api && typeof api.revokeObjectURL === "function" && api.revokeObjectURL(url); } catch (_) {}
         active.delete(url);
         return true;
       };
 
       const revokeByLabel = (label) => {
-        let removed = 0;
+        let count = 0;
         for (const [url, info] of Array.from(active.entries())) {
-          if (info.label === label) {
-            revoke(url);
-            removed++;
-          }
+          if (info.label === label && revoke(url)) count++;
         }
-        return removed;
+        return count;
       };
 
       const revokeAll = () => {
-        for (const url of Array.from(active.keys())) revoke(url);
+        let count = 0;
+        for (const url of Array.from(active.keys())) if (revoke(url)) count++;
+        return count;
       };
 
       const revokeOlderThan = (maxAgeMs) => {
-        const cutoff = now() - Math.max(0, Number(maxAgeMs || 0) || 0);
+        const cutoff = now() - Math.max(0, finite(maxAgeMs, 0));
+        let count = 0;
         for (const [url, info] of Array.from(active.entries())) {
-          const ts = info.lastTouchedAt || info.createdAt;
-          if (ts < cutoff) revoke(url);
+          if ((info.lastTouchedAt || info.createdAt) < cutoff && revoke(url)) count++;
         }
+        return count;
       };
 
-      const stats = () => ({
-        active: active.size,
-        totalBytes: Array.from(active.values()).reduce((sum, info) => sum + (info.size || 0), 0),
-        urls: Array.from(active.values()).map((info) => info.label),
-      });
-
-      return { create, touch, revoke, revokeByLabel, revokeAll, revokeOlderThan, stats };
+      return {
+        create,
+        touch,
+        revoke,
+        revokeByLabel,
+        revokeAll,
+        revokeOlderThan,
+        stats: () => ({
+          active: active.size,
+          totalBytes: Array.from(active.values()).reduce((sum, info) => sum + (info.size || 0), 0),
+          urls: Array.from(active.values(), (info) => info.label),
+        }),
+      };
     })();
 
     // ─── DeferredTask ────────────────────────────────────────────────────────
@@ -2404,47 +2497,36 @@
       let nextId = 1;
       const pending = new Map();
       const debounced = new Map();
+      const root = () => (typeof globalThis !== "undefined" ? globalThis : {});
 
-      const schedule = (fn, timeoutMs = 2000, options = {}) => {
+      const schedule = (callback, timeoutMs = 2000, options = {}) => {
+        if (typeof callback !== "function") return 0;
         const id = nextId++;
         let cancelled = false;
-
         const execute = () => {
           if (cancelled) return;
           pending.delete(id);
-          try { fn(); } catch (_) {}
+          for (const [key, taskId] of Array.from(debounced.entries())) if (taskId === id) debounced.delete(key);
+          try { reportAsyncError(callback()); } catch (_) {}
         };
-
-        if (typeof requestIdleCallback === "function" && options.mode !== "timeout") {
-          const idleId = requestIdleCallback(execute, { timeout: Math.max(1, timeoutMs || 1) });
-          pending.set(id, {
-            label: String(options.label || "idle-task"),
-            cancel: () => {
-              cancelled = true;
-              try { cancelIdleCallback(idleId); } catch (_) {}
-            },
-          });
+        const timeout = Math.max(1, finite(timeoutMs, 2000));
+        const useIdle = typeof root().requestIdleCallback === "function" && options.mode !== "timeout";
+        let nativeId = 0;
+        if (useIdle) {
+          nativeId = root().requestIdleCallback(execute, { timeout });
         } else {
-          const delay = Math.max(0, Number(options.delayMs != null ? options.delayMs : Math.min(timeoutMs, 100)) || 0);
-          const timerId = setTimeout(execute, delay);
-          pending.set(id, {
-            label: String(options.label || "timeout-task"),
-            cancel: () => {
-              cancelled = true;
-              clearTimeout(timerId);
-            },
-          });
+          const delay = Math.max(0, finite(options.delayMs, Math.min(timeout, 100)));
+          nativeId = setTimeout(execute, delay);
         }
-
+        pending.set(id, {
+          label: String(options.label || (useIdle ? "idle-task" : "timeout-task")),
+          cancel: () => {
+            cancelled = true;
+            if (useIdle && typeof root().cancelIdleCallback === "function") root().cancelIdleCallback(nativeId);
+            else clearTimeout(nativeId);
+          },
+        });
         return id;
-      };
-
-      const debounce = (key, fn, delayMs = 120) => {
-        const prev = debounced.get(key);
-        if (prev) cancel(prev);
-        const taskId = schedule(fn, delayMs, { mode: "timeout", delayMs, label: "debounce:" + key });
-        debounced.set(key, taskId);
-        return taskId;
       };
 
       const cancel = (id) => {
@@ -2452,10 +2534,16 @@
         if (!task) return false;
         try { task.cancel(); } catch (_) {}
         pending.delete(id);
-        for (const [key, taskId] of Array.from(debounced.entries())) {
-          if (taskId === id) debounced.delete(key);
-        }
+        for (const [key, taskId] of Array.from(debounced.entries())) if (taskId === id) debounced.delete(key);
         return true;
+      };
+
+      const debounce = (key, callback, delayMs = 120) => {
+        const previous = debounced.get(key);
+        if (previous) cancel(previous);
+        const id = schedule(callback, delayMs, { mode: "timeout", delayMs, label: "debounce:" + key });
+        if (id) debounced.set(key, id);
+        return id;
       };
 
       const cancelAll = () => {
@@ -2463,33 +2551,33 @@
         debounced.clear();
       };
 
-      const stats = () => ({
-        pending: pending.size,
-        labels: Array.from(pending.values(), (task) => task.label),
-      });
-
-      return { schedule, debounce, cancel, cancelAll, stats };
+      return {
+        schedule,
+        debounce,
+        cancel,
+        cancelAll,
+        stats: () => ({ pending: pending.size, labels: Array.from(pending.values(), (task) => task.label) }),
+      };
     })();
 
     // ─── AbortGroup ──────────────────────────────────────────────────────────
     const AbortGroup = (() => {
       const groups = new Map();
-
-      const ensureGroup = (featureId) => {
-        if (!groups.has(featureId)) groups.set(featureId, new Set());
-        return groups.get(featureId);
-      };
+      const keyOf = (value) => String(value || "default");
 
       const track = (featureId, controller) => {
-        if (!featureId || !controller || typeof controller.abort !== "function") return controller;
-        const set = ensureGroup(featureId);
+        if (!controller || typeof controller.abort !== "function") return controller;
+        const key = keyOf(featureId);
+        if (controller.signal && controller.signal.aborted) return controller;
+        if (!groups.has(key)) groups.set(key, new Set());
+        const set = groups.get(key);
         set.add(controller);
         if (controller.signal && typeof controller.signal.addEventListener === "function") {
           controller.signal.addEventListener("abort", () => {
-            const group = groups.get(featureId);
-            if (!group) return;
-            group.delete(controller);
-            if (group.size === 0) groups.delete(featureId);
+            const current = groups.get(key);
+            if (!current) return;
+            current.delete(controller);
+            if (!current.size) groups.delete(key);
           }, { once: true });
         }
         return controller;
@@ -2498,42 +2586,49 @@
       const create = (featureId) => track(featureId, new AbortController());
 
       const withTimeout = (featureId, timeoutMs) => {
-        const ctrl = create(featureId);
+        const controller = create(featureId);
         const timer = setTimeout(() => {
-          try { ctrl.abort(new DOMException("Timed out", "AbortError")); } catch (_) {
-            try { ctrl.abort(); } catch (_) {}
+          try { controller.abort(new DOMException("Timed out", "AbortError")); } catch (_) {
+            try { controller.abort(); } catch (_) {}
           }
-        }, Math.max(1, Number(timeoutMs || 1) || 1));
-        if (ctrl.signal) ctrl.signal.addEventListener("abort", () => clearTimeout(timer), { once: true });
-        return ctrl;
+        }, Math.max(1, finite(timeoutMs, 1)));
+        if (controller.signal && typeof controller.signal.addEventListener === "function") {
+          controller.signal.addEventListener("abort", () => clearTimeout(timer), { once: true });
+        }
+        return controller;
       };
 
       const abort = (featureId) => {
-        const set = groups.get(featureId);
+        const key = keyOf(featureId);
+        const set = groups.get(key);
         if (!set) return 0;
         let count = 0;
-        for (const ctrl of Array.from(set)) {
+        for (const controller of Array.from(set)) {
           count++;
-          try { ctrl.abort(); } catch (_) {}
+          try { controller.abort(); } catch (_) {}
         }
-        set.clear();
-        groups.delete(featureId);
+        groups.delete(key);
         return count;
       };
 
       const abortAll = () => {
-        let total = 0;
-        for (const featureId of Array.from(groups.keys())) total += abort(featureId);
-        return total;
+        let count = 0;
+        for (const key of Array.from(groups.keys())) count += abort(key);
+        return count;
       };
 
-      const stats = () => {
-        let total = 0;
-        for (const [, set] of groups) total += set.size;
-        return { groups: groups.size, controllers: total };
+      return {
+        create,
+        track,
+        withTimeout,
+        abort,
+        abortAll,
+        stats: () => {
+          let controllers = 0;
+          for (const set of groups.values()) controllers += set.size;
+          return { groups: groups.size, controllers };
+        },
       };
-
-      return { create, track, withTimeout, abort, abortAll, stats };
     })();
 
     // ─── ResourceScope ───────────────────────────────────────────────────────
@@ -2543,66 +2638,88 @@
         this._disposed = false;
         this._cleanups = [];
       }
-      addCleanup(fn) {
-        if (this._disposed || typeof fn !== "function") return fn;
-        this._cleanups.push(fn);
-        return fn;
+
+      addCleanup(cleanup) {
+        if (typeof cleanup !== "function") return cleanup;
+        if (this._disposed) {
+          try { cleanup(); } catch (_) {}
+          return cleanup;
+        }
+        this._cleanups.push(cleanup);
+        return cleanup;
       }
-      timeout(fn, delayMs) {
-        const id = setTimeout(() => {
-          try { fn(); } catch (_) {}
-        }, Math.max(0, Number(delayMs || 0) || 0));
+
+      timeout(callback, delayMs) {
+        if (this._disposed) return 0;
+        const id = setTimeout(() => { try { reportAsyncError(callback()); } catch (_) {} }, Math.max(0, finite(delayMs, 0)));
         this.addCleanup(() => clearTimeout(id));
         return id;
       }
-      interval(fn, delayMs) {
-        const id = setInterval(() => {
-          try { fn(); } catch (_) {}
-        }, Math.max(1, Number(delayMs || 1) || 1));
+
+      interval(callback, intervalMs) {
+        if (this._disposed) return 0;
+        const id = setInterval(() => { try { reportAsyncError(callback()); } catch (_) {} }, Math.max(1, finite(intervalMs, 1)));
         this.addCleanup(() => clearInterval(id));
         return id;
       }
-      ticker(fn, intervalMs, opts = {}) {
-        const id = SharedTicker.add(fn, intervalMs, opts);
+
+      listen(target, event, callback, options) {
+        if (this._disposed || !target || typeof target.addEventListener !== "function" || typeof callback !== "function") return false;
+        target.addEventListener(event, callback, options);
+        this.addCleanup(() => {
+          try { target.removeEventListener(event, callback, options); } catch (_) {}
+        });
+        return true;
+      }
+
+      ticker(callback, intervalMs, options = {}) {
+        if (this._disposed) return 0;
+        const id = SharedTicker.add(callback, intervalMs, options);
         this.addCleanup(() => SharedTicker.remove(id));
         return id;
       }
-      observer(fn, opts = {}) {
-        const id = SharedObserver.subscribe(fn, opts);
+
+      observer(callback, options = {}) {
+        if (this._disposed) return 0;
+        const id = SharedObserver.subscribe(callback, options);
         this.addCleanup(() => SharedObserver.unsubscribe(id));
         return id;
       }
-      deferred(fn, timeoutMs, opts = {}) {
-        const id = DeferredTask.schedule(fn, timeoutMs, opts);
+
+      deferred(callback, timeoutMs, options = {}) {
+        if (this._disposed) return 0;
+        const id = DeferredTask.schedule(callback, timeoutMs, options);
         this.addCleanup(() => DeferredTask.cancel(id));
         return id;
       }
+
       abortController(groupId) {
-        const ctrl = AbortGroup.create(groupId || this._name);
-        this.addCleanup(() => {
-          try { ctrl.abort(); } catch (_) {}
-        });
-        return ctrl;
+        if (this._disposed) return null;
+        const controller = AbortGroup.create(groupId || this._name);
+        this.addCleanup(() => { try { controller.abort(); } catch (_) {} });
+        return controller;
       }
-      blobUrl(blob, label, opts = {}) {
-        const url = TrackedBlobURL.create(blob, label, opts);
-        this.addCleanup(() => TrackedBlobURL.revoke(url));
+
+      blobUrl(blob, label, options = {}) {
+        if (this._disposed) return "";
+        const url = TrackedBlobURL.create(blob, label, options);
+        if (url) this.addCleanup(() => TrackedBlobURL.revoke(url));
         return url;
       }
+
       dispose() {
         if (this._disposed) return;
         this._disposed = true;
         while (this._cleanups.length) {
-          const fn = this._cleanups.pop();
-          try { fn(); } catch (_) {}
+          const cleanup = this._cleanups.pop();
+          try { cleanup(); } catch (_) {}
         }
       }
-      stats() {
-        return { name: this._name, disposed: this._disposed, cleanups: this._cleanups.length };
-      }
+
+      get disposed() { return this._disposed; }
+      stats() { return { name: this._name, disposed: this._disposed, cleanups: this._cleanups.length }; }
     }
 
-    // ─── Global Stats ────────────────────────────────────────────────────────
     const stats = () => ({
       sharedObserver: SharedObserver.stats(),
       sharedTicker: SharedTicker.stats(),
@@ -2611,8 +2728,8 @@
       abortGroups: AbortGroup.stats(),
     });
 
-    // ─── Global Cleanup ──────────────────────────────────────────────────────
     const cleanup = () => {
+      SharedObserver.clear();
       SharedTicker.clear();
       TrackedBlobURL.revokeAll();
       DeferredTask.cancelAll();
@@ -2632,7 +2749,6 @@
       cleanup,
     };
   })();
-
 
     const oe = {
       vid: void 0,
@@ -2865,41 +2981,60 @@
 
     const gmx = (typeof GM_xmlhttpRequest === "function") ? GM_xmlhttpRequest : (typeof window.GM_xmlhttpRequest === "function") ? window.GM_xmlhttpRequest : null;
     if (gmx) {
-      return new Promise((a, n) => {
-        const req = gmx({
-          method: t.method || "GET",
-          url: e,
-          headers: t.headers || {},
-          data: t.body,
-          timeout: t.timeout || 1e4,
-          onload(e) {
-            a({
-              ok: e.status >= 200 && e.status < 300,
-              status: e.status,
-              text: () => e.responseText,
-              json: () => {
-                try {
-                  return JSON.parse(e.responseText);
-                } catch (e) {
-                  return null;
-                }
-              },
-            });
-          },
-          onerror(err) {
-            n(err || new Error("Network error"));
-          },
-          ontimeout() {
-            n(new Error("timeout"));
-          },
-        });
-
+      return new Promise((resolve, reject) => {
+        let settled = false;
+        let req = null;
+        let onAbort = null;
+        const cleanup = () => {
+          if (signal && onAbort) {
+            try { signal.removeEventListener("abort", onAbort); } catch (_) {}
+          }
+        };
+        const succeed = (value) => {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          resolve(value);
+        };
+        const fail = (error) => {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          reject(error || new Error("Network error"));
+        };
+        try {
+          req = gmx({
+            method: t.method || "GET",
+            url: e,
+            headers: t.headers || {},
+            data: t.body,
+            timeout: t.timeout || 1e4,
+            onload(response) {
+              succeed({
+                ok: response.status >= 200 && response.status < 300,
+                status: response.status,
+                text: () => response.responseText,
+                json: () => {
+                  try { return JSON.parse(response.responseText); }
+                  catch (_) { return null; }
+                },
+              });
+            },
+            onerror: fail,
+            ontimeout() { fail(new Error("timeout")); },
+            onabort() { fail(new DOMException("Aborted", "AbortError")); },
+          });
+        } catch (error) {
+          fail(error);
+          return;
+        }
         if (signal) {
-          const onAbort = () => {
-            try { req.abort(); } catch (_) {}
-            n(new DOMException("Aborted", "AbortError"));
+          onAbort = () => {
+            try { req && req.abort(); } catch (_) {}
+            fail(new DOMException("Aborted", "AbortError"));
           };
-          signal.addEventListener("abort", onAbort, { once: true });
+          if (signal.aborted) onAbort();
+          else signal.addEventListener("abort", onAbort, { once: true });
         }
       });
     } else {
@@ -4172,10 +4307,10 @@
       disabled: "Off"
     };
 
-    const CACHE_VERSION = 4;
-    const CACHE_TTL_MS = 60 * 60 * 1000;          // 1 hour runtime
-    const PERSIST_TTL_MS = 24 * 60 * 60 * 1000;   // 24 hours persistent
-    const STALE_GRACE_MS = 12 * 60 * 60 * 1000;    // 12 hours stale grace
+    const CACHE_VERSION = 5;
+    const CACHE_TTL_MS = 60 * 60 * 1000;          // Fresh in-memory data
+    const PERSIST_TTL_MS = 24 * 60 * 60 * 1000;   // Persistent cache lifetime
+    const STALE_GRACE_MS = 12 * 60 * 60 * 1000;   // Offline fallback window
     const MAX_CACHE_ENTRIES = 128;
     const API_TIMEOUT_MS = 8000;
     const MAX_RETRIES = 2;
@@ -4183,11 +4318,21 @@
     const SKIP_COOLDOWN_MS = 500;
     const SEEK_TOLERANCE = 0.3; // seconds
     const POINT_SEGMENT_EPSILON = 0.05;
+    const MAX_SEGMENT_TIME = 24 * 60 * 60;
+    const VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/;
+    const PRIVACY_HASH_LENGTH = 4;
+    const API_PROFILE_VERSION = "all-categories-v2";
 
     // ─── Shared State Context ────────────────────────────────────────────────
     const State = {
       videoId: null,
       segments: [],
+      hidden: false,
+      generation: 0,
+      backgroundControllers: new Set(),
+      lifecycleAttached: false,
+      lifecycleCleanup: null,
+      lastWakeLookupAt: 0,
       processedUUIDs: new Set(),
       activeSegmentIndex: -1,
       abortController: null,
@@ -4423,14 +4568,34 @@
         return Array.from(types);
       };
 
+      const getActionOptions = (categoryId) => {
+        const options = {
+          skip: Actions.skip,
+          full: Actions.full,
+          disabled: Actions.disabled,
+        };
+        if (categoryId === "poi_highlight") {
+          return { skip: Actions.skip, poi: Actions.poi, full: Actions.full, disabled: Actions.disabled };
+        }
+        if (categoryId === "chapter") {
+          return { skip: Actions.skip, chapter: Actions.chapter, full: Actions.full, disabled: Actions.disabled };
+        }
+        if (categoryId !== "exclusive_access") options.mute = Actions.mute;
+        return options;
+      };
+
       const getCategoryAction = (categoryId) => {
         if (!S["sb_" + categoryId + "_en"]) return "disabled";
-        return S["sb_" + categoryId + "_act"] || "skip";
+        const action = S["sb_" + categoryId + "_act"] || "skip";
+        return Object.prototype.hasOwnProperty.call(getActionOptions(categoryId), action) ? action : "skip";
       };
 
       const getConfigKey = () => {
         const privacy = S.sbPrivacy ? "1" : "0";
-        return `${privacy}`;
+        // The API request always asks for every supported category/action type.
+        // Keep the server profile in the key so future API-profile changes can
+        // never reuse an incompatible cached response.
+        return API_PROFILE_VERSION + ":" + privacy;
       };
 
       const getRenderKey = () => {
@@ -4447,7 +4612,7 @@
       };
 
       return {
-        getEnabledCategories, getActionTypes, getCategoryAction,
+        getEnabledCategories, getActionTypes, getCategoryAction, getActionOptions,
         getConfigKey, getRenderKey, getServerUrl,
       };
     })();
@@ -4477,6 +4642,19 @@
         }
       };
 
+      const isUsableEntry = (entry, videoId) => !!(
+        entry && entry.version === CACHE_VERSION &&
+        entry.videoId === videoId && Array.isArray(entry.segments) &&
+        typeof entry.expiresAt === "number" &&
+        typeof entry.fetchedAt === "number"
+      );
+
+      const runtimeEntry = (entry) => Object.assign({}, entry, {
+        // Persistent entries live longer than the in-memory freshness window.
+        // Never accidentally promote the persistent TTL into RAM.
+        expiresAt: Math.min(entry.expiresAt, entry.fetchedAt + CACHE_TTL_MS),
+      });
+
       const get = async (videoId, configKey, allowStale = false) => {
         const cacheKey = "sb:" + videoId + ":" + configKey;
         const now = Date.now();
@@ -4486,7 +4664,7 @@
           const entry = memCache.get(cacheKey);
           memCache.delete(cacheKey);
           memCache.set(cacheKey, entry); // LRU: move to end
-          if (entry.version !== CACHE_VERSION) {
+          if (!isUsableEntry(entry, videoId)) {
             memCache.delete(cacheKey);
           } else if (entry.expiresAt > now) {
             Metrics.recordCacheHit();
@@ -4504,18 +4682,18 @@
           const row = await v("kv", "cache:" + cacheKey);
           if (row && row.v) {
             const entry = row.v;
-            if (entry.version !== CACHE_VERSION) {
+            if (!isUsableEntry(entry, videoId)) {
               await x("kv", "cache:" + cacheKey);
               return null;
             }
             if (entry.expiresAt > now) {
-              memCache.set(cacheKey, entry);
+              memCache.set(cacheKey, runtimeEntry(entry));
               evictIfNeeded();
               Metrics.recordCacheHit();
               return { data: entry.segments, fresh: true };
             }
             if (allowStale && entry.expiresAt + STALE_GRACE_MS > now) {
-              memCache.set(cacheKey, entry);
+              memCache.set(cacheKey, runtimeEntry(entry));
               evictIfNeeded();
               Metrics.recordStaleServed();
               return { data: entry.segments, fresh: false };
@@ -4565,14 +4743,23 @@
       };
 
       const getInFlight = (key) => inFlight.get(key);
+      const clearInFlightForVideo = (videoId) => {
+        if (!videoId) return;
+        for (const key of Array.from(inFlight.keys())) {
+          if (key.startsWith(String(videoId) + ":")) inFlight.delete(key);
+        }
+      };
       const setInFlight = (key, promise) => { inFlight.set(key, promise); };
-      const clearInFlight = (key) => { inFlight.delete(key); };
+      const clearInFlight = (key, promise) => {
+        if (!promise || inFlight.get(key) === promise) inFlight.delete(key);
+      };
 
       const invalidate = async (videoId) => {
         if (!videoId) return;
+        const prefix = "sb:" + videoId + ":";
         const cacheKeys = new Set();
         for (const key of Array.from(memCache.keys())) {
-          if (key.startsWith("sb:" + videoId + ":")) {
+          if (key.startsWith(prefix)) {
             memCache.delete(key);
             cacheKeys.add(key);
           }
@@ -4580,12 +4767,20 @@
         for (const key of Array.from(inFlight.keys())) {
           if (key.startsWith(videoId + ":")) inFlight.delete(key);
         }
-        cacheKeys.add("sb:" + videoId + ":0");
-        cacheKeys.add("sb:" + videoId + ":1");
+        // Enumerate the shared kv store instead of assuming the config key is
+        // only 0/1. This also removes entries written by older builds.
+        try {
+          const rows = await w("kv");
+          for (const row of Array.isArray(rows) ? rows : []) {
+            if (row && typeof row.k === "string" && row.k.startsWith("cache:" + prefix)) {
+              cacheKeys.add(row.k.slice("cache:".length));
+            }
+          }
+        } catch (_) {}
         await Promise.all(Array.from(cacheKeys, (cacheKey) => x("kv", "cache:" + cacheKey)));
       };
 
-      return { get, set, getInFlight, setInFlight, clearInFlight, invalidate };
+      return { get, set, getInFlight, setInFlight, clearInFlight, clearInFlightForVideo, invalidate };
     })();
 
     // ─── API Module ──────────────────────────────────────────────────────────
@@ -4634,11 +4829,13 @@
 
       const buildFetchPlans = async (videoId, usePrivacy, categories, actionTypes) => {
         const base = Settings.getServerUrl();
-        const prefix = await hashPrefix(videoId);
+        const prefix = (await hashPrefix(videoId)).slice(0, PRIVACY_HASH_LENGTH);
         const plans = [];
-        const pushPlan = (id, url) => plans.push({ id, url });
+        const pushPlan = (id, url, privacy = false) => plans.push({ id, url, privacy });
 
         if (!usePrivacy) {
+          // Both encodings are accepted by SponsorBlock deployments. The
+          // repeated form is the most compatible with older server versions.
           pushPlan(
             "direct-repeated",
             base + "/api/skipSegments?" + createParams(videoId, categories, actionTypes, "repeated").toString()
@@ -4647,98 +4844,102 @@
             "direct-json",
             base + "/api/skipSegments?" + createParams(videoId, categories, actionTypes, "json").toString()
           );
+        } else {
+          // A privacy lookup must never fall back to a full videoID query.
+          // The path form is the canonical API and returns candidate videos;
+          // the client filters those candidates to the requested video.
           pushPlan(
-            "direct-json-no-action-types",
-            base + "/api/skipSegments?" + createParams(videoId, categories, [], "json").toString()
+            "privacy-path-json",
+            base + "/api/skipSegments/" + prefix + "?" + createParams(null, categories, actionTypes, "json").toString(),
+            true
+          );
+          pushPlan(
+            "privacy-path-repeated",
+            base + "/api/skipSegments/" + prefix + "?" + createParams(null, categories, actionTypes, "repeated").toString(),
+            true
           );
         }
-
-        pushPlan(
-          usePrivacy ? "privacy-path-json" : "privacy-fallback-path-json",
-          base + "/api/skipSegments/" + prefix + "?" + createParams(null, categories, actionTypes, "json").toString()
-        );
-        pushPlan(
-          usePrivacy ? "privacy-path-repeated" : "privacy-fallback-path-repeated",
-          base + "/api/skipSegments/" + prefix + "?" + createParams(null, categories, actionTypes, "repeated").toString()
-        );
-        pushPlan(
-          usePrivacy ? "privacy-query-json" : "privacy-fallback-query-json",
-          base + "/api/skipSegments?" + createParams(null, categories, actionTypes, "json", prefix).toString()
-        );
-        pushPlan(
-          usePrivacy ? "privacy-query-repeated" : "privacy-fallback-query-repeated",
-          base + "/api/skipSegments?" + createParams(null, categories, actionTypes, "repeated", prefix).toString()
-        );
-
         return plans;
       };
 
       const validateSegment = (seg, index) => {
         if (!seg || typeof seg !== "object") return null;
-
         const rawSegment = Array.isArray(seg.segment) ? seg.segment : [seg.startTime, seg.endTime];
-        if (!Array.isArray(rawSegment) || rawSegment.length < 2) return null;
+        if (rawSegment.length < 2) return null;
 
         const start = Number(rawSegment[0]);
         const end = Number(rawSegment[1]);
-
-        if (!isFinite(start) || !isFinite(end)) return null;
-        if (start < 0 || end < 0) return null;
+        if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
+        if (start < 0 || end < 0 || start > MAX_SEGMENT_TIME || end > MAX_SEGMENT_TIME) return null;
         if (start > end && !(start === 0 && end === 0)) return null;
 
-        const category = typeof seg.category === "string" && seg.category ? seg.category : "sponsor";
-        const UUID = typeof seg.UUID === "string" && seg.UUID ? seg.UUID : ("idx-" + index + "-" + start);
+        const category = typeof seg.category === "string" && seg.category.trim()
+          ? seg.category.trim().slice(0, 64)
+          : "sponsor";
+        const UUID = typeof seg.UUID === "string" && seg.UUID.trim()
+          ? seg.UUID.trim().slice(0, 128)
+          : ("idx-" + index + "-" + start + "-" + end);
         const actionType = typeof seg.actionType === "string" && seg.actionType
           ? seg.actionType
           : actionTypeForCategory(category);
-        const votes = typeof seg.votes === "number" ? seg.votes : 0;
-        const locked = typeof seg.locked === "number" ? seg.locked : 0;
-        const videoDuration = typeof seg.videoDuration === "number" ? seg.videoDuration : 0;
-        const description = typeof seg.description === "string" ? seg.description : "";
-        const views = typeof seg.views === "number" ? seg.views : 0;
-        const userID = typeof seg.userID === "string" ? seg.userID : "";
-        const hidden = typeof seg.hidden === "number" ? seg.hidden : 0;
-        const shadowHidden = typeof seg.shadowHidden === "number" ? seg.shadowHidden : 0;
+        const numberOrZero = (value) => Number.isFinite(Number(value)) ? Number(value) : 0;
 
         return {
           category,
           segment: [start, end],
           UUID,
           actionType,
-          votes,
-          locked,
-          views,
-          videoDuration,
-          description,
-          userID,
-          hidden,
-          shadowHidden,
+          votes: numberOrZero(seg.votes),
+          locked: numberOrZero(seg.locked),
+          views: numberOrZero(seg.views),
+          videoDuration: Math.max(0, Math.min(MAX_SEGMENT_TIME, numberOrZero(seg.videoDuration))),
+          description: typeof seg.description === "string" ? seg.description.slice(0, 500) : "",
+          userID: typeof seg.userID === "string" ? seg.userID.slice(0, 128) : "",
+          hidden: numberOrZero(seg.hidden),
+          shadowHidden: numberOrZero(seg.shadowHidden),
         };
       };
 
       const extractSegmentArray = (payload, videoId) => {
         if (Array.isArray(payload)) {
-          if (!payload.length) return [];
-          const looksPrefixed = payload.some((entry) => entry && Array.isArray(entry.segments));
-          if (looksPrefixed) {
+          if (!payload.length) return { segments: [], matched: true, prefixed: false, valid: true };
+          const prefixed = payload.some((entry) => entry && Array.isArray(entry.segments));
+          if (prefixed) {
             const hit = payload.find((entry) => entry && entry.videoID === videoId && Array.isArray(entry.segments));
-            return hit && Array.isArray(hit.segments) ? hit.segments : [];
+            return { segments: hit ? hit.segments : [], matched: !!hit, prefixed: true, valid: true };
           }
-          return payload;
+          return { segments: payload, matched: true, prefixed: false, valid: true };
         }
-        if (payload && Array.isArray(payload.segments)) return payload.segments;
-        return [];
+        if (payload && Array.isArray(payload.segments)) {
+          return {
+            segments: payload.segments,
+            matched: !payload.videoID || payload.videoID === videoId,
+            prefixed: !!payload.videoID,
+            valid: true,
+          };
+        }
+        return { segments: [], matched: false, prefixed: false, valid: false };
       };
 
       const normalizeSegments = (payload, videoId) => {
-        const rawSegments = extractSegmentArray(payload, videoId);
+        const extracted = extractSegmentArray(payload, videoId);
         const normalized = [];
-        for (let idx = 0; idx < rawSegments.length; idx++) {
-          const valid = validateSegment(rawSegments[idx], idx);
-          if (valid) normalized.push(valid);
+        const seen = new Set();
+        for (let idx = 0; idx < extracted.segments.length; idx++) {
+          const valid = validateSegment(extracted.segments[idx], idx);
+          if (!valid) continue;
+          const key = valid.UUID + "|" + valid.segment[0] + "|" + valid.segment[1] + "|" + valid.category + "|" + valid.actionType;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          normalized.push(valid);
         }
-        normalized.sort((a, b) => a.segment[0] - b.segment[0]);
-        return normalized;
+        normalized.sort((a, b) => a.segment[0] - b.segment[0] || a.segment[1] - b.segment[1] || a.UUID.localeCompare(b.UUID));
+        return {
+          segments: normalized,
+          matched: extracted.matched,
+          prefixed: extracted.prefixed,
+          valid: extracted.valid,
+        };
       };
 
       const requestJson = async (url, abortSignal, opts = {}) => {
@@ -4805,22 +5006,38 @@
       };
 
       const fetchSegments = async (videoId, abortSignal) => {
+        if (!VIDEO_ID_RE.test(String(videoId || ""))) return [];
         const usePrivacy = !!S.sbPrivacy;
         const plans = await buildFetchPlans(videoId, usePrivacy, ALL_CATEGORIES, ALL_ACTION_TYPES);
         const trace = [];
         let lastError = null;
         let notFoundCount = 0;
+        let privacyNoMatch = false;
 
         for (let idx = 0; idx < plans.length; idx++) {
           const plan = plans[idx];
           if (idx > 0) Metrics.recordApiFallback();
           try {
             const { response, body } = await requestJson(plan.url, abortSignal);
-            const segments = normalizeSegments(body, videoId);
-            trace.push({ plan: plan.id, status: response.status, count: segments.length });
+            const normalized = normalizeSegments(body, videoId);
+            if (!normalized.valid) {
+              const malformed = new Error("SponsorBlock response was not a segment array");
+              malformed.status = response.status;
+              throw malformed;
+            }
+            // A privacy response is a candidate list. A successful response
+            // with no matching video is not a successful lookup; try the
+            // alternate encoding instead of caching a false empty result.
+            if (plan.privacy && normalized.prefixed && !normalized.matched) {
+              trace.push({ plan: plan.id, status: response.status, count: 0, matched: false });
+              privacyNoMatch = true;
+              lastError = new Error("Privacy response did not contain requested video");
+              continue;
+            }
+            trace.push({ plan: plan.id, status: response.status, count: normalized.segments.length, matched: true });
             Metrics.recordFetchPlan(plan.id);
             Metrics.recordLookupTrace(trace);
-            return segments;
+            return normalized.segments;
           } catch (err) {
             if (err && err.name === "AbortError") throw err;
             if (err && err.status === 404) notFoundCount++;
@@ -4834,6 +5051,10 @@
           Metrics.recordFetchPlan(plans[plans.length - 1].id);
           return [];
         }
+        if (privacyNoMatch) {
+          Metrics.recordFetchPlan(plans[plans.length - 1].id);
+          return [];
+        }
         throw lastError || new Error("All SponsorBlock lookup plans failed");
       };
 
@@ -4844,7 +5065,7 @@
             return await fetchSegments(videoId, abortSignal);
           } catch (err) {
             lastError = err;
-            if (err.name === "AbortError") throw err;
+            if (err && err.name === "AbortError") throw err;
             if (attempt < MAX_RETRIES) {
               const delay = RETRY_BASE_MS * Math.pow(2, attempt);
               await new Promise(r => setTimeout(r, delay));
@@ -4856,72 +5077,101 @@
         throw lastError;
       };
 
+      const requestResponse = async (url, opts = {}, abortSignal = null) => {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), opts.timeoutMs || API_TIMEOUT_MS);
+        let onAbort = null;
+        if (abortSignal) {
+          if (abortSignal.aborted) {
+            clearTimeout(timeoutId);
+            throw new DOMException("Aborted", "AbortError");
+          }
+          onAbort = () => controller.abort();
+          abortSignal.addEventListener("abort", onAbort, { once: true });
+        }
+        try {
+          const response = await he(url, {
+            method: opts.method || "GET",
+            headers: opts.headers,
+            body: opts.body,
+            signal: controller.signal,
+          });
+          if (!response || !response.ok) {
+            const error = new Error("HTTP " + (response && response.status || 0));
+            error.status = response && response.status || 0;
+            throw error;
+          }
+          return response;
+        } finally {
+          clearTimeout(timeoutId);
+          if (abortSignal && onAbort) {
+            try { abortSignal.removeEventListener("abort", onAbort); } catch (_) {}
+          }
+        }
+      };
+
+      const currentVideoId = () => State.videoId || (ie && typeof ie.videoId === "function" ? ie.videoId() : null);
+
       const postVote = async (params) => {
-        if (!params || !params.UUID || !State.userId) return false;
+        const videoId = currentVideoId();
+        if (!params || !params.UUID || !State.userId || !VIDEO_ID_RE.test(String(videoId || ""))) return false;
         const base = Settings.getServerUrl();
-        const query = new URLSearchParams(Object.assign({ userID: State.userId }, params));
+        const query = new URLSearchParams(Object.assign({
+          UUID: params.UUID,
+          videoID: videoId,
+          userID: State.userId,
+        }, params));
         try {
           Metrics.recordVoteRequest();
-          const resp = await he(base + "/api/voteOnSponsorTime?" + query.toString(), {
-            method: "POST",
-            signal: AbortSignal.timeout(API_TIMEOUT_MS)
-          });
-          return resp.ok;
+          await requestResponse(base + "/api/voteOnSponsorTime?" + query.toString(), { method: "POST" });
+          return true;
         } catch (_) { return false; }
       };
 
-      const voteOnSegment = async (uuid, type) => {
-        return postVote({ UUID: uuid, type: String(type) });
-      };
-
-      const undoVote = async (uuid) => {
-        return postVote({ UUID: uuid, type: "20" });
-      };
-
-      const changeCategory = async (uuid, category) => {
-        if (!category) return false;
-        return postVote({ UUID: uuid, category: String(category) });
-      };
+      const voteOnSegment = async (uuid, type) => postVote({ UUID: uuid, type: String(type) });
+      const undoVote = async (uuid) => postVote({ UUID: uuid, type: "20" });
+      const changeCategory = async (uuid, category) => category ? postVote({ UUID: uuid, category: String(category) }) : false;
 
       const submitSegment = async (videoId, start, end, category, description = "") => {
-        if (!videoId || !State.userId) return false;
+        if (!VIDEO_ID_RE.test(String(videoId || "")) || !State.userId) return false;
+        const cleanStart = Number(start);
+        const cleanEnd = Number(end);
+        if (!Number.isFinite(cleanStart) || !Number.isFinite(cleanEnd) || cleanStart < 0 || cleanEnd <= cleanStart || cleanEnd > MAX_SEGMENT_TIME) return false;
         const base = Settings.getServerUrl();
+        const duration = ie && typeof ie.el === "function" && ie.el() ? Number(ie.el().duration) : 0;
         const bodyData = {
           videoID: videoId,
           userID: State.userId,
-          userAgent: "YT-zen/" + (typeof GM_info !== "undefined" ? GM_info.script.version : "3.7.2"),
+          userAgent: "YT-zen/" + (typeof GM_info !== "undefined" && GM_info.script ? GM_info.script.version : "3.9.0"),
           service: "YouTube",
+          videoDuration: Number.isFinite(duration) && duration > 0 ? duration : undefined,
           segments: [{
-            segment: [start, end],
-            category: category,
+            segment: [cleanStart, cleanEnd],
+            category: String(category || "sponsor"),
             actionType: actionTypeForCategory(category),
-            description: description
-          }]
+            description: String(description || "").slice(0, 500),
+          }],
         };
-
         try {
           Metrics.recordSubmitRequest();
-          const resp = await he(base + "/api/skipSegments", {
+          await requestResponse(base + "/api/skipSegments", {
             method: "POST",
-            headers: {
-              "Content-Type": "application/json"
-            },
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify(bodyData),
-            signal: AbortSignal.timeout(API_TIMEOUT_MS)
           });
-          return resp.ok;
+          return true;
         } catch (_) { return false; }
       };
 
       const reportViewed = async (uuid) => {
-        if (!uuid) return;
+        const videoId = currentVideoId();
+        if (!uuid || !VIDEO_ID_RE.test(String(videoId || ""))) return false;
         const base = Settings.getServerUrl();
         try {
           Metrics.recordViewedReport();
-          await he(base + "/api/viewedVideoSponsorTime?UUID=" + encodeURIComponent(uuid), {
-            method: "POST"
-          });
-        } catch (_) {}
+          await requestResponse(base + "/api/viewedVideoSponsorTime?UUID=" + encodeURIComponent(uuid) + "&videoID=" + encodeURIComponent(videoId), { method: "POST" });
+          return true;
+        } catch (_) { return false; }
       };
 
       const getUserInfo = async (userId, abortSignal, force = false) => {
@@ -4956,6 +5206,7 @@
         reportViewed,
         getUserInfo,
         hashPrefix,
+        normalizeSegments,
       };
     })();
 
@@ -5010,8 +5261,15 @@
       };
 
       const handlePlaybackTick = () => {
-        if (ie.isAd && ie.isAd()) return;
-        if (typeof _a === "function" && _a()) return;
+        if (State.hidden) return;
+        if (ie.isAd && ie.isAd()) {
+          resetMuteState();
+          return;
+        }
+        if (typeof _a === "function" && _a()) {
+          resetMuteState();
+          return;
+        }
 
         const videoEl = ie.el();
         if (!videoEl || videoEl.paused || videoEl.ended) {
@@ -5187,6 +5445,10 @@
       };
 
       const renderSeekbarMarks = () => {
+        if (State.hidden) {
+          clearMarks();
+          return;
+        }
         if (!S.sponsorblockOn || !S.sbSeekbar) {
           clearMarks();
           return;
@@ -5534,128 +5796,223 @@
     })();
 
     // ─── Orchestrator ────────────────────────────────────────────────────────
-    const performInit = async (videoId) => {
-      initUserId();
+    const attachLifecycleListeners = () => {
+      if (State.lifecycleAttached || typeof document === "undefined") return;
+      const cleanup = [];
+      const queueCurrentLookup = (force = false) => {
+        if (!S.sponsorblockOn) return;
+        const videoId = ie && typeof ie.videoId === "function" ? ie.videoId() : null;
+        if (!VIDEO_ID_RE.test(String(videoId || ""))) return;
+        if (!force && State.videoId === videoId) return;
+        Promise.resolve(init(videoId, force ? { revalidate: true } : {})).catch(() => {});
+      };
+      const onVisibility = () => {
+        if (document.visibilityState === "visible") {
+          const now = Date.now();
+          if (now - State.lastWakeLookupAt < 15000) return;
+          State.lastWakeLookupAt = now;
+          queueCurrentLookup(true);
+        }
+      };
+      const onNavigation = () => queueCurrentLookup(false);
+      const onMediaState = (event) => {
+        if (event.type === "timeupdate" && State.videoId) return;
+        queueCurrentLookup(false);
+      };
+      document.addEventListener("visibilitychange", onVisibility, { passive: true });
+      document.addEventListener("yt-navigate-finish", onNavigation, true);
+      document.addEventListener("loadedmetadata", onMediaState, true);
+      document.addEventListener("playing", onMediaState, true);
+      document.addEventListener("emptied", onMediaState, true);
+      cleanup.push(() => document.removeEventListener("visibilitychange", onVisibility));
+      cleanup.push(() => document.removeEventListener("yt-navigate-finish", onNavigation, true));
+      cleanup.push(() => document.removeEventListener("loadedmetadata", onMediaState, true));
+      cleanup.push(() => document.removeEventListener("playing", onMediaState, true));
+      cleanup.push(() => document.removeEventListener("emptied", onMediaState, true));
+      if (typeof window !== "undefined" && window.addEventListener) {
+        window.addEventListener("focus", onVisibility, { passive: true });
+        window.addEventListener("popstate", onNavigation, true);
+        cleanup.push(() => window.removeEventListener("focus", onVisibility));
+        cleanup.push(() => window.removeEventListener("popstate", onNavigation, true));
+      }
+      const dispose = () => {
+        while (cleanup.length) {
+          try { cleanup.pop()(); } catch (_) {}
+        }
+        State.lifecycleAttached = false;
+        State.lifecycleCleanup = null;
+      };
+      State.lifecycleAttached = true;
+      State.lifecycleCleanup = dispose;
+      if (Yt && Yt["sponsorblock"]) Yt["sponsorblock"].push(() => {
+        if (State.lifecycleCleanup === dispose) dispose();
+      });
+    };
 
-      if (State.abortController && State.initPromiseVideoId !== videoId) {
+    const detachLifecycleListeners = () => {
+      if (State.lifecycleCleanup) State.lifecycleCleanup();
+    };
+
+    const abortActiveRequests = () => {
+      if (State.abortController) {
         try { State.abortController.abort(); } catch (_) {}
         State.abortController = null;
       }
+      for (const controller of Array.from(State.backgroundControllers || [])) {
+        try { controller.abort(); } catch (_) {}
+      }
+      if (State.backgroundControllers) State.backgroundControllers.clear();
+    };
 
+    const canCommit = (videoId, generation) =>
+      State.videoId === videoId && State.generation === generation;
+
+    const applySegments = (videoId, generation, segments, hidden, meta = {}) => {
+      if (!canCommit(videoId, generation)) return false;
+      State.segments = Array.isArray(segments) ? segments.slice() : [];
+      Metrics.recordSegments(State.segments.length);
+      State.activeSegmentIndex = -1;
+      if (hidden) {
+        Player.detachListeners();
+        UI.clearMarks();
+      } else {
+        UI.invalidateRenderCache();
+        UI.renderSeekbarMarks();
+        Player.attachListeners();
+        UI.startWatchdog();
+      }
+      g.emit("sb.segments", Object.assign({
+        videoId,
+        count: State.segments.length,
+        cached: !!meta.cached,
+        stale: !!meta.stale,
+        hidden: !!hidden,
+      }, meta));
+      if (hidden) g.emit("sb.hidden", { videoId, hidden: true });
+      return true;
+    };
+
+    const fetchAndCache = async (videoId, configKey, abortSignal) => {
+      try {
+        const segments = await API.fetchWithRetry(videoId, abortSignal);
+        await Cache.set(videoId, configKey, segments);
+        return segments;
+      } catch (err) {
+        if (err && err.name === "AbortError") throw err;
+        Metrics.recordApiError();
+        try {
+          const fallback = await Cache.get(videoId, configKey, true);
+          return fallback && Array.isArray(fallback.data) ? fallback.data : [];
+        } catch (_) {
+          return [];
+        }
+      }
+    };
+
+    const performInit = async (videoId, options = {}) => {
+      initUserId();
+      const generation = ++State.generation;
+      abortActiveRequests();
       Player.resetMuteState();
       Player.detachListeners();
       State.videoId = null;
+      State.hidden = false;
       State.segments = [];
       State.processedUUIDs.clear();
       State.activeSegmentIndex = -1;
-
-      if (!videoId) {
-        UI.clearMarks();
-        return [];
-      }
-
-      if (await HiddenVideos.isHidden(videoId)) {
-        UI.clearMarks();
-        g.emit("sb.hidden", { videoId, hidden: true });
-        State.lastInitCompletedAt = Date.now();
-        return [];
-      }
-
-      if (!S.sponsorblockOn) {
-        UI.clearMarks();
-        State.lastInitCompletedAt = Date.now();
-        return [];
-      }
-
-      State.videoId = videoId;
       UI.clearMarks();
 
+      if (!videoId || !VIDEO_ID_RE.test(String(videoId))) {
+        State.lastInitCompletedAt = Date.now();
+        return [];
+      }
+      if (!S.sponsorblockOn) {
+        State.lastInitCompletedAt = Date.now();
+        return [];
+      }
+      if (options.force || options.revalidate) Cache.clearInFlightForVideo(videoId);
+
+      attachLifecycleListeners();
+      State.videoId = videoId;
+      // Hiding a video suppresses playback/UI actions, not the lookup. A
+      // hidden video's cache must still be refreshed so the next unhide is
+      // immediate and every watch navigation performs an API check.
+      const hidden = await HiddenVideos.isHidden(videoId);
+      if (!canCommit(videoId, generation)) return [];
+      State.hidden = hidden;
       const configKey = Settings.getConfigKey();
       const inFlightKey = videoId + ":" + configKey;
 
       try {
-        let cached = await Cache.get(videoId, configKey, false);
+        const cached = await Cache.get(videoId, configKey, false);
+        if (!canCommit(videoId, generation)) return [];
 
         if (cached && cached.fresh) {
-          State.segments = cached.data;
-          Metrics.recordSegments(State.segments.length);
-          UI.renderSeekbarMarks();
-          Player.attachListeners();
-          UI.startWatchdog();
-          g.emit("sb.segments", { videoId, count: State.segments.length, cached: true });
-          backgroundRefresh(videoId, configKey, inFlightKey);
+          applySegments(videoId, generation, cached.data, hidden, { cached: true });
+          // Do not trust a fresh cache as the final authority: revalidate on
+          // every video load, while deduplicating concurrent lookups.
+          backgroundRefresh(videoId, configKey, inFlightKey, generation);
           State.lastInitCompletedAt = Date.now();
           return State.segments.slice();
         }
 
-        let staleData = cached || await Cache.get(videoId, configKey, true);
-        if (staleData) {
-          State.segments = staleData.data;
-          Metrics.recordSegments(State.segments.length);
-          UI.renderSeekbarMarks();
-          Player.attachListeners();
-          UI.startWatchdog();
-          g.emit("sb.segments", { videoId, count: State.segments.length, cached: true, stale: true });
+        const stale = cached || await Cache.get(videoId, configKey, true);
+        if (stale && canCommit(videoId, generation)) {
+          applySegments(videoId, generation, stale.data, hidden, { cached: true, stale: true });
         }
 
-        const existing = Cache.getInFlight(inFlightKey);
-        if (existing) {
+        let fetchPromise = Cache.getInFlight(inFlightKey);
+        if (fetchPromise) {
           Metrics.recordDeduped();
-          State.segments = await existing;
         } else {
-          State.abortController = new AbortController();
-          const fetchPromise = (async () => {
-            try {
-              const segments = await API.fetchWithRetry(videoId, State.abortController.signal);
-              Metrics.recordSegments(segments.length);
-              await Cache.set(videoId, configKey, segments);
-              return segments;
-            } catch (err) {
-              if (err.name === "AbortError") return State.segments;
-              Metrics.recordApiError();
-              const fallback = await Cache.get(videoId, configKey, true);
-              return (fallback && fallback.data) || State.segments;
-            }
-          })();
-
+          const controller = new AbortController();
+          State.abortController = controller;
+          fetchPromise = fetchAndCache(videoId, configKey, controller.signal);
           Cache.setInFlight(inFlightKey, fetchPromise);
-          const freshSegments = await fetchPromise;
-          Cache.clearInFlight(inFlightKey);
-
-          if (State.videoId === videoId) {
-            State.segments = freshSegments;
-            UI.invalidateRenderCache();
-            UI.renderSeekbarMarks();
-            Player.attachListeners();
-            UI.startWatchdog();
-            g.emit("sb.segments", { videoId, count: State.segments.length, cached: false });
-          }
+          fetchPromise.then(
+            () => Cache.clearInFlight(inFlightKey, fetchPromise),
+            () => Cache.clearInFlight(inFlightKey, fetchPromise),
+          );
         }
+
+        const freshSegments = await fetchPromise;
+        if (canCommit(videoId, generation)) {
+          applySegments(videoId, generation, freshSegments, hidden, { cached: false });
+          State.lastInitCompletedAt = Date.now();
+        }
+        return canCommit(videoId, generation) ? State.segments.slice() : [];
       } catch (err) {
-        if (err.name !== "AbortError") {
+        if (err && err.name !== "AbortError") {
           try { h("[SB] init error for " + videoId + ":", err); } catch (_) {}
           Metrics.recordApiError();
         }
-        State.segments = [];
+        if (canCommit(videoId, generation)) {
+          // A stale cache may already be displayed; do not erase it on a
+          // transient failure. Cold-cache failures simply expose no segments.
+          if (!State.segments.length) applySegments(videoId, generation, [], hidden, { cached: false, error: true });
+          State.lastInitCompletedAt = Date.now();
+          return State.segments.slice();
+        }
+        return [];
+      } finally {
+        if (State.abortController && State.abortController.signal && State.abortController.signal.aborted) {
+          State.abortController = null;
+        }
       }
-      State.lastInitCompletedAt = Date.now();
-      return State.segments.slice();
     };
 
     const init = async (videoId, opts = {}) => {
       const force = !!(opts && opts.force);
+      const revalidate = !!(opts && opts.revalidate);
       const recentWindowMs = 2000;
-
       if (!force && State.initPromise && State.initPromiseVideoId === videoId) {
         Metrics.recordDeduped();
         return State.initPromise;
       }
-
-      if (!force && videoId && State.videoId === videoId && Date.now() - State.lastInitCompletedAt < recentWindowMs) {
+      if (!force && !revalidate && videoId && State.videoId === videoId && Date.now() - State.lastInitCompletedAt < recentWindowMs) {
         return State.segments.slice();
       }
-
-      const promise = performInit(videoId).finally(() => {
+      const promise = performInit(videoId, { force, revalidate }).finally(() => {
         if (State.initPromise === promise) {
           State.initPromise = null;
           State.initPromiseVideoId = null;
@@ -5666,38 +6023,43 @@
       return promise;
     };
 
-    const backgroundRefresh = async (videoId, configKey, inFlightKey) => {
-      if (Cache.getInFlight(inFlightKey)) return;
-
-      const refreshPromise = (async () => {
-        try {
-          const ctrl = new AbortController();
-          const segments = await API.fetchWithRetry(videoId, ctrl.signal);
-          await Cache.set(videoId, configKey, segments);
-          if (State.videoId === videoId) {
-            State.segments = segments;
-            UI.invalidateRenderCache();
-            UI.renderSeekbarMarks();
-          }
+    const backgroundRefresh = async (videoId, configKey, inFlightKey, generation) => {
+      if (Cache.getInFlight(inFlightKey)) return Cache.getInFlight(inFlightKey);
+      const controller = new AbortController();
+      if (!State.backgroundControllers) State.backgroundControllers = new Set();
+      State.backgroundControllers.add(controller);
+      const refreshPromise = fetchAndCache(videoId, configKey, controller.signal)
+        .then((segments) => {
+          if (canCommit(videoId, generation)) applySegments(videoId, generation, segments, State.hidden, { cached: false, background: true });
           return segments;
-        } catch (_) {
-          return State.segments;
-        }
-      })();
-
+        })
+        .catch((err) => {
+          if (err && err.name !== "AbortError") Metrics.recordApiError();
+          return [];
+        })
+        .finally(() => {
+          State.backgroundControllers && State.backgroundControllers.delete(controller);
+          Cache.clearInFlight(inFlightKey, refreshPromise);
+        });
       Cache.setInFlight(inFlightKey, refreshPromise);
-      refreshPromise.finally(() => Cache.clearInFlight(inFlightKey));
+      return refreshPromise;
     };
 
     const destroy = () => {
-      if (State.abortController) {
-        try { State.abortController.abort(); } catch (_) {}
-        State.abortController = null;
-      }
+      const previousVideoId = State.videoId;
+      State.generation++;
+      abortActiveRequests();
+      detachLifecycleListeners();
+      Cache.clearInFlightForVideo(previousVideoId);
+      // Do not let a promise from a disabled feature suppress the next
+      // enable/navigation lookup.
+      State.initPromise = null;
+      State.initPromiseVideoId = null;
       Player.detachListeners();
       Player.resetMuteState();
       UI.stopWatchdog();
       State.videoId = null;
+      State.hidden = false;
       State.segments = [];
       State.processedUUIDs.clear();
       State.activeSegmentIndex = -1;
@@ -5753,7 +6115,7 @@
       segments: State.segments.length,
       lastFetchPlan: State.lastFetchPlan || "",
       lastLookupTrace: State.lastLookupTrace.slice(),
-      hidden: State.videoId ? false : null,
+      hidden: State.videoId ? !!State.hidden : null,
     });
 
     return {
@@ -5774,6 +6136,7 @@
       stats: () => Metrics.snapshot(),
       metrics: () => Metrics.snapshot(),
       debugInfo,
+      getActionOptions: Settings.getActionOptions,
       getSegments: () => State.segments.slice(),
       api: {
         fetchWithRetry: API.fetchWithRetry,
@@ -5784,6 +6147,7 @@
         reportViewed: API.reportViewed,
         getUserInfo: API.getUserInfo,
         hashPrefix: API.hashPrefix,
+        normalizeSegments: API.normalizeSegments,
       },
       toggleSubmissionEditor: () => UI.toggleSubmissionEditor()
     };
@@ -5793,7 +6157,12 @@
   let St_seekbarMarks = new Map();
 
   async function St(e) {
-    await SponsorBlockEngine.init(e);
+    try {
+      return await SponsorBlockEngine.init(e);
+    } catch (err) {
+      try { h("[SB] lookup scheduling error", err); } catch (_) {}
+      return [];
+    }
   }
 
   // ─── SB Helper Functions (used by feature registration UI) ──────────────
@@ -8673,7 +9042,7 @@
       id: "sponsorblock",
       name: "SponsorBlock",
       summary:
-        "Skips sponsored sections, intros, outros, and other clutter using the community SponsorBlock database. Choose which kinds to skip and which to keep.",
+        "Automatically processes every SponsorBlock category with per-category playback actions, timeline marks, manual submission, and recovery-safe navigation handling.",
       masterKey: "sponsorblockOn",
       keys: [
         "sponsorblockOn",
@@ -8689,6 +9058,10 @@
           ft();
           return;
         }
+        // Settings changes are a lifecycle boundary. Clear the previous
+        // engine before scheduling the new lookup so document listeners,
+        // watchdogs, and wake handlers cannot accumulate across applies.
+        SponsorBlockEngine.destroy();
         const scheduleLookup = () => {
           let attempts = 0;
           const run = () => {
@@ -8746,17 +9119,6 @@
             "ytp-normal"
           )
         );
-        apiCtrls.appendChild(
-          Oo(
-            "SB diagnostics",
-            () => {
-              const info = SponsorBlockEngine.debugInfo();
-              try { console.info("[YT-zen][SponsorBlock]", info); } catch (_) {}
-              pe("SB path: " + (info.lastFetchPlan || "n/a") + " | " + info.segments + " segment" + (info.segments !== 1 ? "s" : ""), 2600, "info");
-            },
-            "ytp-normal"
-          )
-        );
         e.appendChild(apiCtrls);
 
         const t = To("div", "ytp-sub");
@@ -8772,7 +9134,7 @@
           if (e2.desc) lbl.title = e2.desc;
           o.appendChild(lbl);
           o.appendChild(Bo(a));
-          o.appendChild(Po(n, Yi));
+          o.appendChild(Po(n, SponsorBlockEngine.getActionOptions(e2.id)));
           t.appendChild(o);
         });
         e.appendChild(t);
@@ -14144,7 +14506,16 @@
               row.style.cssText="display:flex;gap:8px;padding:8px;border-bottom:1px solid rgba(255,255,255,0.05);";
               const nameEl=document.createElement("div");
               nameEl.style.cssText="flex:1;";
-              nameEl.innerHTML=`<b>${c.name}</b> <small style="color:#8b93a3;">${c.category} — ${c.purpose}</small><br><small style="color:#6b7280;">${c.value.slice(0,80)}</small>`;
+              const nameStrong = document.createElement("b");
+              nameStrong.textContent = c.name;
+              const metaSmall = document.createElement("small");
+              metaSmall.style.color = "#8b93a3";
+              metaSmall.textContent = " " + c.category + " — " + c.purpose;
+              const valueBreak = document.createElement("br");
+              const valueSmall = document.createElement("small");
+              valueSmall.style.color = "#6b7280";
+              valueSmall.textContent = String(c.value || "").slice(0, 80);
+              nameEl.append(nameStrong, metaSmall, valueBreak, valueSmall);
               const editBtn=document.createElement("button");
               editBtn.textContent="Edit";
               editBtn.style.cssText="padding:4px 8px;background:rgba(255,255,255,0.1);color:#fff;border:1px solid rgba(255,255,255,0.1);border-radius:4px;cursor:pointer;";
@@ -24939,6 +25310,13 @@
   // ===========================================================================
 
   // ─── ZenEngine (Core) ─────────────────────────────────────────────────────
+  const zenEscapeHtml = (value) => String(value == null ? "" : value).replace(/[&<>\"']/g, (char) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    "\"": "&quot;",
+    "'": "&#39;",
+  }[char]));
   const ZenEngine = (() => {
     "use strict";
     const CSS = `
@@ -25413,21 +25791,41 @@ body.zen-mood-learn ytd-watch-flexy #secondary{display:none!important}
       panel.id = id;
       panel.className = "zen-card";
       panel.style.cssText = "margin:8px 12px";
-      panel.innerHTML = '<div class="zen-row" style="justify-content:space-between;margin-bottom:6px">' +
-        '<span style="font-size:13px;font-weight:700;color:#fff">' + title + '</span>' +
-        '<span class="zen-meta" id="' + id + '-status"></span></div>' +
-        '<div id="' + id + '-results" style="display:flex;flex-direction:column;gap:4px"></div>';
+      const header = document.createElement("div");
+      header.className = "zen-row";
+      header.style.cssText = "justify-content:space-between;margin-bottom:6px";
+      const heading = document.createElement("span");
+      heading.style.cssText = "font-size:13px;font-weight:700;color:#fff";
+      heading.textContent = String(title || "");
+      const status = document.createElement("span");
+      status.className = "zen-meta";
+      status.id = id + "-status";
+      header.append(heading, status);
+      const results = document.createElement("div");
+      results.id = id + "-results";
+      results.style.cssText = "display:flex;flex-direction:column;gap:4px";
+      panel.append(header, results);
       return panel;
     };
     const createVideoRow = (videoId, title, channel, onClick) => {
       const row = document.createElement("div");
       row.className = "zen-row";
       row.style.cssText = "padding:4px 0;cursor:pointer";
-      const thumb = "https://i.ytimg.com/vi/" + videoId + "/mqdefault.jpg";
-      row.innerHTML = '<div class="zen-thumb" style="width:80px;height:45px;background-image:url(\'' +
-        sanitizeUrlForCSS(thumb) + '\')"></div>' +
-        '<div style="flex:1;min-width:0"><div class="zen-title" style="-webkit-line-clamp:1">' +
-        (title || videoId) + '</div><div class="zen-meta">' + (channel || "") + '</div></div>';
+      const thumb = document.createElement("div");
+      thumb.className = "zen-thumb";
+      thumb.style.cssText = "width:80px;height:45px";
+      thumb.style.backgroundImage = "url('" + sanitizeUrlForCSS(ie.thumb(videoId, "mqdefault")) + "')";
+      const copy = document.createElement("div");
+      copy.style.cssText = "flex:1;min-width:0";
+      const titleNode = document.createElement("div");
+      titleNode.className = "zen-title";
+      titleNode.style.webkitLineClamp = "1";
+      titleNode.textContent = String(title || videoId || "");
+      const channelNode = document.createElement("div");
+      channelNode.className = "zen-meta";
+      channelNode.textContent = String(channel || "");
+      copy.append(titleNode, channelNode);
+      row.append(thumb, copy);
       if (onClick) row.addEventListener("click", onClick);
       return row;
     };
@@ -26328,13 +26726,85 @@ body.zen-mood-learn ytd-watch-flexy #secondary{display:none!important}
   //  FEATURE REGISTRATIONS (22 features)
   // ═══════════════════════════════════════════════════════════════════════════
 
-  xa.register({ id: "time-machine", name: "Time Machine Feed", summary: "Surface videos from subscriptions uploaded on this date in a previous year.", masterKey: "timeMachineOn", keys: ["timeMachineOn", "timeMachineYears", "timeMachineMonths"],
-    apply(ctx) { if (!S.timeMachineOn) return; ZenEngine.injectCSS(); const panel = ZenDiscovery.createFeedPanel("ytp-zen-tm", "Time Machine"); const goBtn = document.createElement("button"); goBtn.className = "zen-btn primary"; goBtn.textContent = "Load time capsule"; goBtn.style.marginTop = "6px"; panel.appendChild(goBtn); ZenDiscovery.insertIntoFeed(panel, ctx);
-      goBtn.addEventListener("click", () => { const status = panel.querySelector("#ytp-zen-tm-status"); const results = panel.querySelector("#ytp-zen-tm-results"); status.textContent = "Searching..."; const years = S.timeMachineYears || 1; const months = S.timeMachineMonths || 0; const target = new Date(); target.setFullYear(target.getFullYear() - years); target.setMonth(target.getMonth() - months); status.textContent = "Looking for videos from " + target.toLocaleDateString() + "...";
-        ZenEngine.innerTube("search", { context: Mt(), query: "uploaded:" + target.toISOString().slice(0, 10) }).then(r => { if (!r || !r.ok || !r.json) { status.textContent = "No results."; return; } status.textContent = "Found content from " + target.toLocaleDateString(); results.innerHTML = ""; try { const contents = r.json.contents && r.json.contents.twoColumnSearchResultsRenderer && r.json.contents.twoColumnSearchResultsRenderer.primaryContents && r.json.contents.twoColumnSearchResultsRenderer.primaryContents.sectionListRenderer && r.json.contents.twoColumnSearchResultsRenderer.primaryContents.sectionListRenderer.contents; if (contents) { let count = 0; for (const section of contents) { const vids = section.itemSectionRenderer && section.itemSectionRenderer.contents; if (vids) for (const v of vids) { if (v.videoRenderer && count < 12) { const vr = v.videoRenderer; results.appendChild(ZenDiscovery.createVideoRow(vr.videoId, (vr.title && vr.title.simpleText) || vr.videoId, (vr.ownerText && vr.ownerText.simpleText) || "", () => { e.location.href = "/watch?v=" + vr.videoId; })); count++; } } } } } catch (_) {} }).catch(() => { status.textContent = "Search failed."; }); }); },
-    settings(en) { en.appendChild(Io("Enable Time Machine Feed", "timeMachineOn")); en.appendChild(No("Years back", "timeMachineYears", 1, 10, 1, v => v + " year" + (v > 1 ? "s" : ""))); en.appendChild(No("Additional months", "timeMachineMonths", 0, 11, 1, v => v + " months")); } });
+  xa.register({
+    id: "time-machine",
+    name: "Time Machine Feed",
+    summary: "Surface videos from subscriptions uploaded on this date in a previous year.",
+    masterKey: "timeMachineOn",
+    keys: ["timeMachineOn", "timeMachineYears", "timeMachineMonths"],
+    apply(ctx) {
+      if (!S.timeMachineOn) return;
+      ZenEngine.injectCSS();
+      const panel = ZenDiscovery.createFeedPanel("ytp-zen-tm", "Time Machine");
+      const goBtn = document.createElement("button");
+      goBtn.className = "zen-btn primary";
+      goBtn.textContent = "Load time capsule";
+      goBtn.style.marginTop = "6px";
+      panel.appendChild(goBtn);
+      ZenDiscovery.insertIntoFeed(panel, ctx);
 
-  xa.register({ id: "small-creator-spotlight", name: "Small Creator Spotlight", summary: "Discovery feed for channels under your subscriber threshold.", masterKey: "smallCreatorOn", keys: ["smallCreatorOn", "smallCreatorMaxSubs"],
+      const search = () => {
+        const status = panel.querySelector("#ytp-zen-tm-status");
+        const results = panel.querySelector("#ytp-zen-tm-results");
+        const years = Number(S.timeMachineYears) || 1;
+        const months = Number(S.timeMachineMonths) || 0;
+        const target = new Date();
+        target.setFullYear(target.getFullYear() - years);
+        target.setMonth(target.getMonth() - months);
+        status.textContent = "Looking for videos from " + target.toLocaleDateString() + "...";
+        ZenEngine.innerTube("search", {
+          context: Mt(),
+          query: "uploaded:" + target.toISOString().slice(0, 10),
+        }).then((response) => {
+          if (!response || !response.ok || !response.json) {
+            status.textContent = "No results.";
+            return;
+          }
+          status.textContent = "Found content from " + target.toLocaleDateString();
+          results.replaceChildren();
+          try {
+            const sections = response.json.contents &&
+              response.json.contents.twoColumnSearchResultsRenderer &&
+              response.json.contents.twoColumnSearchResultsRenderer.primaryContents &&
+              response.json.contents.twoColumnSearchResultsRenderer.primaryContents.sectionListRenderer &&
+              response.json.contents.twoColumnSearchResultsRenderer.primaryContents.sectionListRenderer.contents;
+            let count = 0;
+            for (const section of sections || []) {
+              const videos = section.itemSectionRenderer && section.itemSectionRenderer.contents;
+              for (const item of videos || []) {
+                const renderer = item.videoRenderer;
+                if (!renderer || !renderer.videoId || count >= 12) continue;
+                const title = renderer.title && (renderer.title.simpleText ||
+                  (renderer.title.runs && renderer.title.runs.map((run) => run.text).join("")));
+                const channel = renderer.ownerText && (renderer.ownerText.simpleText ||
+                  (renderer.ownerText.runs && renderer.ownerText.runs.map((run) => run.text).join("")));
+                results.appendChild(ZenDiscovery.createVideoRow(
+                  renderer.videoId,
+                  title || renderer.videoId,
+                  channel || "",
+                  () => { e.location.href = "/watch?v=" + renderer.videoId; },
+                ));
+                count++;
+              }
+              if (count >= 12) break;
+            }
+          } catch (_) {
+            status.textContent = "Could not parse results.";
+          }
+        }).catch(() => {
+          status.textContent = "Search failed.";
+        });
+      };
+
+      goBtn.addEventListener("click", search);
+      Yt["time-machine"].push(() => goBtn.removeEventListener("click", search));
+    },
+    settings(en) {
+      en.appendChild(Io("Enable Time Machine Feed", "timeMachineOn"));
+      en.appendChild(No("Years back", "timeMachineYears", 1, 10, 1, (value) => value + " year" + (value > 1 ? "s" : "")));
+      en.appendChild(No("Additional months", "timeMachineMonths", 0, 11, 1, (value) => value + " months"));
+    },
+  });  xa.register({ id: "small-creator-spotlight", name: "Small Creator Spotlight", summary: "Discovery feed for channels under your subscriber threshold.", masterKey: "smallCreatorOn", keys: ["smallCreatorOn", "smallCreatorMaxSubs"],
     apply(ctx) { if (!S.smallCreatorOn) return; ZenEngine.injectCSS(); },
     settings(en) { en.appendChild(Io("Enable Small Creator Spotlight", "smallCreatorOn")); en.appendChild(No("Max subscribers", "smallCreatorMaxSubs", 1000, 100000, 1000, v => v.toLocaleString())); } });
 
@@ -26383,7 +26853,7 @@ body.zen-mood-learn ytd-watch-flexy #secondary{display:none!important}
     settings(en) { en.appendChild(Io("Enable Search Remix", "searchRemixOn")); } });
 
   xa.register({ id: "dead-link-detector", name: "Outdated Content Detector", summary: "Flags broken links and adds age badges to old videos.", masterKey: "deadLinkOn", keys: ["deadLinkOn"],
-    apply(ctx) { if (!S.deadLinkOn) return; ZenEngine.injectCSS(); const check = () => { const desc = document.querySelector("#description ytd-text-inline-expander, #description"); if (!desc || desc.dataset.zenChecked) return; desc.dataset.zenChecked = "1"; desc.querySelectorAll('a[href^="http"]').forEach(link => { const href = link.getAttribute("href"); if (!href || href.includes("youtube.com") || href.includes("youtu.be")) return; fetch(href, { method: "HEAD", mode: "no-cors", signal: AbortSignal.timeout(5000) }).then(r => { if (!r.ok && r.status !== 0) { link.style.cssText += "text-decoration:line-through;opacity:.5"; link.title = "May be broken"; } }).catch(() => {}); }); const ud = document.querySelector("#info-strings yt-formatted-string, ytd-video-primary-info-renderer #info span"); if (ud) { const dm = (ud.textContent || "").match(/(\w+ \d+, \d{4})/); if (dm) { const age = Date.now() - new Date(dm[1]).getTime(); if (age > 365 * 24 * 60 * 60 * 1000 * 2) { const badge = document.createElement("span"); badge.className = "zen-pill"; badge.style.cssText = "background:rgba(255,152,0,.15);color:#ffb74d;margin-left:8px"; badge.textContent = Math.floor(age / (365 * 24 * 60 * 60 * 1000)) + " years old"; badge.title = "Over 2 years old. May be outdated."; const info = document.querySelector("#info-strings, #info"); if (info) info.appendChild(badge); } } } }; ctx.addTimeout(check, 3000); ctx.onNav(() => ctx.addTimeout(check, 3000)); },
+    apply(ctx) { if (!S.deadLinkOn) return; ZenEngine.injectCSS(); const check = () => { const desc = document.querySelector("#description ytd-text-inline-expander, #description"); if (!desc || desc.dataset.zenChecked) return; desc.dataset.zenChecked = "1"; desc.querySelectorAll('a[href^="http"]').forEach(link => { const href = link.getAttribute("href"); if (!href || href.includes("youtube.com") || href.includes("youtu.be")) return; fetch(href, { method: "HEAD", mode: "no-cors", signal: (() => { const controller = new AbortController(); setTimeout(() => controller.abort(), 5000); return controller.signal; })() }).then(r => { if (!r.ok && r.status !== 0) { link.style.cssText += "text-decoration:line-through;opacity:.5"; link.title = "May be broken"; } }).catch(() => {}); }); const ud = document.querySelector("#info-strings yt-formatted-string, ytd-video-primary-info-renderer #info span"); if (ud) { const dm = (ud.textContent || "").match(/(\w+ \d+, \d{4})/); if (dm) { const age = Date.now() - new Date(dm[1]).getTime(); if (age > 365 * 24 * 60 * 60 * 1000 * 2) { const badge = document.createElement("span"); badge.className = "zen-pill"; badge.style.cssText = "background:rgba(255,152,0,.15);color:#ffb74d;margin-left:8px"; badge.textContent = Math.floor(age / (365 * 24 * 60 * 60 * 1000)) + " years old"; badge.title = "Over 2 years old. May be outdated."; const info = document.querySelector("#info-strings, #info"); if (info) info.appendChild(badge); } } } }; ctx.addTimeout(check, 3000); ctx.onNav(() => ctx.addTimeout(check, 3000)); },
     settings(en) { en.appendChild(Io("Enable Outdated Content Detector", "deadLinkOn")); } });
 
   xa.register({ id: "watch-genome", name: "Watch Genome", summary: "Transparent preference model. Shows compatibility scores on thumbnails.", masterKey: "watchGenomeOn", keys: ["watchGenomeOn"],
@@ -26391,11 +26861,11 @@ body.zen-mood-learn ytd-watch-flexy #secondary{display:none!important}
     settings(en) { en.appendChild(Io("Enable Watch Genome", "watchGenomeOn")); const snap = ZenSession.genome.snapshot(); const info = document.createElement("div"); info.className = "zen-meta"; info.style.cssText = "margin-top:6px;padding:8px;background:rgba(255,255,255,.03);border-radius:6px"; info.textContent = "Sessions: " + (snap.sessions || 0) + " | Topics: " + (ZenSession.genome.getTopTopics(3).join(", ") || "none") + " | Length: " + ZenSession.genome.getLengthPref(); en.appendChild(info); en.appendChild(Oo("Reset genome", () => { ZenSession.genome.reset(); pe("Watch genome reset.", 1500, "success"); }, "ytp-danger")); } });
 
   xa.register({ id: "curated-collections", name: "Curated Collections", summary: "Themed video collections with descriptions and progress tracking.", masterKey: "collectionsOn", keys: ["collectionsOn"],
-    apply(ctx) { if (!S.collectionsOn) return; ZenEngine.injectCSS(); const vid = ie.videoId(); if (!vid) return; const panel = document.createElement("div"); panel.id = "ytp-zen-collections"; panel.className = "zen-card"; panel.style.cssText = "margin:8px 0"; const rebuild = () => { const cols = ZenSession.collections.list(); let html = '<div style="font-size:13px;font-weight:700;color:#fff;margin-bottom:6px">Add to Collection</div><div class="zen-row" style="flex-wrap:wrap;gap:4px">'; cols.forEach(c => { html += '<button class="zen-btn" data-col="' + c.id + '">' + c.name + ' (' + c.videos.length + ')</button>'; }); html += '<button class="zen-btn primary" id="ytp-zen-col-new">+ New</button></div>'; panel.innerHTML = html; }; rebuild(); const insert = () => { const below = document.querySelector("#below") || document.querySelector("#description"); if (below && !document.getElementById("ytp-zen-collections")) below.appendChild(panel); }; ctx.addTimeout(insert, 2000); panel.addEventListener("click", (ev) => { const btn = ev.target.closest("[data-col]"); if (btn) { ZenSession.collections.addVideo(btn.dataset.col, { videoId: vid, title: ie.title() || vid }); pe("Added to collection.", 1500, "success"); rebuild(); } if (ev.target.id === "ytp-zen-col-new") { const name = prompt("Collection name:"); if (name) { ZenSession.collections.create(name); pe("Created: " + name, 1500, "success"); rebuild(); } } }); },
-    settings(en) { en.appendChild(Io("Enable Curated Collections", "collectionsOn")); const cols = ZenSession.collections.list(); if (cols.length) { const list = document.createElement("div"); list.style.cssText = "margin-top:6px;font-size:11px;color:#aaa"; cols.forEach(c => { list.innerHTML += '<div style="padding:2px 0">' + c.name + ' (' + c.videos.length + ' videos)</div>'; }); en.appendChild(list); } } });
+    apply(ctx) { if (!S.collectionsOn) return; ZenEngine.injectCSS(); const vid = ie.videoId(); if (!vid) return; const panel = document.createElement("div"); panel.id = "ytp-zen-collections"; panel.className = "zen-card"; panel.style.cssText = "margin:8px 0"; const rebuild = () => { const cols = ZenSession.collections.list(); let html = '<div style="font-size:13px;font-weight:700;color:#fff;margin-bottom:6px">Add to Collection</div><div class="zen-row" style="flex-wrap:wrap;gap:4px">'; cols.forEach(c => { html += '<button class="zen-btn" data-col="' + zenEscapeHtml(c.id) + '">' + zenEscapeHtml(c.name) + ' (' + c.videos.length + ')</button>'; }); html += '<button class="zen-btn primary" id="ytp-zen-col-new">+ New</button></div>'; panel.innerHTML = html; }; rebuild(); const insert = () => { const below = document.querySelector("#below") || document.querySelector("#description"); if (below && !document.getElementById("ytp-zen-collections")) below.appendChild(panel); }; ctx.addTimeout(insert, 2000); panel.addEventListener("click", (ev) => { const btn = ev.target.closest("[data-col]"); if (btn) { ZenSession.collections.addVideo(btn.dataset.col, { videoId: vid, title: ie.title() || vid }); pe("Added to collection.", 1500, "success"); rebuild(); } if (ev.target.id === "ytp-zen-col-new") { const name = prompt("Collection name:"); if (name) { ZenSession.collections.create(name); pe("Created: " + name, 1500, "success"); rebuild(); } } }); },
+    settings(en) { en.appendChild(Io("Enable Curated Collections", "collectionsOn")); const cols = ZenSession.collections.list(); if (cols.length) { const list = document.createElement("div"); list.style.cssText = "margin-top:6px;font-size:11px;color:#aaa"; cols.forEach(c => { list.innerHTML += '<div style="padding:2px 0">' + zenEscapeHtml(c.name) + ' (' + c.videos.length + ' videos)</div>'; }); en.appendChild(list); } } });
 
   xa.register({ id: "session-memory", name: "Session Memory", summary: "YouTube remembers your browsing context when you return.", masterKey: "sessionMemoryOn", keys: ["sessionMemoryOn"],
-    apply(ctx) { if (!S.sessionMemoryOn) return; ZenEngine.injectCSS(); ZenSession.session.begin(); const trackCurrent = () => { const vid = ie.videoId(); if (vid) ZenSession.session.trackVideo({ videoId: vid, title: ie.title(), channel: ie.channel() }); if (location.pathname === "/results") { const q = new URLSearchParams(location.search).get("search_query"); if (q) ZenSession.session.trackSearch(q); } }; ctx.addTimeout(trackCurrent, 1500); ctx.onNav(() => ctx.addTimeout(trackCurrent, 1500)); const showMemory = () => { const sess = ZenSession.session.get(); if (!sess.videos.length && !sess.searches.length) return; const panel = document.createElement("div"); panel.id = "ytp-zen-session"; let html = '<div style="font-size:13px;font-weight:700;color:#fff;margin-bottom:6px">Welcome back</div>'; if (sess.searches.length) { html += '<div class="zen-meta" style="margin-bottom:4px">Recent searches:</div>'; sess.searches.slice(0, 3).forEach(q => { html += '<button class="zen-chip" style="margin:2px" data-search="' + q.replace(/"/g, "&quot;") + '">' + q + '</button>'; }); } if (sess.videos.length) { html += '<div class="zen-meta" style="margin:6px 0 4px">Recently watched:</div>'; sess.videos.slice(-3).reverse().forEach(v => { html += '<div class="zen-row" style="cursor:pointer;padding:3px 0" data-vid="' + v.videoId + '"><div class="zen-thumb" style="width:50px;height:28px;background-image:url(\'' + sanitizeUrlForCSS(ie.thumb(v.videoId, "mqdefault")) + '\')"></div><div style="flex:1;min-width:0;font-size:11px;color:#dde;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + (v.title || v.videoId) + '</div></div>'; }); } html += '<div style="margin-top:8px;text-align:right"><button class="zen-btn" id="ytp-zen-sess-dismiss">Dismiss</button></div>'; panel.innerHTML = html; document.body.appendChild(panel); panel.addEventListener("click", (ev) => { if (ev.target.closest("[data-search]")) { e.location.href = "/results?search_query=" + encodeURIComponent(ev.target.closest("[data-search]").dataset.search); return; } if (ev.target.closest("[data-vid]")) { e.location.href = "/watch?v=" + ev.target.closest("[data-vid]").dataset.vid; return; } if (ev.target.id === "ytp-zen-sess-dismiss") panel.remove(); }); ctx.addTimeout(() => { if (panel.parentNode) panel.remove(); }, 15000); }; ctx.addTimeout(showMemory, 1500); },
+    apply(ctx) { if (!S.sessionMemoryOn) return; ZenEngine.injectCSS(); ZenSession.session.begin(); const trackCurrent = () => { const vid = ie.videoId(); if (vid) ZenSession.session.trackVideo({ videoId: vid, title: ie.title(), channel: ie.channel() }); if (location.pathname === "/results") { const q = new URLSearchParams(location.search).get("search_query"); if (q) ZenSession.session.trackSearch(q); } }; ctx.addTimeout(trackCurrent, 1500); ctx.onNav(() => ctx.addTimeout(trackCurrent, 1500)); const showMemory = () => { const sess = ZenSession.session.get(); if (!sess.videos.length && !sess.searches.length) return; const panel = document.createElement("div"); panel.id = "ytp-zen-session"; let html = '<div style="font-size:13px;font-weight:700;color:#fff;margin-bottom:6px">Welcome back</div>'; if (sess.searches.length) { html += '<div class="zen-meta" style="margin-bottom:4px">Recent searches:</div>'; sess.searches.slice(0, 3).forEach(q => { html += '<button class="zen-chip" style="margin:2px" data-search="' + zenEscapeHtml(q) + '">' + zenEscapeHtml(q) + '</button>'; }); } if (sess.videos.length) { html += '<div class="zen-meta" style="margin:6px 0 4px">Recently watched:</div>'; sess.videos.slice(-3).reverse().forEach(v => { html += '<div class="zen-row" style="cursor:pointer;padding:3px 0" data-vid="' + zenEscapeHtml(v.videoId) + '"><div class="zen-thumb" style="width:50px;height:28px;background-image:url(\'' + sanitizeUrlForCSS(ie.thumb(v.videoId, "mqdefault")) + '\')"></div><div style="flex:1;min-width:0;font-size:11px;color:#dde;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + zenEscapeHtml(v.title || v.videoId) + '</div></div>'; }); } html += '<div style="margin-top:8px;text-align:right"><button class="zen-btn" id="ytp-zen-sess-dismiss">Dismiss</button></div>'; panel.innerHTML = html; document.body.appendChild(panel); panel.addEventListener("click", (ev) => { if (ev.target.closest("[data-search]")) { e.location.href = "/results?search_query=" + encodeURIComponent(ev.target.closest("[data-search]").dataset.search); return; } if (ev.target.closest("[data-vid]")) { e.location.href = "/watch?v=" + ev.target.closest("[data-vid]").dataset.vid; return; } if (ev.target.id === "ytp-zen-sess-dismiss") panel.remove(); }); ctx.addTimeout(() => { if (panel.parentNode) panel.remove(); }, 15000); }; ctx.addTimeout(showMemory, 1500); },
     settings(en) { en.appendChild(Io("Enable Session Memory", "sessionMemoryOn")); en.appendChild(Oo("Clear session memory", () => { ZenSession.session.clear(); pe("Session memory cleared.", 1500, "success"); })); } });
 
   xa.register({ id: "time-budget", name: "Time Budget Manager", summary: "Set a session time budget. Tracks usage and suggests wrapping up.", masterKey: "timeBudgetOn", keys: ["timeBudgetOn", "timeBudgetMinutes"],

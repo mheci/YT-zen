@@ -37,8 +37,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" \
-            --title "YT-zen ${GITHUB_REF_NAME#v}" \
-            --generate-notes \
-            yt-zen.user.js \
-            yt-zen.meta.js
+          title="YT-zen ${GITHUB_REF_NAME#v}"
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release edit "$GITHUB_REF_NAME" --title "$title" --verify-tag
+            gh release upload "$GITHUB_REF_NAME" yt-zen.user.js yt-zen.meta.js --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              --title "$title" \
+              --generate-notes \
+              yt-zen.user.js \
+              yt-zen.meta.js
+          fi

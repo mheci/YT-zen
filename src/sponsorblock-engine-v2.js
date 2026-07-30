@@ -53,6 +53,8 @@
       lastSkipTarget: 0,
       listenersAttached: false,
       userId: null,
+      lastFetchPlan: "",
+      lastLookupTrace: [],
       // Submission Creator Editor State
       editor: {
         active: false,
@@ -93,6 +95,12 @@
       let apiErrors = 0;
       let staleServed = 0;
       let dedupedRequests = 0;
+      let apiRequests = 0;
+      let apiFallbacks = 0;
+      let voteRequests = 0;
+      let submitRequests = 0;
+      let viewedReports = 0;
+      let userInfoRequests = 0;
 
       const load = async () => {
         try {
@@ -129,6 +137,14 @@
       const recordApiError = () => { apiErrors++; };
       const recordStaleServed = () => { staleServed++; };
       const recordDeduped = () => { dedupedRequests++; };
+      const recordApiRequest = () => { apiRequests++; };
+      const recordApiFallback = () => { apiFallbacks++; };
+      const recordVoteRequest = () => { voteRequests++; };
+      const recordSubmitRequest = () => { submitRequests++; };
+      const recordViewedReport = () => { viewedReports++; };
+      const recordUserInfoRequest = () => { userInfoRequests++; };
+      const recordFetchPlan = (planId) => { State.lastFetchPlan = planId || ""; };
+      const recordLookupTrace = (trace) => { State.lastLookupTrace = Array.isArray(trace) ? trace.slice(-8) : []; };
 
       const snapshot = () => ({
         saved: timeSaved,
@@ -140,6 +156,14 @@
         apiErrors,
         staleServed,
         dedupedRequests,
+        apiRequests,
+        apiFallbacks,
+        voteRequests,
+        submitRequests,
+        viewedReports,
+        userInfoRequests,
+        lastFetchPlan: State.lastFetchPlan || "",
+        lastLookupTrace: State.lastLookupTrace.slice(),
         hitRate: (cacheHits + cacheMisses) > 0
           ? Math.round((cacheHits / (cacheHits + cacheMisses)) * 100) : 0,
       });
@@ -147,8 +171,23 @@
       load();
 
       return {
-        recordSkip, recordSegments, recordCacheHit, recordCacheMiss,
-        recordApiError, recordStaleServed, recordDeduped, snapshot, load,
+        recordSkip,
+        recordSegments,
+        recordCacheHit,
+        recordCacheMiss,
+        recordApiError,
+        recordStaleServed,
+        recordDeduped,
+        recordApiRequest,
+        recordApiFallback,
+        recordVoteRequest,
+        recordSubmitRequest,
+        recordViewedReport,
+        recordUserInfoRequest,
+        recordFetchPlan,
+        recordLookupTrace,
+        snapshot,
+        load,
       };
     })();
 
@@ -402,6 +441,10 @@
 
     // ─── API Module ──────────────────────────────────────────────────────────
     const API = (() => {
+      const ALL_CATEGORIES = Categories.map(c => c.id);
+      const ALL_ACTION_TYPES = ["skip", "mute", "poi", "chapter", "full"];
+      const userInfoCache = new ZenResources.BoundedCache(32, "sb-user-info", { ttlMs: 10 * 60 * 1000 });
+
       const hashPrefix = async (videoId) => {
         try {
           const buffer = await crypto.subtle.digest(
@@ -418,104 +461,231 @@
         }
       };
 
-      const buildUrl = async (videoId, usePrivacy, categories, actionTypes) => {
-        const base = Settings.getServerUrl();
-        const params = new URLSearchParams();
+      const actionTypeForCategory = (categoryId) => {
+        if (categoryId === "poi_highlight") return "poi";
+        if (categoryId === "chapter") return "chapter";
+        if (categoryId === "exclusive_access") return "full";
+        return "skip";
+      };
 
-        if (usePrivacy) {
-          const prefix = await hashPrefix(videoId);
-          return base + "/api/skipSegments/" + prefix + "?categories=" +
-            encodeURIComponent(JSON.stringify(categories)) +
-            (actionTypes.length ? "&actionTypes=" + encodeURIComponent(JSON.stringify(actionTypes)) : "");
+      const createParams = (videoId, categories, actionTypes, mode, prefixValue) => {
+        const params = new URLSearchParams();
+        if (videoId) params.set("videoID", videoId);
+        if (prefixValue) params.set("prefix", prefixValue);
+        params.set("service", "YouTube");
+        if (mode === "json") {
+          params.set("categories", JSON.stringify(categories));
+          if (actionTypes && actionTypes.length) params.set("actionTypes", JSON.stringify(actionTypes));
         } else {
-          params.set("videoID", videoId);
-          categories.forEach(c => params.append("category", c));
-          if (actionTypes.length) {
-            actionTypes.forEach(a => params.append("actionType", a));
-          }
-          return base + "/api/skipSegments?" + params.toString();
+          categories.forEach((category) => params.append("category", category));
+          (actionTypes || []).forEach((actionType) => params.append("actionType", actionType));
         }
+        return params;
+      };
+
+      const buildFetchPlans = async (videoId, usePrivacy, categories, actionTypes) => {
+        const base = Settings.getServerUrl();
+        const prefix = await hashPrefix(videoId);
+        const plans = [];
+        const pushPlan = (id, url) => plans.push({ id, url });
+
+        if (!usePrivacy) {
+          pushPlan(
+            "direct-repeated",
+            base + "/api/skipSegments?" + createParams(videoId, categories, actionTypes, "repeated").toString()
+          );
+          pushPlan(
+            "direct-json",
+            base + "/api/skipSegments?" + createParams(videoId, categories, actionTypes, "json").toString()
+          );
+          pushPlan(
+            "direct-json-no-action-types",
+            base + "/api/skipSegments?" + createParams(videoId, categories, [], "json").toString()
+          );
+        }
+
+        pushPlan(
+          usePrivacy ? "privacy-path-json" : "privacy-fallback-path-json",
+          base + "/api/skipSegments/" + prefix + "?" + createParams(null, categories, actionTypes, "json").toString()
+        );
+        pushPlan(
+          usePrivacy ? "privacy-path-repeated" : "privacy-fallback-path-repeated",
+          base + "/api/skipSegments/" + prefix + "?" + createParams(null, categories, actionTypes, "repeated").toString()
+        );
+        pushPlan(
+          usePrivacy ? "privacy-query-json" : "privacy-fallback-query-json",
+          base + "/api/skipSegments?" + createParams(null, categories, actionTypes, "json", prefix).toString()
+        );
+        pushPlan(
+          usePrivacy ? "privacy-query-repeated" : "privacy-fallback-query-repeated",
+          base + "/api/skipSegments?" + createParams(null, categories, actionTypes, "repeated", prefix).toString()
+        );
+
+        return plans;
       };
 
       const validateSegment = (seg, index) => {
         if (!seg || typeof seg !== "object") return null;
-        if (!Array.isArray(seg.segment) || seg.segment.length < 2) return null;
 
-        const start = Number(seg.segment[0]);
-        const end = Number(seg.segment[1]);
+        const rawSegment = Array.isArray(seg.segment) ? seg.segment : [seg.startTime, seg.endTime];
+        if (!Array.isArray(rawSegment) || rawSegment.length < 2) return null;
+
+        const start = Number(rawSegment[0]);
+        const end = Number(rawSegment[1]);
 
         if (!isFinite(start) || !isFinite(end)) return null;
         if (start < 0 || end < 0) return null;
         if (start > end && !(start === 0 && end === 0)) return null;
 
-        const category = typeof seg.category === "string" ? seg.category : "";
-        if (!category) return null;
-
-        const UUID = typeof seg.UUID === "string" ? seg.UUID : ("idx-" + index + "-" + start);
-        const actionType = typeof seg.actionType === "string" ? seg.actionType : "skip";
+        const category = typeof seg.category === "string" && seg.category ? seg.category : "sponsor";
+        const UUID = typeof seg.UUID === "string" && seg.UUID ? seg.UUID : ("idx-" + index + "-" + start);
+        const actionType = typeof seg.actionType === "string" && seg.actionType
+          ? seg.actionType
+          : actionTypeForCategory(category);
         const votes = typeof seg.votes === "number" ? seg.votes : 0;
         const locked = typeof seg.locked === "number" ? seg.locked : 0;
         const videoDuration = typeof seg.videoDuration === "number" ? seg.videoDuration : 0;
         const description = typeof seg.description === "string" ? seg.description : "";
+        const views = typeof seg.views === "number" ? seg.views : 0;
+        const userID = typeof seg.userID === "string" ? seg.userID : "";
+        const hidden = typeof seg.hidden === "number" ? seg.hidden : 0;
+        const shadowHidden = typeof seg.shadowHidden === "number" ? seg.shadowHidden : 0;
 
-        return { category, segment: [start, end], UUID, actionType, votes, locked, videoDuration, description };
+        return {
+          category,
+          segment: [start, end],
+          UUID,
+          actionType,
+          votes,
+          locked,
+          views,
+          videoDuration,
+          description,
+          userID,
+          hidden,
+          shadowHidden,
+        };
       };
 
-      const fetchSegments = async (videoId, abortSignal) => {
-        const usePrivacy = !!S.sbPrivacy;
-        const allCategories = Categories.map(c => c.id);
-        const allActionTypes = ["skip", "mute", "poi", "chapter", "full"];
+      const extractSegmentArray = (payload, videoId) => {
+        if (Array.isArray(payload)) {
+          if (!payload.length) return [];
+          const looksPrefixed = payload.some((entry) => entry && Array.isArray(entry.segments));
+          if (looksPrefixed) {
+            const hit = payload.find((entry) => entry && entry.videoID === videoId && Array.isArray(entry.segments));
+            return hit && Array.isArray(hit.segments) ? hit.segments : [];
+          }
+          return payload;
+        }
+        if (payload && Array.isArray(payload.segments)) return payload.segments;
+        return [];
+      };
 
-        const url = await buildUrl(videoId, usePrivacy, allCategories, allActionTypes);
+      const normalizeSegments = (payload, videoId) => {
+        const rawSegments = extractSegmentArray(payload, videoId);
+        const normalized = [];
+        for (let idx = 0; idx < rawSegments.length; idx++) {
+          const valid = validateSegment(rawSegments[idx], idx);
+          if (valid) normalized.push(valid);
+        }
+        normalized.sort((a, b) => a.segment[0] - b.segment[0]);
+        return normalized;
+      };
 
+      const requestJson = async (url, abortSignal, opts = {}) => {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+        const timeoutId = setTimeout(() => controller.abort(), opts.timeoutMs || API_TIMEOUT_MS);
+        let onAbort = null;
 
         if (abortSignal) {
-          const onAbort = () => controller.abort();
+          if (abortSignal.aborted) {
+            clearTimeout(timeoutId);
+            throw new DOMException("Aborted", "AbortError");
+          }
+          onAbort = () => controller.abort();
           abortSignal.addEventListener("abort", onAbort, { once: true });
         }
 
         try {
-          const response = await he(url, { signal: controller.signal });
-          clearTimeout(timeoutId);
+          Metrics.recordApiRequest();
+          const response = await he(url, {
+            method: opts.method || "GET",
+            headers: opts.headers,
+            body: opts.body,
+            signal: controller.signal,
+          });
 
-          if (response.status === 404) return [];
+          if (response.status === 404) {
+            const err = new Error("HTTP 404");
+            err.status = 404;
+            throw err;
+          }
           if (response.status === 400) {
-            throw new Error("Bad request (400) — invalid parameters");
+            const err = new Error("HTTP 400");
+            err.status = 400;
+            throw err;
           }
           if (!response.ok) {
-            throw new Error("HTTP " + response.status);
+            const err = new Error("HTTP " + response.status);
+            err.status = response.status;
+            throw err;
           }
 
-          let body;
+          let body = null;
           try {
             body = await response.json();
           } catch (_) {
-            throw new Error("Malformed JSON response");
+            const err = new Error("Malformed JSON response");
+            err.status = response.status;
+            throw err;
           }
 
-          if (usePrivacy && Array.isArray(body)) {
-            const videoHit = body.find(v => v && v.videoID === videoId);
-            body = (videoHit && Array.isArray(videoHit.segments)) ? videoHit.segments : [];
+          if (body === null || body === undefined) {
+            const err = new Error("Empty JSON response");
+            err.status = response.status;
+            throw err;
           }
 
-          if (!Array.isArray(body)) return [];
-
-          const valid = [];
-          for (let idx = 0; idx < body.length; idx++) {
-            const seg = validateSegment(body[idx], idx);
-            if (seg) valid.push(seg);
-          }
-
-          valid.sort((a, b) => a.segment[0] - b.segment[0]);
-
-          return valid;
-        } catch (err) {
+          return { response, body };
+        } finally {
           clearTimeout(timeoutId);
-          if (err.name === "AbortError") throw err;
-          throw err;
+          if (abortSignal && onAbort) {
+            try { abortSignal.removeEventListener("abort", onAbort); } catch (_) {}
+          }
         }
+      };
+
+      const fetchSegments = async (videoId, abortSignal) => {
+        const usePrivacy = !!S.sbPrivacy;
+        const plans = await buildFetchPlans(videoId, usePrivacy, ALL_CATEGORIES, ALL_ACTION_TYPES);
+        const trace = [];
+        let lastError = null;
+        let notFoundCount = 0;
+
+        for (let idx = 0; idx < plans.length; idx++) {
+          const plan = plans[idx];
+          if (idx > 0) Metrics.recordApiFallback();
+          try {
+            const { response, body } = await requestJson(plan.url, abortSignal);
+            const segments = normalizeSegments(body, videoId);
+            trace.push({ plan: plan.id, status: response.status, count: segments.length });
+            Metrics.recordFetchPlan(plan.id);
+            Metrics.recordLookupTrace(trace);
+            return segments;
+          } catch (err) {
+            if (err && err.name === "AbortError") throw err;
+            if (err && err.status === 404) notFoundCount++;
+            trace.push({ plan: plan.id, status: err && err.status ? err.status : 0, error: err && err.message ? err.message : String(err) });
+            lastError = err;
+          }
+        }
+
+        Metrics.recordLookupTrace(trace);
+        if (plans.length && notFoundCount === plans.length) {
+          Metrics.recordFetchPlan(plans[plans.length - 1].id);
+          return [];
+        }
+        throw lastError || new Error("All SponsorBlock lookup plans failed");
       };
 
       const fetchWithRetry = async (videoId, abortSignal) => {
@@ -537,21 +707,31 @@
         throw lastError;
       };
 
-      const voteOnSegment = async (uuid, type) => {
-        if (!uuid || !State.userId) return false;
+      const postVote = async (params) => {
+        if (!params || !params.UUID || !State.userId) return false;
         const base = Settings.getServerUrl();
-        const params = new URLSearchParams({
-          UUID: uuid,
-          userID: State.userId,
-          type: String(type)
-        });
+        const query = new URLSearchParams(Object.assign({ userID: State.userId }, params));
         try {
-          const resp = await he(base + "/api/voteOnSponsorTime?" + params, {
+          Metrics.recordVoteRequest();
+          const resp = await he(base + "/api/voteOnSponsorTime?" + query.toString(), {
             method: "POST",
             signal: AbortSignal.timeout(API_TIMEOUT_MS)
           });
           return resp.ok;
         } catch (_) { return false; }
+      };
+
+      const voteOnSegment = async (uuid, type) => {
+        return postVote({ UUID: uuid, type: String(type) });
+      };
+
+      const undoVote = async (uuid) => {
+        return postVote({ UUID: uuid, type: "20" });
+      };
+
+      const changeCategory = async (uuid, category) => {
+        if (!category) return false;
+        return postVote({ UUID: uuid, category: String(category) });
       };
 
       const submitSegment = async (videoId, start, end, category, description = "") => {
@@ -560,17 +740,18 @@
         const bodyData = {
           videoID: videoId,
           userID: State.userId,
-          userAgent: "YT-zen/" + (typeof GM_info !== "undefined" ? GM_info.script.version : "3.6.0"),
+          userAgent: "YT-zen/" + (typeof GM_info !== "undefined" ? GM_info.script.version : "3.7.0"),
           service: "YouTube",
           segments: [{
             segment: [start, end],
             category: category,
-            actionType: category === "poi_highlight" ? "poi" : category === "exclusive_access" ? "full" : category === "chapter" ? "chapter" : "skip",
+            actionType: actionTypeForCategory(category),
             description: description
           }]
         };
 
         try {
+          Metrics.recordSubmitRequest();
           const resp = await he(base + "/api/skipSegments", {
             method: "POST",
             headers: {
@@ -587,13 +768,46 @@
         if (!uuid) return;
         const base = Settings.getServerUrl();
         try {
+          Metrics.recordViewedReport();
           await he(base + "/api/viewedVideoSponsorTime?UUID=" + encodeURIComponent(uuid), {
             method: "POST"
           });
         } catch (_) {}
       };
 
-      return { fetchWithRetry, voteOnSegment, submitSegment, reportViewed, hashPrefix };
+      const getUserInfo = async (userId, abortSignal, force = false) => {
+        const cleanUserId = typeof userId === "string" ? userId.trim() : "";
+        if (!cleanUserId) return null;
+        if (!force) {
+          const cached = userInfoCache.get(cleanUserId);
+          if (cached !== undefined) return cached;
+        }
+        const base = Settings.getServerUrl();
+        try {
+          Metrics.recordUserInfoRequest();
+          const { body } = await requestJson(
+            base + "/api/userInfo?userID=" + encodeURIComponent(cleanUserId),
+            abortSignal,
+            { timeoutMs: API_TIMEOUT_MS }
+          );
+          if (!body || typeof body !== "object") return null;
+          userInfoCache.set(cleanUserId, body);
+          return body;
+        } catch (_) {
+          return null;
+        }
+      };
+
+      return {
+        fetchWithRetry,
+        voteOnSegment,
+        undoVote,
+        changeCategory,
+        submitSegment,
+        reportViewed,
+        getUserInfo,
+        hashPrefix,
+      };
     })();
 
     // ─── Player Module ───────────────────────────────────────────────────────
@@ -1209,9 +1423,6 @@
       const inFlightKey = videoId + ":" + configKey;
 
       try {
-        const categories = Settings.getEnabledCategories();
-        if (!categories.length) return;
-
         let cached = await Cache.get(videoId, configKey, false);
 
         if (cached && cached.fresh) {
@@ -1336,16 +1547,66 @@
       return true;
     };
 
+    const refreshCurrent = async () => {
+      const videoId = State.videoId || ie.videoId();
+      if (!videoId) return [];
+      await invalidate(videoId);
+      return State.segments.slice();
+    };
+
+    const getLocalUserId = () => {
+      initUserId();
+      return State.userId || "";
+    };
+
+    const copyLocalUserId = async () => {
+      const userId = getLocalUserId();
+      if (!userId) return "";
+      try {
+        if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+          await navigator.clipboard.writeText(userId);
+        }
+      } catch (_) {}
+      return userId;
+    };
+
+    const debugInfo = () => ({
+      videoId: State.videoId,
+      segments: State.segments.length,
+      lastFetchPlan: State.lastFetchPlan || "",
+      lastLookupTrace: State.lastLookupTrace.slice(),
+      hidden: State.videoId ? false : null,
+    });
+
     return {
       init,
       destroy,
       invalidate,
       hideVideo,
       unhideVideo,
+      refreshCurrent,
+      getLocalUserId,
+      copyLocalUserId,
       isVideoHidden: (videoId) => HiddenVideos.isHidden(videoId),
+      getUserInfo: (userId, force = false) => API.getUserInfo(userId, null, force),
+      voteUp: (uuid) => API.voteOnSegment(uuid, 1),
+      voteDown: (uuid) => API.voteOnSegment(uuid, 0),
+      undoVote: (uuid) => API.undoVote(uuid),
+      changeSegmentCategory: (uuid, category) => API.changeCategory(uuid, category),
       stats: () => Metrics.snapshot(),
       metrics: () => Metrics.snapshot(),
+      debugInfo,
       getSegments: () => State.segments.slice(),
+      api: {
+        fetchWithRetry: API.fetchWithRetry,
+        voteOnSegment: API.voteOnSegment,
+        undoVote: API.undoVote,
+        changeCategory: API.changeCategory,
+        submitSegment: API.submitSegment,
+        reportViewed: API.reportViewed,
+        getUserInfo: API.getUserInfo,
+        hashPrefix: API.hashPrefix,
+      },
       toggleSubmissionEditor: () => UI.toggleSubmissionEditor()
     };
   })();

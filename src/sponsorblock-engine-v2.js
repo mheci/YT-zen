@@ -26,7 +26,7 @@
       disabled: "Off"
     };
 
-    const CACHE_VERSION = 3;
+    const CACHE_VERSION = 4;
     const CACHE_TTL_MS = 60 * 60 * 1000;          // 1 hour runtime
     const PERSIST_TTL_MS = 24 * 60 * 60 * 1000;   // 24 hours persistent
     const STALE_GRACE_MS = 12 * 60 * 60 * 1000;    // 12 hours stale grace
@@ -743,7 +743,7 @@
         const bodyData = {
           videoID: videoId,
           userID: State.userId,
-          userAgent: "YT-zen/" + (typeof GM_info !== "undefined" ? GM_info.script.version : "3.7.1"),
+          userAgent: "YT-zen/" + (typeof GM_info !== "undefined" ? GM_info.script.version : "3.7.2"),
           service: "YouTube",
           segments: [{
             segment: [start, end],

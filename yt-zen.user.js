@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YT-zen
 // @namespace    https://github.com/mheci/YT-zen
-// @version      3.7.1
+// @version      3.7.2
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      Unlicense
@@ -778,7 +778,7 @@
       ("undefined" != typeof GM_info &&
         GM_info.script &&
         GM_info.script.version) ||
-      "3.7.1",
+      "3.7.2",
     r = "https://sponsor.ajay.app",
     o = (() => {
       try {
@@ -4172,7 +4172,7 @@
       disabled: "Off"
     };
 
-    const CACHE_VERSION = 3;
+    const CACHE_VERSION = 4;
     const CACHE_TTL_MS = 60 * 60 * 1000;          // 1 hour runtime
     const PERSIST_TTL_MS = 24 * 60 * 60 * 1000;   // 24 hours persistent
     const STALE_GRACE_MS = 12 * 60 * 60 * 1000;    // 12 hours stale grace
@@ -4889,7 +4889,7 @@
         const bodyData = {
           videoID: videoId,
           userID: State.userId,
-          userAgent: "YT-zen/" + (typeof GM_info !== "undefined" ? GM_info.script.version : "3.7.1"),
+          userAgent: "YT-zen/" + (typeof GM_info !== "undefined" ? GM_info.script.version : "3.7.2"),
           service: "YouTube",
           segments: [{
             segment: [start, end],

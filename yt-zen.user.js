@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YT-zen
 // @namespace    https://github.com/mheci/YT-zen
-// @version      3.9.0
+// @version      3.9.1
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      Unlicense
@@ -778,7 +778,7 @@
       ("undefined" != typeof GM_info &&
         GM_info.script &&
         GM_info.script.version) ||
-      "3.9.0",
+      "3.9.1",
     r = "https://sponsor.ajay.app",
     o = (() => {
       try {
@@ -3041,7 +3041,8 @@
       return fetch(e, t);
     }
   }
-  let ve = 0,
+  let mt = 0,
+    ve = 0,
     ke = null,
     xe = !1,
     we = 0,
@@ -5142,7 +5143,7 @@
         const bodyData = {
           videoID: videoId,
           userID: State.userId,
-          userAgent: "YT-zen/" + (typeof GM_info !== "undefined" && GM_info.script ? GM_info.script.version : "3.9.0"),
+          userAgent: "YT-zen/" + (typeof GM_info !== "undefined" && GM_info.script ? GM_info.script.version : "3.9.1"),
           service: "YouTube",
           videoDuration: Number.isFinite(duration) && duration > 0 ? duration : undefined,
           segments: [{
@@ -11081,10 +11082,9 @@
         e,
         t,
       ),
-      r = [".youtube.com"];
+      r = [""];
     for (let o = 0; o < r.length; o++) {
-      const i =
-        "; expires=" + a + "; path=/; domain=" + r[o] + "; SameSite=Lax";
+      const i = "; expires=" + a + "; path=/; SameSite=Lax";
       try {
         if (typeof ti !== 'undefined' && ti.cookieControl && ti.cookieControl.manager) {
           ti.cookieControl.manager.set("PREF", n, { domain: r[o], path: "/", sameSite: "Lax", expires: a });
@@ -11104,13 +11104,7 @@
   }
   function Ln() {
     const e = new Date(0).toUTCString(),
-      t = [
-        ".youtube.com",
-        ".www.youtube.com",
-        ".m.youtube.com",
-        ".music.youtube.com",
-        "",
-      ],
+      t = [""],
       a = ["GL", "HL", "PREF", "VISITOR_PRIVACY_METADATA"];
     for (const n of t)
       for (const t of a) {
@@ -12555,7 +12549,7 @@
               document.cookie =
                 "VISITOR_INFO1_LIVE=" +
                 n +
-                "; domain=.youtube.com; path=/; max-age=" +
+                "; path=/; max-age=" +
                 6 * 30 * 24 * 60 * 60;
             }
             pe(
@@ -14454,11 +14448,18 @@
             return res;
           },
           set(name,value){
-            try{ document.cookie=`${name}=${value}; path=/; domain=.youtube.com; SameSite=Lax; Secure`; return true; }catch(e){return false;}
+            try{
+              // A userscript may run on www, music, or m.youtube.com. A
+              // host-only cookie is valid in every context and avoids Firefox
+              // rejecting a cross-context Domain attribute.
+              if (!/^[A-Za-z0-9_\-]+$/.test(String(name || ""))) return false;
+              document.cookie=`${name}=${value}; path=/; SameSite=Lax; Secure`;
+              return true;
+            }catch(e){return false;}
           },
           delete(name){
             try{
-              document.cookie=`${name}=; path=/; domain=.youtube.com; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT`;
+              if (!/^[A-Za-z0-9_\-]+$/.test(String(name || ""))) return false;
               document.cookie=`${name}=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT`;
               return true;
             }catch(e){return false;}
@@ -19144,10 +19145,7 @@
                 const o = Object.keys(r)
                     .map((e) => e + "=" + r[e])
                     .join("&"),
-                  i =
-                    "; expires=" +
-                    t +
-                    "; path=/; domain=.youtube.com; SameSite=Lax";
+                  i = "; expires=" + t + "; path=/; SameSite=Lax";
                 if (typeof ti !== 'undefined' && ti.cookieControl && ti.cookieControl.manager) {
                   ti.cookieControl.manager.set("PREF", o, { domain: ".youtube.com", path: "/", sameSite: "Lax", expires: t });
                 } else {

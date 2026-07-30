@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YT-zen
 // @namespace    https://github.com/mheci/YT-zen
-// @version      3.5.7
+// @version      3.5.8
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      Unlicense
@@ -778,7 +778,7 @@
       ("undefined" != typeof GM_info &&
         GM_info.script &&
         GM_info.script.version) ||
-      "3.5.7",
+      "3.5.8",
     r = "https://sponsor.ajay.app",
     o = (() => {
       try {
@@ -7896,6 +7896,7 @@
       },
       settings() {},
     }),
+
     xa.register({
       id: "sponsorblock",
       name: "SponsorBlock",
@@ -7938,7 +7939,6 @@
           Io("Show segments on the video timeline", "sbSeekbar")
         );
 
-        // Standard categories configuration sub-panel
         const t = To("div", "ytp-sub");
         i.forEach((e2) => {
           const a = "sb_" + e2.id + "_en",
@@ -7952,12 +7952,11 @@
           if (e2.desc) lbl.title = e2.desc;
           o.appendChild(lbl);
           o.appendChild(Bo(a));
-          o.appendChild(Po(n, Yi));
+          o.appendChild(Po(n, Actions));
           t.appendChild(o);
         });
         e.appendChild(t);
 
-        // Community segment creation / submission exceeding action
         e.appendChild(To("div", "ytp-section-hdr", "Segment Creation"));
         const createRow = To("div", "ytp-row");
         createRow.style.padding = "6px 0";
@@ -24295,6 +24294,178 @@
   color: #fff;
 }
 
+#yt-zen-sb-hud {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%) translateY(-20px);
+  z-index: 2147483645;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background: rgba(18, 20, 26, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  padding: 10px 16px;
+  box-shadow: 0 12px 30px rgba(0,0,0,0.5), 0 4px 10px rgba(0,0,0,0.3);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  opacity: 0;
+  pointer-events: none;
+  transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.3s ease;
+  font-family: system-ui, sans-serif;
+  color: #fff;
+  font-size: 12.5px;
+}
+#yt-zen-sb-hud.show {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(-50%) translateY(0);
+}
+#yt-zen-sb-hud .hud-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-left: 8px;
+}
+#yt-zen-sb-hud .hud-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+#yt-zen-sb-hud .hud-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  color: #eef;
+  padding: 4px 10px;
+  cursor: pointer;
+  font-size: 11.5px;
+  font-weight: 600;
+  transition: background 0.15s, border-color 0.15s;
+}
+#yt-zen-sb-hud .hud-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.25);
+  color: #fff;
+}
+#yt-zen-sb-hud .undo-btn {
+  background: #ff1a4a;
+  border-color: rgba(255, 26, 74, 0.3);
+  color: #fff;
+}
+#yt-zen-sb-hud .undo-btn:hover {
+  background: #ff3366;
+  box-shadow: 0 2px 10px rgba(255, 26, 74, 0.3);
+}
+#yt-zen-sb-hud .vote-btn {
+  padding: 4px 6px;
+}
+#yt-zen-sb-hud .close-btn {
+  background: transparent;
+  border: 0;
+  font-size: 16px;
+  line-height: 1;
+  color: #888;
+  cursor: pointer;
+  padding: 2px 6px;
+}
+#yt-zen-sb-hud .close-btn:hover {
+  color: #fff;
+}
+
+#yt-zen-sb-editor {
+  position: fixed;
+  bottom: 80px;
+  right: 24px;
+  z-index: 2147483640;
+  width: 340px;
+  background: rgba(18, 20, 26, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 14px;
+  padding: 16px;
+  box-shadow: 0 16px 40px rgba(0,0,0,0.6);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  font-family: system-ui, sans-serif;
+  color: #fff;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(20px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+#yt-zen-sb-editor.show {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+#yt-zen-sb-editor .editor-input {
+  width: 70px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  color: #fff;
+  padding: 4px 8px;
+  font: 11px ui-monospace, SFMono-Regular, monospace;
+  text-align: center;
+}
+#yt-zen-sb-editor .editor-text-input {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  color: #fff;
+  padding: 6px 10px;
+  font-size: 11.5px;
+}
+#yt-zen-sb-editor .editor-select {
+  background: rgba(18, 20, 26, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  color: #fff;
+  padding: 4px 8px;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+#yt-zen-sb-editor .editor-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  color: #eef;
+  padding: 5px 12px;
+  cursor: pointer;
+  font-size: 11.5px;
+  font-weight: 600;
+  transition: background 0.12s, border-color 0.12s;
+}
+#yt-zen-sb-editor .editor-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.25);
+  color: #fff;
+}
+#yt-zen-sb-editor .mini-btn {
+  padding: 3px 6px;
+  font-size: 10px;
+  margin-left: 4px;
+}
+#yt-zen-sb-editor .primary-btn {
+  background: #ff1a4a;
+  border-color: rgba(255, 26, 74, 0.3);
+  color: #fff;
+}
+#yt-zen-sb-editor .primary-btn:hover {
+  background: #ff3366;
+}
+#yt-zen-sb-editor .danger-btn {
+  background: rgba(255, 80, 80, 0.15);
+  border-color: rgba(255, 80, 80, 0.25);
+  color: #ff8080;
+}
+#yt-zen-sb-editor .danger-btn:hover {
+  background: rgba(255, 80, 80, 0.3);
+  color: #fff;
+}
+
 #ytp-zen-bar{display:flex;gap:6px;padding:6px 12px;background:rgba(255,255,255,.03);
   border-bottom:1px solid rgba(255,255,255,.06);flex-wrap:wrap;align-items:center}
 #ytp-zen-bar .zen-chip{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;
@@ -25355,12 +25526,16 @@ body.zen-mood-learn ytd-watch-flexy #secondary{display:none!important}
     apply(ctx) { if (!S.sceneJumperOn) return; ZenEngine.injectCSS(); let strip = null; const build = () => { const vid = ie.el(); if (!vid || !vid.duration || !isFinite(vid.duration) || vid.duration < 30) return; const container = document.querySelector(".ytp-progress-bar-container"); if (!container) return; if (strip && strip.parentNode) strip.remove(); strip = document.createElement("div"); strip.id = "ytp-zen-scene"; strip.title = "Click a marker to jump to a scene"; container.style.position = "relative"; container.appendChild(strip); ZenPlayback.detectScenes(vid, vid.duration).then(scenes => { ZenPlayback.renderSceneStrip(strip, vid.duration, scenes); }); }; ctx.addTimeout(build, 3000); ctx.onNav(() => ctx.addTimeout(build, 3000)); const vid = ie.el(); if (vid) ctx.addListener(vid, "loadedmetadata", () => ctx.addTimeout(build, 1000)); Yt["scene-jumper"].push(() => { if (strip && strip.parentNode) strip.remove(); strip = null; }); },
     settings(en) { en.appendChild(Io("Enable Scene Jumper", "sceneJumperOn")); } });
 
+
+
   xa.register({ id: "smart-queue", name: "Smart Watch Queue", summary: "Intelligent queue with smart ordering, time estimates, and session planning.", masterKey: "smartQueueOn", keys: ["smartQueueOn"], apply(ctx) { if (!S.smartQueueOn) return; ZenEngine.injectCSS(); }, settings(en) { en.appendChild(Io("Enable Smart Watch Queue", "smartQueueOn")); const info = document.createElement("div"); info.className = "zen-meta"; info.style.marginTop = "6px"; info.textContent = "Queue: " + ZenQueue.size() + " videos, " + ce(ZenQueue.getTotalTime()) + " total"; en.appendChild(info); } });
   xa.register({ id: "parallel-player", name: "Parallel Player", summary: "Watch two videos side by side with synchronized playback.", masterKey: "parallelPlayerOn", keys: ["parallelPlayerOn"], apply(ctx) { if (!S.parallelPlayerOn) return; ZenEngine.injectCSS(); }, settings(en) { en.appendChild(Io("Enable Parallel Player", "parallelPlayerOn")); } });
 
   xa.register({ id: "video-dna", name: "Video DNA Timeline", summary: "Composite energy visualization overlaid on the progress bar. Click to seek.", masterKey: "videoDnaOn", keys: ["videoDnaOn"],
     apply(ctx) { if (!S.videoDnaOn) return; ZenEngine.injectCSS(); let dnaEl = null; const build = () => { const vid = ie.el(); if (!vid || !vid.duration || !isFinite(vid.duration)) return; const progressBar = document.querySelector(".ytp-progress-bar-container"); if (!progressBar) return; if (dnaEl && dnaEl.parentNode) dnaEl.remove(); dnaEl = document.createElement("div"); dnaEl.id = "ytp-zen-dna"; const canvas = document.createElement("canvas"); canvas.width = 800; canvas.height = 18; dnaEl.appendChild(canvas); progressBar.style.position = "relative"; progressBar.appendChild(dnaEl); ZenPlayback.renderDNA(canvas, vid.duration); dnaEl.addEventListener("click", (ev) => { ev.stopPropagation(); if (_isLiveStream()) return; const rect = dnaEl.getBoundingClientRect(); vid.currentTime = ((ev.clientX - rect.left) / rect.width) * vid.duration; }); }; ctx.addTimeout(build, 2500); ctx.onNav(() => ctx.addTimeout(build, 2500)); Yt["video-dna"].push(() => { if (dnaEl && dnaEl.parentNode) dnaEl.remove(); dnaEl = null; }); },
     settings(en) { en.appendChild(Io("Enable Video DNA Timeline", "videoDnaOn")); } });
+
+
 
   xa.register({ id: "smart-speed", name: "Smart Speed", summary: "Automatically adjusts playback speed based on content density.", masterKey: "smartSpeedOn", keys: ["smartSpeedOn", "smartSpeedBase", "smartSpeedFast"],
     apply(ctx) { if (!S.smartSpeedOn) return; const baseRate = S.smartSpeedBase || 1; const fastRate = S.smartSpeedFast || 1.5; const tick = () => { const vid = ie.el(); if (!vid || vid.paused || vid.ended) return; if (_isLiveStream()) { if (Math.abs(vid.playbackRate - 1) > 0.01) vid.playbackRate = 1; return; } const a = ZenPlayback.analyzeEnergy(vid); let target = baseRate; if (a.isSpeech && !a.isQuiet) target = fastRate; if (a.isQuiet) target = fastRate; if (Math.abs(vid.playbackRate - target) > 0.1) vid.playbackRate = target; }; const start = () => { if (ie.el()) ctx.addInterval(tick, 2000); }; ctx.addTimeout(start, 2000); ctx.onNav(() => ctx.addTimeout(start, 2000)); Yt["smart-speed"].push(() => { const vid = ie.el(); if (vid) vid.playbackRate = S.speedDefault || 1; }); },

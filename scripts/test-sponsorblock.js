@@ -68,7 +68,7 @@ function normalize(payload, privacy) {
   for (const plan of plans) {
     try {
       const response = await fetch(plan.url, {
-        headers: { "user-agent": "YT-zen-test-harness/3.8.0" },
+        headers: { "user-agent": "YT-zen-test-harness/3.9.0" },
       });
       const text = await response.text();
       let payload = null;

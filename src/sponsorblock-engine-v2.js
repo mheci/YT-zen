@@ -861,7 +861,7 @@
         const bodyData = {
           videoID: videoId,
           userID: State.userId,
-          userAgent: "YT-zen/" + (typeof GM_info !== "undefined" && GM_info.script ? GM_info.script.version : "3.8.0"),
+          userAgent: "YT-zen/" + (typeof GM_info !== "undefined" && GM_info.script ? GM_info.script.version : "3.9.0"),
           service: "YouTube",
           videoDuration: Number.isFinite(duration) && duration > 0 ? duration : undefined,
           segments: [{

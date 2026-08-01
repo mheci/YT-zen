@@ -1,3 +1,28 @@
+
+  // ===========================================================================
+  // ===========================================================================
+  //  SponsorBlock Engine v2 (YT-zen)
+  // ---------------------------------------------------------------------------
+  //  Complete redesign from first principles.
+  //
+  //  Architecture:
+  //    SponsorBlockEngine  — Orchestrator (lifecycle, init, public API)
+  //    SponsorBlockAPI     — Networking, retries, response validation
+  //    SponsorBlockCache   — Two-tier cache, deduplication, stale-while-revalidate
+  //    SponsorBlockPlayer  — Playback sync, skip state machine, mute handling
+  //    SponsorBlockUI      — Seekbar marks, notifications, HUD updates
+  //    SponsorBlockMetrics — Statistics, time-saved tracking, diagnostics
+  //
+  //  Design principles:
+  //    • Zero polling when idle (paused, ended, no segments, background tab)
+  //    • Single in-flight promise per (videoId, configKey) — no duplicates
+  //    • Stale-while-revalidate for instant perceived load times
+  //    • Skip guard prevents duplicate seeks and oscillation
+  //    • All API responses validated before use
+  //    • Full AbortController lifecycle — cancelled requests never leak
+  //    • Background tab awareness via visibilitychange
+  //    • Structured error handling — network failures never break playback
+  // ===========================================================================
   const SponsorBlockEngine = (() => {
     "use strict";
 

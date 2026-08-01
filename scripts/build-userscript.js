@@ -29,7 +29,7 @@ const replaceBetween = (text, anchor, endMarker, replacement) => {
     if (start === 0) break;
     const prevLineStart = text.lastIndexOf("\n", start - 2) + 1;
     const line = text.slice(prevLineStart, start).replace(/\n$/, "");
-    if (/^\s*$/.test(line) || /^\s*\/\/\s*[═║╔╗╚╝╠╣╦╩╬─│·]+$/.test(line)) {
+    if (/^\s*$/.test(line) || /^\s*\/\/\s*[═║╔╗╚╝╠╣╦╩╬─│·=]+$/.test(line)) {
       start = prevLineStart;
     } else {
       break;
@@ -56,24 +56,27 @@ bundle = replaceBetween(
   read("src/zen-resources.js"),
 );
 
-// SponsorBlock engine: canonical source is src/sponsorblock-engine-v2.js.
+// SponsorBlock engine: canonical source is src/sponsorblock-engine-v2.js,
+// including its banner (the anchor is the banner header line; the "=" rows
+// around it are consumed by the box-decoration logic).
 bundle = replaceBetween(
   bundle,
-  "  const SponsorBlockEngine = (() => {",
+  "  //  SponsorBlock Engine v2 (YT-zen)",
   "\n\n\n  let St_seekbarMarks",
   read("src/sponsorblock-engine-v2.js"),
 );
 
 // Zen subsystem (core engines + AlgoEngine + feature registrations):
 // canonical source is src/zen-engine-v3.js. It spans from the ZenEngine
-// header through the last feature registration, right up to the boot IIFE.
-// (Deactivated until src/zen-engine-v3.js contains the full section.)
-// bundle = replaceBetween(
-//   bundle,
-//   "  // ─── ZenEngine (Core) ─────────────────────────────────────────────────────",
-//   "\n  (async function () {\n",
-//   read("src/zen-engine-v3.js"),
-// );
+// banner through the last feature registration, right up to the boot IIFE.
+// The anchor is the banner line; the pure "=" row above it is consumed by
+// the box-decoration logic so the banner is owned by the source file.
+bundle = replaceBetween(
+  bundle,
+  "  //  ZenEngine Ecosystem v3.0",
+  "\n  (async function () {\n",
+  read("src/zen-engine-v3.js"),
+);
 
 fs.writeFileSync(path.join(root, "yt-zen.user.js"), toCrlf(bundle));
 console.log("Built yt-zen.user.js from source mirrors.");

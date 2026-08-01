@@ -1837,6 +1837,13 @@
   // ═══════════════════════════════════════════════════════════════════════════
   //  ZenResources — bounded, disposable, visibility-aware resource primitives
   // ═══════════════════════════════════════════════════════════════════════════
+  //  v2 runtime platform:
+  //    BoundedCache / WeakElementCache  — memory-safe caches (LRU + weak refs)
+  //    SharedObserver / SharedTicker    — coalesced DOM + timer primitives
+  //    TrackedBlobURL / DeferredTask    — lifecycle-managed object URLs & work
+  //    AbortGroup / ResourceScope       — cancellation + scoped disposal
+  //    Bus / Logger / StateStore        — events, diagnostics, persisted state
+  //    Dom / Retry                      — DOM helpers and resilient async work
   const ZenResources = (() => {
     "use strict";
 
@@ -1855,6 +1862,375 @@
       if (!value || typeof value.then !== "function") return;
       value.catch(() => {});
     };
+
+    // ─── Bus ────────────────────────────────────────────────────────────────
+    // Minimal event bus with once() and "*" wildcard listeners.
+    class Bus {
+      constructor(name = "bus") {
+        this._name = String(name || "bus");
+        this._listeners = new Map();
+        this._emits = 0;
+        this._dropped = 0;
+        this._nextId = 1;
+      }
+
+      on(event, callback) {
+        if (typeof callback !== "function") return 0;
+        const id = this._nextId++;
+        if (!this._listeners.has(event)) this._listeners.set(event, new Map());
+        this._listeners.get(event).set(id, callback);
+        return id;
+      }
+
+      once(event, callback) {
+        const id = this.on(event, (payload, meta) => {
+          this.off(event, id);
+          return callback(payload, meta);
+        });
+        return id;
+      }
+
+      off(event, id) {
+        const map = this._listeners.get(event);
+        if (!map) return false;
+        const removed = map.delete(id);
+        if (!map.size) this._listeners.delete(event);
+        return removed;
+      }
+
+      emit(event, payload) {
+        this._emits++;
+        const direct = this._listeners.get(event);
+        const wildcard = this._listeners.get("*");
+        if (!direct && !wildcard) return 0;
+        const meta = { event, at: now() };
+        let count = 0;
+        if (direct) {
+          for (const callback of Array.from(direct.values())) {
+            try { count += reportAsyncError(callback(payload, meta)) ? 0 : 1; } catch (_) {}
+          }
+        }
+        if (wildcard) {
+          for (const callback of Array.from(wildcard.values())) {
+            try { count += reportAsyncError(callback(payload, Object.assign({}, meta))) ? 0 : 1; } catch (_) {}
+          }
+        }
+        return count;
+      }
+
+      clear() {
+        this._dropped += this._listeners.size;
+        this._listeners.clear();
+      }
+
+      stats() {
+        return { name: this._name, emits: this._emits, listeners: this._listeners.size, dropped: this._dropped };
+      }
+    }
+
+    // ─── Logger ─────────────────────────────────────────────────────────────
+    // Namespaced, leveled logging with a bounded ring buffer for diagnostics.
+    const Logger = (() => {
+      const LEVELS = { error: 0, warn: 1, info: 2, debug: 3 };
+      let threshold = LEVELS.info;
+      let ringEnabled = true;
+      const ring = [];
+      const RING_LIMIT = 200;
+
+      const push = (entry) => {
+        if (!ringEnabled) return;
+        ring.push(entry);
+        if (ring.length > RING_LIMIT) ring.splice(0, ring.length - RING_LIMIT);
+      };
+
+      const log = (level, namespace, args) => {
+        if (LEVELS[level] > threshold) return;
+        const message = args
+          .map((arg) => {
+            if (typeof arg === "string") return arg;
+            try { return JSON.stringify(arg); } catch (_) { return String(arg); }
+          })
+          .join(" ");
+        const entry = { level, ns: namespace, message, at: now() };
+        push(entry);
+        const label = "[YT-zen:" + namespace + "] " + message;
+        if (typeof console !== "undefined") {
+          const target = console[level] || console.log;
+          try { target.call(console, label); } catch (_) {}
+        }
+      };
+
+      const make = (namespace) => ({
+        error: (...args) => log("error", namespace, args),
+        warn: (...args) => log("warn", namespace, args),
+        info: (...args) => log("info", namespace, args),
+        debug: (...args) => log("debug", namespace, args),
+      });
+
+      return {
+        LEVELS,
+        namespace: make,
+        setLevel(level) {
+          if (level in LEVELS) threshold = LEVELS[level];
+          return threshold;
+        },
+        setRingEnabled(value) { ringEnabled = !!value; },
+        snapshot(limit = 100) { return ring.slice(-Math.max(1, Math.min(limit, RING_LIMIT))); },
+        clear() { ring.length = 0; },
+        stats() { return { threshold, entries: ring.length, limit: RING_LIMIT }; },
+      };
+    })();
+
+    // ─── StateStore ─────────────────────────────────────────────────────────
+    // Reactive-ish persistent store. Reads once from an async adapter and
+    // flushes changes on a debounced timer. Adapter shape:
+    //   { get: async (key) => value|undefined, set: async (key, value) => void }
+    class StateStore {
+      constructor(key, initial, options = {}) {
+        this._key = String(key || "store");
+        this._data = initial;
+        this._dirty = false;
+        this._timer = 0;
+        this._flushMs = Math.max(50, finite(options.flushMs, 4000));
+        this._storage = options.storage || null;
+        this._bus = options.bus || null;
+        this._loaded = false;
+        this._loadPromise = null;
+        this._listeners = null;
+        this._flushes = 0;
+      }
+
+      onChange(callback) {
+        if (typeof callback !== "function") return 0;
+        if (!this._listeners) this._listeners = new Set();
+        this._listeners.add(callback);
+        return callback;
+      }
+
+      offChange(callback) {
+        if (!this._listeners) return false;
+        return this._listeners.delete(callback);
+      }
+
+      _emitChange(key, value) {
+        if (this._bus) { try { this._bus.emit("store:" + this._key, { key, value }); } catch (_) {} }
+        if (!this._listeners) return;
+        for (const callback of Array.from(this._listeners)) {
+          try { reportAsyncError(callback(this._data, { key, value })); } catch (_) {}
+        }
+      }
+
+      async load() {
+        if (this._loadPromise) return this._loadPromise;
+        this._loadPromise = (async () => {
+          if (!this._storage) { this._loaded = true; return this._data; }
+          try {
+            const value = await this._storage.get(this._key);
+            if (value !== undefined && value !== null) this._data = value;
+          } catch (_) {}
+          this._loaded = true;
+          return this._data;
+        })();
+        return this._loadPromise;
+      }
+
+      get() { return this._data; }
+
+      set(value) {
+        this._data = value;
+        this._scheduleFlush();
+        this._emitChange(null, value);
+      }
+
+      update(updater) {
+        if (typeof updater !== "function") return;
+        const key = null;
+        updater(this._data);
+        this._scheduleFlush();
+        this._emitChange(key, this._data);
+      }
+
+      _scheduleFlush() {
+        this._dirty = true;
+        if (this._timer) return;
+        this._timer = setTimeout(() => {
+          this._timer = 0;
+          this.flush();
+        }, this._flushMs);
+        if (this._timer && typeof this._timer.unref === "function") {
+          try { this._timer.unref(); } catch (_) {}
+        }
+      }
+
+      async flush() {
+        if (this._timer) { clearTimeout(this._timer); this._timer = 0; }
+        if (!this._dirty) return false;
+        this._dirty = false;
+        this._flushes++;
+        if (!this._storage) return true;
+        try { await this._storage.set(this._key, this._data); return true; } catch (_) { return false; }
+      }
+
+      dispose() {
+        if (this._timer) { clearTimeout(this._timer); this._timer = 0; }
+        reportAsyncError(this.flush());
+        if (this._listeners) this._listeners.clear();
+      }
+
+      stats() {
+        return { key: this._key, loaded: this._loaded, dirty: this._dirty, flushes: this._flushes, pendingFlush: this._timer !== 0 };
+      }
+    }
+
+    // ─── Dom ────────────────────────────────────────────────────────────────
+    // Small DOM toolkit: escaping, idempotent style injection, element
+    // factories and a cancellable "when" waiter for SPA mounting races.
+    const Dom = (() => {
+      const ESC_MAP = {
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        "\"": "&quot;",
+        "'": "&#39;",
+      };
+      const esc = (value) => String(value == null ? "" : value).replace(/[&<>"']/g, (char) => ESC_MAP[char] || char);
+
+      const css = (text, id) => {
+        const doc = getDocument();
+        const styleId = id ? "ytp-zen-" + String(id) : "";
+        if (styleId && doc) {
+          const existing = doc.getElementById(styleId);
+          if (existing) return () => { try { existing.remove(); } catch (_) {} };
+        }
+        const style = doc ? doc.createElement("style") : null;
+        if (!style) return () => {};
+        if (styleId) style.id = styleId;
+        style.textContent = String(text || "");
+        (doc.head || doc.documentElement).appendChild(style);
+        return () => { try { style.remove(); } catch (_) {} };
+      };
+
+      const el = (tag, props, children) => {
+        const doc = getDocument();
+        if (!doc || typeof doc.createElement !== "function") return null;
+        const node = doc.createElement(String(tag || "div"));
+        if (props && typeof props === "object") {
+          for (const key of Object.keys(props)) {
+            const value = props[key];
+            if (key === "class") node.className = String(value);
+            else if (key === "text") node.textContent = String(value);
+            else if (key === "html") node.innerHTML = String(value);
+            else if (key === "style" && typeof value === "object") {
+              for (const prop of Object.keys(value)) {
+                try { node.style[prop] = value[prop]; } catch (_) {}
+              }
+            } else if (value !== null && value !== undefined) {
+              try { node.setAttribute(key, String(value)); } catch (_) {}
+            }
+          }
+        }
+        if (children != null) {
+          const list = Array.isArray(children) ? children : [children];
+          for (const child of list) {
+            if (child == null) continue;
+            try { node.appendChild(typeof child === "string" ? doc.createTextNode(child) : child); } catch (_) {}
+          }
+        }
+        return node;
+      };
+
+      const when = (selector, options = {}) => {
+        const doc = getDocument();
+        const timeoutMs = Math.max(0, finite(options.timeoutMs, 8000));
+        const intervalMs = Math.max(20, finite(options.intervalMs, 200));
+        const root = options.root || doc;
+        let cancelled = false;
+        let timer = 0;
+        let poll = 0;
+        let done = false;
+        const cancel = () => {
+          if (done || cancelled) return;
+          cancelled = true;
+          if (timer) clearTimeout(timer);
+          if (poll) clearInterval(poll);
+        };
+        const promise = new Promise((resolve, reject) => {
+          const find = () => {
+            try {
+              const found = root
+                ? root.querySelector(selector)
+                : doc.querySelector(selector);
+              if (found) {
+                done = true;
+                cancel();
+                resolve(found);
+                return true;
+              }
+            } catch (_) {}
+            return false;
+          };
+          if (!root || !doc) {
+            reject(new Error("Dom.when: no document available"));
+            done = true;
+            return;
+          }
+          if (find()) return;
+          if (timeoutMs > 0) {
+            timer = setTimeout(() => {
+              if (done) return;
+              done = true;
+              cancel();
+              reject(new Error("Dom.when: timed out waiting for " + selector));
+            }, timeoutMs);
+            if (typeof timer.unref === "function") { try { timer.unref(); } catch (_) {} }
+          }
+          poll = setInterval(() => { if (!done) find(); }, intervalMs);
+          if (typeof poll.unref === "function") { try { poll.unref(); } catch (_) {} }
+        });
+        return { promise, cancel };
+      };
+
+      const onReady = (callback) => {
+        const doc = getDocument();
+        if (!doc || typeof callback !== "function") return;
+        if (doc.body || doc.readyState === "complete" || doc.readyState === "interactive") {
+          reportAsyncError(callback());
+          return;
+        }
+        try { doc.addEventListener("DOMContentLoaded", callback, { once: true }); } catch (_) {}
+      };
+
+      return { esc, css, el, when, onReady };
+    })();
+
+    // ─── Retry ──────────────────────────────────────────────────────────────
+    // Resilient async work with exponential backoff.
+    const Retry = (() => {
+      const backoff = async (fn, options = {}) => {
+        if (typeof fn !== "function") throw new TypeError("Retry.backoff requires a function");
+        const attempts = Math.max(1, positiveInt(options.attempts, 3));
+        const baseMs = Math.max(1, finite(options.baseMs, 250));
+        const maxMs = Math.max(baseMs, finite(options.maxMs, 4000));
+        const factor = Math.max(1.1, finite(options.factor, 2));
+        let lastError;
+        for (let attempt = 1; attempt <= attempts; attempt++) {
+          try {
+            return await fn(attempt);
+          } catch (error) {
+            lastError = error;
+            if (options.shouldRetry && !options.shouldRetry(error, attempt)) break;
+            if (attempt >= attempts) break;
+            if (typeof options.onRetry === "function") {
+              try { options.onRetry(error, attempt); } catch (_) {}
+            }
+            const delay = Math.min(maxMs, baseMs * Math.pow(factor, attempt - 1));
+            await new Promise((resolve) => setTimeout(resolve, delay));
+          }
+        }
+        throw lastError;
+      };
+      return { backoff };
+    })();
 
     // ─── BoundedCache ────────────────────────────────────────────────────────
     // A real LRU cache. Values are kept in a Map whose insertion order is the
@@ -2632,11 +3008,15 @@
     })();
 
     // ─── ResourceScope ───────────────────────────────────────────────────────
+    // Scoped ownership of timers, listeners, observers, fetches and DOM
+    // nodes. dispose() tears everything down in one shot, and every primitive
+    // is a no-op (or rejects) after disposal.
     class ResourceScope {
       constructor(name = "scope") {
         this._name = String(name || "scope");
         this._disposed = false;
         this._cleanups = [];
+        this._whenPending = new Set();
       }
 
       addCleanup(cleanup) {
@@ -2693,11 +3073,37 @@
         return id;
       }
 
+      idle(callback, timeoutMs) {
+        if (this._disposed) return 0;
+        const id = DeferredTask.schedule(callback, timeoutMs || 2000, { label: "scope-idle:" + this._name });
+        this.addCleanup(() => DeferredTask.cancel(id));
+        return id;
+      }
+
+      debounce(key, callback, delayMs) {
+        if (this._disposed) return 0;
+        const id = DeferredTask.debounce(String(key || this._name), callback, delayMs || 120);
+        this.addCleanup(() => DeferredTask.cancel(id));
+        return id;
+      }
+
       abortController(groupId) {
         if (this._disposed) return null;
         const controller = AbortGroup.create(groupId || this._name);
         this.addCleanup(() => { try { controller.abort(); } catch (_) {} });
         return controller;
+      }
+
+      fetch(url, options = {}) {
+        if (this._disposed) return Promise.reject(new Error("ResourceScope disposed"));
+        const controller = AbortGroup.create(this._name);
+        const signal = options.signal || controller.signal;
+        const merged = Object.assign({}, options, { signal });
+        const promise = fetch(url, merged).finally(() => {
+          try { controller.abort(); } catch (_) {}
+        });
+        this.addCleanup(() => { try { controller.abort(); } catch (_) {} });
+        return promise;
       }
 
       blobUrl(blob, label, options = {}) {
@@ -2707,9 +3113,34 @@
         return url;
       }
 
+      node(element) {
+        if (!element) return element;
+        this.addCleanup(() => {
+          try { element.remove(); } catch (_) {}
+        });
+        return element;
+      }
+
+      when(selector, options = {}) {
+        if (this._disposed) {
+          const cancelled = Promise.reject(new Error("ResourceScope disposed"));
+          cancelled.catch(() => {});
+          return cancelled;
+        }
+        const waiter = Dom.when(selector, options);
+        this._whenPending.add(waiter);
+        waiter.promise.then(() => this._whenPending.delete(waiter), () => this._whenPending.delete(waiter));
+        this.addCleanup(waiter.cancel);
+        return waiter.promise;
+      }
+
       dispose() {
         if (this._disposed) return;
         this._disposed = true;
+        for (const waiter of Array.from(this._whenPending)) {
+          try { waiter.cancel(); } catch (_) {}
+        }
+        this._whenPending.clear();
         while (this._cleanups.length) {
           const cleanup = this._cleanups.pop();
           try { cleanup(); } catch (_) {}
@@ -2726,6 +3157,8 @@
       blobURLs: TrackedBlobURL.stats(),
       deferred: DeferredTask.stats(),
       abortGroups: AbortGroup.stats(),
+      bus: Bus ? { available: true } : { available: false },
+      logger: Logger.stats(),
     });
 
     const cleanup = () => {
@@ -2734,6 +3167,7 @@
       TrackedBlobURL.revokeAll();
       DeferredTask.cancelAll();
       AbortGroup.abortAll();
+      Logger.clear();
     };
 
     return {
@@ -2745,6 +3179,11 @@
       DeferredTask,
       AbortGroup,
       ResourceScope,
+      Bus,
+      Logger,
+      StateStore,
+      Dom,
+      Retry,
       stats,
       cleanup,
     };

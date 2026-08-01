@@ -1,32 +1,62 @@
 #!/usr/bin/env node
 /*
- * Keep the shipped userscript's mirrored subsystems reproducible.
- * The rest of yt-zen is intentionally kept in the canonical bundle because
- * the userscript manager installs one file, while the files under src/ are
- * reviewable source mirrors for the high-risk subsystems.
+ * Source-first build: the shipped userscript bundle is generated output.
+ * Subsystems under src/ are the canonical sources and are synced into the
+ * bundle by marker replacement. Everything else currently lives in the
+ * bundle body and is migrated into src/ incrementally.
+ *
+ * Line endings: all inputs and outputs are CRLF on disk; processing happens
+ * on LF-normalized text so markers are line-ending agnostic.
  */
 const fs = require("fs");
 const path = require("path");
 
 const root = path.resolve(__dirname, "..");
-const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
-const replaceBetween = (text, startMarker, endMarker, replacement) => {
-  const start = text.indexOf(startMarker);
-  if (start < 0) throw new Error(`Missing start marker: ${startMarker}`);
-  const end = text.indexOf(endMarker, start + startMarker.length);
+const toLf = (text) => text.replace(/\r\n/g, "\n");
+const toCrlf = (text) => text.replace(/\n/g, "\r\n");
+const read = (file) => toLf(fs.readFileSync(path.join(root, file), "utf8"));
+
+const replaceBetween = (text, anchor, endMarker, replacement) => {
+  const at = text.indexOf(anchor);
+  if (at < 0) throw new Error(`Missing start marker: ${anchor}`);
+  // Back up to the beginning of the line containing the anchor, then consume
+  // any pure box-decoration or blank lines directly above it. This keeps the
+  // replacement idempotent: the anchor's own section markers live in the
+  // source file, not in the bundle body.
+  let start = at;
+  while (start > 0 && text[start - 1] !== "\n") start--;
+  for (;;) {
+    if (start === 0) break;
+    const prevLineStart = text.lastIndexOf("\n", start - 2) + 1;
+    const line = text.slice(prevLineStart, start).replace(/\n$/, "");
+    if (/^\s*$/.test(line) || /^\s*\/\/\s*[═║╔╗╚╝╠╣╦╩╬─│·]+$/.test(line)) {
+      start = prevLineStart;
+    } else {
+      break;
+    }
+  }
+  const end = text.indexOf(endMarker, at);
   if (end < 0) throw new Error(`Missing end marker: ${endMarker}`);
   return text.slice(0, start) + replacement.trimEnd() + text.slice(end);
 };
 
 let bundle = read("yt-zen.user.js");
-const legacyResourceStart = "  // ═══════════════════════════════════════════════════════════════════════════\n  //  ZenResources — Memory Safety & Resource Efficiency Layer";
-const currentResourceStart = "  // ═══════════════════════════════════════════════════════════════════════════\n  //  ZenResources — bounded, disposable, visibility-aware resource primitives";
+
+// ZenResources runtime: sync the canonical source into the resource block.
+// Match the header line only; the box-drawing row above it is prone to
+// whitespace/unicode drift and must not gate the build.
+const resourceStart =
+  "  //  ZenResources — Memory Safety & Resource Efficiency Layer";
+const resourceStartCurrent =
+  "  //  ZenResources — bounded, disposable, visibility-aware resource primitives";
 bundle = replaceBetween(
   bundle,
-  bundle.includes(legacyResourceStart) ? legacyResourceStart : currentResourceStart,
+  bundle.includes(resourceStart) ? resourceStart : resourceStartCurrent,
   "\n\n    const oe = {",
   read("src/zen-resources.js"),
 );
+
+// SponsorBlock engine: canonical source is src/sponsorblock-engine-v2.js.
 bundle = replaceBetween(
   bundle,
   "  const SponsorBlockEngine = (() => {",
@@ -34,21 +64,16 @@ bundle = replaceBetween(
   read("src/sponsorblock-engine-v2.js"),
 );
 
-// The source mirror contains the repaired Time Machine registration. The
-// bundle has a later algorithm registration that is not in the legacy mirror,
-// so sync only this registration rather than replacing the entire tail.
-const engine = read("src/zen-engine-v3.js");
-const timeMachineStart = "  xa.register({\n    id: \"time-machine\"";
-const timeMachineEnd = "  xa.register({ id: \"small-creator-spotlight\"";
-const sourceStart = engine.indexOf(timeMachineStart);
-const sourceEnd = engine.indexOf(timeMachineEnd, sourceStart);
-if (sourceStart < 0 || sourceEnd < 0) throw new Error("Time Machine markers missing from source");
-bundle = replaceBetween(
-  bundle,
-  timeMachineStart,
-  timeMachineEnd,
-  engine.slice(sourceStart, sourceEnd),
-);
+// Zen subsystem (core engines + AlgoEngine + feature registrations):
+// canonical source is src/zen-engine-v3.js. It spans from the ZenEngine
+// header through the last feature registration, right up to the boot IIFE.
+// (Deactivated until src/zen-engine-v3.js contains the full section.)
+// bundle = replaceBetween(
+//   bundle,
+//   "  // ─── ZenEngine (Core) ─────────────────────────────────────────────────────",
+//   "\n  (async function () {\n",
+//   read("src/zen-engine-v3.js"),
+// );
 
-fs.writeFileSync(path.join(root, "yt-zen.user.js"), bundle);
+fs.writeFileSync(path.join(root, "yt-zen.user.js"), toCrlf(bundle));
 console.log("Built yt-zen.user.js from source mirrors.");

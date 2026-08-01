@@ -6,7 +6,7 @@
   "license": "Unlicense",
   "scripts": {
     "build": "node scripts/build-userscript.js",
-    "check": "node --check yt-zen.user.js && for f in src/*.js; do node --check \"$f\"; done && node scripts/check-release.js",
+    "check": "node scripts/check.js && node scripts/check-release.js",
     "test:unit": "node scripts/test-unit.js",
     "test": "npm run build && npm run check && npm run test:unit"
   },

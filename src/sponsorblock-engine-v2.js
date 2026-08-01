@@ -1317,11 +1317,13 @@
           document.body.appendChild(hud);
         }
 
-        const catMeta = Categories.find(c => c.id === seg.category) || { label: seg.category, color: "#fff" };
+        const known = Categories.find(c => c.id === seg.category);
+        const catMeta = known || { label: "Segment", color: "#fff" };
+        const esc = ZenResources.Dom.esc;
 
         hud.innerHTML = `
-          <div class="hud-header" style="border-left: 4px solid ${catMeta.color}">
-            <span style="font-weight:700">Skipped ${catMeta.label}</span>
+          <div class="hud-header" style="border-left: 4px solid ${esc(catMeta.color)}">
+            <span style="font-weight:700">Skipped ${esc(catMeta.label)}</span>
             <span>(${savedSec.toFixed(1)}s saved)</span>
           </div>
           <div class="hud-actions">
@@ -1404,8 +1406,9 @@
         if (!panel) return;
 
         let catOptions = "";
+        const esc = ZenResources.Dom.esc;
         Categories.forEach(c => {
-          catOptions += `<option value="${c.id}" ${State.editor.category === c.id ? "selected" : ""}>${c.label}</option>`;
+          catOptions += `<option value="${esc(c.id)}" ${State.editor.category === c.id ? "selected" : ""}>${esc(c.label)}</option>`;
         });
 
         panel.innerHTML = `
@@ -1435,7 +1438,7 @@
             </div>
             <div style="display:flex;flex-direction:column;gap:4px">
               <span class="zen-meta">Description / Chapter title:</span>
-              <input type="text" class="editor-text-input" id="ed-desc-val" value="${State.editor.description}" placeholder="Optional chapter title...">
+              <input type="text" class="editor-text-input" id="ed-desc-val" value="${ZenResources.Dom.esc(State.editor.description)}" placeholder="Optional chapter title...">
             </div>
             <div style="display:flex;gap:6px;margin-top:8px">
               <button class="editor-btn primary-btn" style="flex:1" id="ed-submit">Submit</button>

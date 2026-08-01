@@ -10442,108 +10442,6 @@
           ));
       },
     }),
-    xa.register({
-      id: "hide-shorts",
-      name: "Hide Shorts",
-      summary:
-        "Removes Shorts from everywhere on YouTube - the home page, sidebar, search, recommendations, all of it.",
-      masterKey: "hideShorts",
-      keys: ["hideShorts"],
-      apply(e) {
-        S.hideShorts &&
-          (function (e) {
-            const t = [
-              "ytd-shorts,ytd-reel-shelf-renderer,ytd-rich-shelf-renderer[is-shorts],ytd-reel-video-renderer,ytd-shorts-video-renderer,ytd-shorts-lockup-view-model,ytm-shorts-lockup-view-model,ytd-mini-guide-entry-renderer[aria-label='Shorts'],a[title='Shorts'],a[aria-label='Shorts'],a[href*='/shorts/'],ytd-thumbnail-overlay-time-status-renderer[overlay-style='SHORTS']{display:none!important;visibility:hidden!important;pointer-events:none!important}",
-              "ytd-guide-entry-renderer:has(a[title='Shorts']),ytd-guide-entry-renderer:has(a[aria-label='Shorts']),ytd-mini-guide-entry-renderer:has(a[title='Shorts']),ytd-rich-item-renderer:has(a[href*='/shorts/']),ytd-video-renderer:has(a[href*='/shorts/']),ytd-compact-video-renderer:has(a[href*='/shorts/']),ytd-grid-video-renderer:has(a[href*='/shorts/']),ytd-shelf-renderer:has(a[href*='/shorts/']),ytd-rich-section-renderer:has(a[href*='/shorts/']),yt-lockup-view-model:has(a[href*='/shorts/']){display:none!important;visibility:hidden!important;pointer-events:none!important}",
-            ].join("\n");
-            e.addStyle(t);
-            let a = !1;
-            const n = async () => {
-              if (!a) {
-                a = !0;
-                try {
-                  if (location.pathname.startsWith("/shorts")) {
-                    try {
-                      (e.history.replaceState(null, "", "/"),
-                        e.dispatchEvent(new PopStateEvent("popstate")));
-                    } catch (e) {
-                      location.replace("/");
-                    }
-                    return;
-                  }
-                  const e = [
-                      "a[href*='/shorts/']",
-                      "a[title='Shorts']",
-                      "a[aria-label='Shorts']",
-                      "ytd-reel-shelf-renderer",
-                      "ytd-rich-shelf-renderer[is-shorts]",
-                      "ytd-shorts",
-                      "ytd-shorts-video-renderer",
-                      "ytd-shorts-lockup-view-model",
-                      "ytm-shorts-lockup-view-model",
-                    ],
-                    t =
-                      "ytd-rich-item-renderer,ytd-video-renderer,ytd-compact-video-renderer,ytd-grid-video-renderer,ytd-shelf-renderer,ytd-rich-section-renderer,ytd-guide-entry-renderer,ytd-mini-guide-entry-renderer,yt-lockup-view-model,ytm-shorts-lockup-view-model,ytd-reel-shelf-renderer,ytd-rich-shelf-renderer";
-                  for (const a of e) {
-                    const e = document.querySelectorAll(a);
-                    for (let a = 0; a < e.length; a++) {
-                      const n = e[a],
-                        r = n.closest(t) || n;
-                      (r.classList.add("ytp-shorts-blocked"),
-                        r.style.setProperty("display", "none", "important"),
-                        r.style.setProperty(
-                          "visibility",
-                          "hidden",
-                          "important",
-                        ),
-                        (a + 1) % 60 == 0 && (await ne()));
-                    }
-                  }
-                  const a = document.querySelectorAll(
-                    "yt-chip-cloud-chip-renderer,tp-yt-paper-item,ytd-guide-entry-renderer,ytd-mini-guide-entry-renderer",
-                  );
-                  for (let e = 0; e < a.length; e++) {
-                    const n = a[e],
-                      r = (n.textContent || "").trim();
-                    if (/^#?shorts$/i.test(r) || /^shorts$/i.test(r)) {
-                      const e = n.closest(t) || n;
-                      (e.classList.add("ytp-shorts-blocked"),
-                        e.style.setProperty("display", "none", "important"),
-                        e.style.setProperty(
-                          "visibility",
-                          "hidden",
-                          "important",
-                        ));
-                    }
-                    (e + 1) % 60 == 0 && (await ne());
-                  }
-                } finally {
-                  a = !1;
-                }
-              }
-            };
-            (ae(n, 800),
-              e.addInterval(() => ae(n, 1500), 3e3),
-              document.body &&
-                e.addObserver(
-                  document.body,
-                  ee(() => ae(n, 1e3), 400),
-                  { childList: !0, subtree: !0 },
-                ),
-              e.onNav(() => e.addTimeout(() => ae(n, 500), 250)),
-              Yt["hide-shorts"].push(() => {
-                document
-                  .querySelectorAll(".ytp-shorts-blocked")
-                  .forEach((e) => {
-                    (e.classList.remove("ytp-shorts-blocked"),
-                      e.style.removeProperty("display"),
-                      e.style.removeProperty("visibility"));
-                  });
-              }));
-          })(e);
-      },
-      settings() {},
-    }),
     Ha(
       "hide-recs",
       "Hide Recommendations",
@@ -24658,7 +24556,7 @@
     {
       id: "chapterPrev",
       label: "Previous chapter",
-      def: "KeyP",
+      def: "Minus",
       gated: "chapterHotkeysOn",
       needHotkeyOptIn: !0,
       run: () => Er(-1),
@@ -24666,7 +24564,7 @@
     {
       id: "chapterNext",
       label: "Next chapter",
-      def: "KeyN",
+      def: "Equal",
       gated: "chapterHotkeysOn",
       needHotkeyOptIn: !0,
       run: () => Er(1),
@@ -28350,7 +28248,7 @@ body.zen-mood-learn ytd-watch-flexy #secondary{display:none!important}
         if (e.repeat) return;
         if (_isTextTarget(e)) return;
 
-        if (e.shiftKey && (e.code === "KeyW" || e.key === "W" || e.key === "w")) {
+        if (S.forceWatchedOn && e.shiftKey && (e.code === "KeyW" || e.key === "W" || e.key === "w")) {
           e.preventDefault();
           try {
             Ut();

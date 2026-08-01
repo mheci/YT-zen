@@ -30,6 +30,7 @@ const context = vm.createContext({
   TextEncoder,
   FinalizationRegistry,
   WeakRef,
+  fetch,
   v: async () => null,
   k: async () => undefined,
   x: async () => undefined,
@@ -55,7 +56,7 @@ const run = (file, expose) => {
 
 run("src/zen-resources.js", "ZenResources");
 run("src/sponsorblock-engine-v2.js", "SponsorBlockEngine");
-const { BoundedCache, WeakElementCache, DeferredTask, ResourceScope } = context.globalThis.ZenResources;
+const { BoundedCache, WeakElementCache, DeferredTask, ResourceScope, Bus, Logger, StateStore, Dom, Retry } = context.globalThis.ZenResources;
 const engine = context.globalThis.SponsorBlockEngine;
 
 const segments = engine.api.normalizeSegments({ segments: [
@@ -190,6 +191,69 @@ assert.strictEqual(elementCache.has("element"), false);
   await new Promise((resolve) => setTimeout(resolve, 60));
   assert.strictEqual(fired, false, "disposed scopes cancel timers");
   assert.strictEqual(scope.disposed, true);
+
+  const bus = new Bus("unit");
+  const events = [];
+  const wildcard = [];
+  bus.on("alpha", (payload) => events.push("alpha:" + payload));
+  bus.once("alpha", (payload) => events.push("once:" + payload));
+  bus.on("*", (payload, meta) => wildcard.push(meta.event));
+  bus.emit("alpha", 1);
+  bus.emit("alpha", 2);
+  assert.deepStrictEqual(events, ["alpha:1", "once:1", "alpha:2"], "bus dispatches and honors once()");
+  assert.deepStrictEqual(wildcard, ["alpha", "alpha"], "bus wildcard listeners receive every event");
+  assert.strictEqual(bus.stats().listeners, 2, "once() listeners self-remove");
+
+  Logger.setLevel("error");
+  const ns = Logger.namespace("unit");
+  ns.info("hidden");
+  ns.error("visible");
+  const snapshot = Logger.snapshot();
+  assert.strictEqual(snapshot.length, 1, "logger respects level threshold");
+  assert.strictEqual(snapshot[0].message, "visible");
+  Logger.clear();
+  Logger.setLevel("info");
+
+  const writes = [];
+  const store = new StateStore("unit-store", { count: 0 }, {
+    flushMs: 20,
+    storage: { get: async () => undefined, set: async (key, value) => { writes.push(value); } },
+  });
+  let changed = 0;
+  store.onChange(() => changed++);
+  await store.load();
+  assert.strictEqual(store.get().count, 0, "state store keeps initial value when adapter has none");
+  store.update((d) => { d.count += 1; });
+  assert.strictEqual(store.get().count, 1, "state store updates are synchronous");
+  assert.strictEqual(changed, 1, "state store emits change notifications");
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.strictEqual(writes.length, 1, "state store persists via adapter on debounced flush");
+  assert.strictEqual(writes[0].count, 1);
+  store.dispose();
+
+  assert.strictEqual(Dom.esc("<a href=\"x\">&'y'</a>"), "&lt;a href=&quot;x&quot;&gt;&amp;&#39;y&#39;&lt;/a&gt;", "Dom.esc escapes HTML");
+  assert.strictEqual(Dom.esc(null), "", "Dom.esc handles nullish input");
+
+  let retryAttempts = 0;
+  await assert.rejects(
+    Retry.backoff(() => { retryAttempts++; throw new Error("flaky"); }, { attempts: 3, baseMs: 5 }),
+    /flaky/,
+    "Retry.backoff rethrows after exhausting attempts",
+  );
+  assert.strictEqual(retryAttempts, 3);
+  const retried = await Retry.backoff(
+    (attempt) => (attempt < 2 ? Promise.reject(new Error("retry")) : Promise.resolve("ok")),
+    { attempts: 3, baseMs: 5 },
+  );
+  assert.strictEqual(retried, "ok", "Retry.backoff recovers on a later attempt");
+
+  let fetchScopeAbortWorked = false;
+  const fetchScope = new ResourceScope("fetch");
+  const fetchPromise = fetchScope.fetch("http://example.invalid", {});
+  fetchPromise.then(() => { fetchScopeAbortWorked = true; }, () => { fetchScopeAbortWorked = true; });
+  fetchScope.dispose();
+  await fetchPromise.catch(() => {});
+  assert.strictEqual(fetchScopeAbortWorked, true, "disposed scopes settle in-flight fetches");
 
   console.log("Unit tests passed.");
 })().catch((error) => {

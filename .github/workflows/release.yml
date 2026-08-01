@@ -26,6 +26,8 @@ jobs:
         run: npm ci
       - name: Deterministic gate
         run: npm test
+      - name: Verify bundle matches sources
+        run: git diff --exit-code -- yt-zen.user.js
       - name: SponsorBlock smoke test
         run: node scripts/test-sponsorblock.js JQb9eGeclQw
       - name: Verify tag matches package version

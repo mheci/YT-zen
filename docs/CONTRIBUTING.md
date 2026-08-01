@@ -22,6 +22,7 @@ Do not commit credentials, browser profiles, generated dependency directories, o
 ## Browser code rules
 
 - treat YouTube DOM nodes as replaceable;
+- edit canonical sources under `src/`, never the generated `yt-zen.user.js` bundle; run `npm run build` to regenerate it (the build is marker-based, idempotent, and byte-stable);
 - use the shared lifecycle context for cleanup;
 - validate all external response data;
 - keep network work abortable;

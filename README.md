@@ -36,14 +36,16 @@ The API contract is documented in [`docs/SPONSORBLOCK_API_CONTRACT.md`](docs/SPO
 
 ## Architecture
 
-The userscript is the canonical distribution. High-risk subsystems have reviewable source mirrors and are synchronized into the bundle by `scripts/build-userscript.js`.
+The userscript is the canonical distribution. Every subsystem under `src/` is the canonical source and is synchronized into the bundle by `scripts/build-userscript.js` using marker replacement; edits belong in `src/`, never in `yt-zen.user.js` directly.
 
+- `src/zen-resources.js` — the shared runtime platform: bounded caches, shared observers/tickers, deferred work, abort groups, tracked blob URLs, disposable scopes, a bus, a logger, persisted state stores, DOM helpers, and retry logic;
+- `src/zen-engine-v3.js` — the Zen feature ecosystem: ZenEngine core, discovery, playback (shared audio graph, scene detection, video DNA), search, session/genome, layout moods, queue, the AlgoEngine, and all feature registrations;
 - `src/sponsorblock-engine-v2.js` — SponsorBlock state, API, cache, playback, UI, and lifecycle orchestration;
-- `src/zen-resources.js` — bounded caches, shared observers/tickers, deferred work, abort groups, blob URLs, and disposable scopes;
-- `src/zen-engine-v3.js` — source mirror for the Zen feature ecosystem;
-- `src/advanced-features.js`, `src/algo-engine.js`, `src/ublock-filter-engine.js` — source mirrors for the remaining feature families;
+- `src/ublock-filter-engine.js` — the uBlock Origin cosmetic-filter interpreter used by channel blocking;
 - `scripts/` — build, release checks, deterministic tests, and the live SponsorBlock harness;
 - `docs/` — current architecture, API, performance, testing, and contributor documentation.
+
+`npm run build` regenerates `yt-zen.user.js` from the sources; the build is idempotent and byte-stable, so a rebuild of an unchanged tree produces no diff.
 
 ## Development
 
@@ -54,7 +56,7 @@ npm test
 node scripts/test-sponsorblock.js JQb9eGeclQw
 ```
 
-`npm test` rebuilds the userscript, checks every JavaScript file, verifies release invariants, and runs deterministic tests for resource ownership, cache behavior, segment normalization, direct API lookups, privacy lookup matching, and hidden-video lookup behavior.
+`npm test` rebuilds the userscript, checks every JavaScript file for syntax, verifies release invariants, and runs deterministic tests for resource ownership, cache behavior, bus/logger/state-store behavior, segment normalization, direct API lookups, privacy lookup matching, and hidden-video lookup behavior.
 
 The live harness checks the official direct repeated-query, direct JSON, privacy path repeated-query, and privacy path JSON forms. Network availability is required only for the live harness; the normal test gate is deterministic.
 

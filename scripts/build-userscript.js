@@ -66,6 +66,14 @@ bundle = replaceBetween(
   read("src/sponsorblock-engine-v2.js"),
 );
 
+// uBlock filter interpreter: canonical source is src/ublock-filter-engine.js.
+bundle = replaceBetween(
+  bundle,
+  "  //  uBlock Filter Interpreter Engine",
+  "\n\n    function Cb_norm(e) {",
+  read("src/ublock-filter-engine.js"),
+);
+
 // Zen subsystem (core engines + AlgoEngine + feature registrations):
 // canonical source is src/zen-engine-v3.js. It spans from the ZenEngine
 // banner through the last feature registration, right up to the boot IIFE.

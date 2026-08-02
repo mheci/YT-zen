@@ -7100,6 +7100,17 @@
         (async () => {
           try {
             const track = await (async function (e) {
+              const make = (r, d) => ({
+                playbackUrl: r.videostatsPlaybackUrl && r.videostatsPlaybackUrl.baseUrl,
+                watchtimeUrl: r.videostatsWatchtimeUrl && r.videostatsWatchtimeUrl.baseUrl,
+                atrUrl: r.atrUrl && r.atrUrl.baseUrl,
+                qoeUrl: r.qoeUrl && r.qoeUrl.baseUrl,
+                ptrackingUrl: r.ptrackingUrl && r.ptrackingUrl.baseUrl,
+                delayplayUrl: r.videostatsDelayplayUrl && r.videostatsDelayplayUrl.baseUrl,
+                engagedviewUrl: r.videostatsEngagedviewUrl && r.videostatsEngagedviewUrl.baseUrl,
+                wtfUrl: r.videostatsWtfUrl && r.videostatsWtfUrl.baseUrl,
+                lengthSec: d,
+              });
               try {
                 const t = Mt(),
                   a = await Ot(
@@ -7124,25 +7135,33 @@
                     },
                     { parseJson: !0, timeout: 8e3 },
                   );
-                if (!a || !a.ok || !a.json) return null;
-                const n = a.json,
-                  r = n.playbackTracking || {},
-                  o = n.playabilityStatus && n.playabilityStatus.status;
-                if (o && "OK" !== o && "LIVE_STREAM_OFFLINE" !== o) return null;
-                const i = n.videoDetails || {},
-                  d = parseInt(i.lengthSeconds || "0", 10) || 0;
-                return {
-                  playbackUrl: r.videostatsPlaybackUrl && r.videostatsPlaybackUrl.baseUrl,
-                  watchtimeUrl: r.videostatsWatchtimeUrl && r.videostatsWatchtimeUrl.baseUrl,
-                  atrUrl: r.atrUrl && r.atrUrl.baseUrl,
-                  qoeUrl: r.qoeUrl && r.qoeUrl.baseUrl,
-                  ptrackingUrl: r.ptrackingUrl && r.ptrackingUrl.baseUrl,
-                  delayplayUrl: r.videostatsDelayplayUrl && r.videostatsDelayplayUrl.baseUrl,
-                  lengthSec: d,
-                };
-              } catch (e) {
-                return null;
-              }
+                if (a && a.ok && a.json) {
+                  const n = a.json,
+                    r = n.playbackTracking || {},
+                    o = n.playabilityStatus && n.playabilityStatus.status;
+                  if (!o || "OK" === o || "LIVE_STREAM_OFFLINE" === o) {
+                    const i = n.videoDetails || {};
+                    return make(r, parseInt(i.lengthSeconds || "0", 10) || 0);
+                  }
+                }
+              } catch (e) {}
+              try {
+                const p = ie.api(),
+                  pr =
+                    (p &&
+                      "function" == typeof p.getPlayerResponse &&
+                      p.getPlayerResponse()) ||
+                    window.ytInitialPlayerResponse ||
+                    null;
+                if (pr && pr.playbackTracking) {
+                  const vd = pr.videoDetails || {};
+                  return make(
+                    pr.playbackTracking,
+                    parseInt(vd.lengthSeconds || "0", 10) || 0,
+                  );
+                }
+              } catch (e) {}
+              return null;
             })(a);
             if (!track || (!track.playbackUrl && !track.watchtimeUrl)) {
 
@@ -7199,12 +7218,44 @@
                 );
                 fired++;
               } catch (e) {}
+              try {
+                Qa(
+                  Za(
+                    Za(
+                      Za(
+                        Za(Za(track.watchtimeUrl, "cmt", half), "et", half),
+                        "st",
+                        Math.max(0, half - 1),
+                      ),
+                      "mt",
+                      half,
+                    ),
+                    "state",
+                    "ended",
+                  ),
+                );
+                fired++;
+              } catch (e) {}
             }
             try {
               track.qoeUrl && (Qa(Za(Za(track.qoeUrl, "cmt", tail), "rt", tail)), fired++);
             } catch (e) {}
             try {
               track.ptrackingUrl && (Qa(track.ptrackingUrl), fired++);
+            } catch (e) {}
+            try {
+              track.engagedviewUrl &&
+                (Qa(
+                  Za(
+                    Za(Za(Za(track.engagedviewUrl, "cmt", half), "et", half), "st", 0),
+                    "state",
+                    "playing",
+                  ),
+                ),
+                  fired++);
+            } catch (e) {}
+            try {
+              track.wtfUrl && (Qa(track.wtfUrl), fired++);
             } catch (e) {}
             u("fw account-history tracking URLs fired: " + fired + " for " + a);
           } catch (e) {
@@ -7485,6 +7536,30 @@
     try {
       e.dispatchEvent(new Event("seeked", { bubbles: !0 }));
     } catch (e) {}
+    setTimeout(() => {
+      try {
+        if (ie.videoId() === a) {
+          const v2 = document.querySelector("video.html5-main-video");
+          if (
+            v2 &&
+            isFinite(v2.duration) &&
+            v2.duration > 0.5 &&
+            v2.currentTime < v2.duration - 0.05
+          ) {
+            const p2 = v2.play();
+            if (p2 && "function" == typeof p2.then)
+              p2
+                .then(() => {
+                  try {
+                    v2.currentTime = v2.duration;
+                  } catch (e) {}
+                })
+                .catch(() => {});
+            else v2.currentTime = v2.duration;
+          }
+        }
+      } catch (e) {}
+    }, 700);
     !(function (e, t) {
       try {
         const a = new URL(location.href);

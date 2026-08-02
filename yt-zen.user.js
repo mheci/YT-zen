@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YT-zen
 // @namespace    https://github.com/mheci/YT-zen
-// @version      3.10.1
+// @version      3.10.2
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      Unlicense
@@ -956,6 +956,7 @@
 
         forceWatchedAccountHistory: !0,
         forceWatchedLocalHistory: !0,
+        debugVerbose: !1,
         theaterDefault: !1,
         wideTheater: !1,
         cinemaMode: !1,
@@ -1170,8 +1171,13 @@
       msg: String(t).slice(0, 200),
       data: "error" === e ? a : void 0,
     }),
-      l.length > (Xt && Xt.perfMode ? 30 : 60) && l.shift(),
-      "error" === e && console.error("[YTPlus]", t, a || ""));
+      l.length > (Xt && Xt.perfMode ? 30 : 60) && l.shift());
+    try {
+      if ("error" === e) console.error("[YTPlus]", t, a || "");
+      else if (S.debugVerbose) {
+        "warn" === e ? console.warn("[YTPlus]", t) : console.log("[YTPlus]", t);
+      }
+    } catch (e) {}
   }
   const u = (e, t) => p("info", e, t),
     h = (e, t) => p("warn", e, t),
@@ -6630,6 +6636,16 @@
   }
 
 
+  function Tt() {
+    try {
+      const e = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-";
+      let t = "";
+      for (let a = 0; a < 11; a++) t += e.charAt(Math.floor(Math.random() * e.length));
+      return t;
+    } catch (e) {
+      return "y" + String(Date.now()).slice(-10);
+    }
+  }
   function Ot(t, a, n) {
     return (
       (n = n || {}),
@@ -7546,16 +7562,16 @@
             v2.duration > 0.5 &&
             v2.currentTime < v2.duration - 0.05
           ) {
+            u("fw forced end: " + v2.currentTime.toFixed(1) + "/" + v2.duration.toFixed(1));
             const p2 = v2.play();
-            if (p2 && "function" == typeof p2.then)
-              p2
-                .then(() => {
-                  try {
-                    v2.currentTime = v2.duration;
-                  } catch (e) {}
-                })
-                .catch(() => {});
-            else v2.currentTime = v2.duration;
+            const finish = () => {
+              try {
+                v2.currentTime = v2.duration;
+                v2.dispatchEvent(new Event("ended", { bubbles: !0 }));
+              } catch (e) {}
+            };
+            if (p2 && "function" == typeof p2.then) p2.then(finish).catch(() => {});
+            else finish();
           }
         }
       } catch (e) {}
@@ -9996,6 +10012,7 @@
             "forceWatchedLocalHistory",
           ),
         );
+        e.appendChild(Io("Verbose debug console output", "debugVerbose"));
       },
     }),
     xa.register({

@@ -952,10 +952,10 @@
         screenshotClipboard: !1,
         sleepTimerOn: !1,
         sleepTimerMin: 30,
-        forceWatchedOn: !1,
+        forceWatchedOn: !0,
 
-        forceWatchedAccountHistory: !1,
-        forceWatchedLocalHistory: !1,
+        forceWatchedAccountHistory: !0,
+        forceWatchedLocalHistory: !0,
         theaterDefault: !1,
         wideTheater: !1,
         cinemaMode: !1,

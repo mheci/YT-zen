@@ -39,10 +39,6 @@
   if (e.__YTPLUS_LOADED__) return;
   e.__YTPLUS_LOADED__ = !0;
 
-  const __pristineXHROpen__ = XMLHttpRequest.prototype.open,
-    __pristineXHRSend__ = XMLHttpRequest.prototype.send,
-    __pristineFetch__ = e.fetch,
-    __pristineBeacon__ = navigator.sendBeacon;
   try {
     const e = ("undefined" != typeof location && location.search) || "",
       t = /[?&]ytplus=on\b/i.test(e);
@@ -347,6 +343,10 @@
         onEvict: onEvict || null,
       });
     };
+    const _firstKey = (m) => {
+      const ks = m.keys();
+      return ks && typeof ks.next === "function" ? ks.next().value : ks[0];
+    };
     const evictCachePct = (name, pct) => {
       const c = _caches.find((c) => c.name === name);
       if (!c) return 0;
@@ -354,7 +354,7 @@
       let n = 0;
 
       while (n < target && c.map.size > 0) {
-        const firstKey = c.map.keys().next().value;
+        const firstKey = _firstKey(c.map);
         if (firstKey === undefined) break;
         const val = c.map.get(firstKey);
         c.map.delete(firstKey);
@@ -388,18 +388,20 @@
       } catch (e) {}
 
       for (const c of _caches) {
-        if (c.map && c.map.size > c.cap) {
+        try {
+          if (c.map && c.map.size > c.cap) {
 
-          while (c.map.size > c.cap) {
-            const firstKey = c.map.keys().next().value;
-            if (firstKey === undefined) break;
-            const val = c.map.get(firstKey);
-            c.map.delete(firstKey);
-            if (typeof c.onEvict === "function") {
-              try { c.onEvict(firstKey, val); } catch (e) {}
+            while (c.map.size > c.cap) {
+              const firstKey = _firstKey(c.map);
+              if (firstKey === undefined) break;
+              const val = c.map.get(firstKey);
+              c.map.delete(firstKey);
+              if (typeof c.onEvict === "function") {
+                try { c.onEvict(firstKey, val); } catch (e) {}
+              }
             }
           }
-        }
+        } catch (e) {}
       }
 
       try {
@@ -695,7 +697,6 @@
 
   try {
     setTimeout(() => {
-      try { _mp.registerCache("sb-segments", typeof yt !== "undefined" ? yt : null, 64, null); } catch (e) {}
       try { _mp.registerCache("time-format", typeof de !== "undefined" ? de : null, 512, null); } catch (e) {}
       try {
         if (typeof Ve !== "undefined" && Ve && Ve.size !== undefined) {
@@ -709,7 +710,7 @@
 
   try {
 
-    const _mpMaintHandle = _mp.safeSetInterval(
+    _mp.safeSetInterval(
       () => {
         try {
           if (
@@ -779,7 +780,6 @@
         GM_info.script &&
         GM_info.script.version) ||
       "3.9.1",
-    r = "https://sponsor.ajay.app",
     o = (() => {
       try {
         return CSS.supports("selector(:has(*))");
@@ -811,10 +811,6 @@
       full: "Label only",
       disabled: "Off",
     },
-
-        Zi = [
-      { id: "ajay", name: "SponsorBlock (official)", url: "https://sponsor.ajay.app" },
-    ],
 
         d = {
       hd2160: "4K",
@@ -908,6 +904,7 @@
         sbToast: !1,
         sbToastDur: 2200,
         sbSeekbar: !0,
+        sbHud: !0,
         sessionRestoreOn: !1,
         sessionResumeMode: "silent",
         sessionResumeDesign: "default",
@@ -1556,7 +1553,7 @@
       try {
         e.__ytplusLastSeenLatest = String(latestTag || "");
       } catch (_) {}
-      const toast = pe(
+      pe(
         "YT-zen v" + installed + " is up to date" + (force ? "" : "."),
         4000,
         "success",
@@ -1576,7 +1573,7 @@
     };
 
     const showCheckFailed = (errMsg) => {
-      const toast = pe(
+      pe(
         "Update check failed: " + (errMsg || "network error") + " (click to retry)",
         4000,
         "error",
@@ -3348,10 +3345,28 @@
     } catch (_) { return ""; }
   }
   function ft() {
-    // SB HUD update — refreshes the on-screen sponsorship status box
+    // SB HUD update — refreshes the on-screen sponsorship status chip
     try {
-      const hud = document.getElementById("ytp-sb-hud");
-      if (!hud) return;
+      let hud = document.getElementById("ytp-sb-hud");
+      if (!hud) {
+        hud = document.createElement("div");
+        (hud.id = "ytp-sb-hud"),
+          (hud.style.position = "fixed"),
+          (hud.style.bottom = "64px"),
+          (hud.style.right = "14px"),
+          (hud.style.zIndex = "2147483000"),
+          (hud.style.background = "rgba(18,20,26,.92)"),
+          (hud.style.color = "#eef"),
+          (hud.style.padding = "6px 10px"),
+          (hud.style.borderRadius = "8px"),
+          (hud.style.border = "1px solid rgba(255,255,255,.14)"),
+          (hud.style.fontSize = "12px"),
+          (hud.style.fontFamily = "Roboto, Arial, sans-serif"),
+          (hud.style.boxShadow = "0 6px 18px rgba(0,0,0,.45)"),
+          (hud.style.pointerEvents = "none"),
+          (hud.style.lineHeight = "1.4"),
+          document.body.appendChild(hud);
+      }
       if (!S.sponsorblockOn || !S.sbHud) {
         hud.style.display = "none";
         return;
@@ -3375,7 +3390,7 @@
         ? a + ":" + (n < 10 ? "0" + n : n) + ":" + (r < 10 ? "0" + r : r)
         : n + ":" + (r < 10 ? "0" + r : r);
     if (de.size > 512) {
-      const e = de.keys().next().value;
+      const e = de.keys()[0];
       de.delete(e);
     }
     return (de.set(e, o), o);
@@ -8361,7 +8376,7 @@
       id: "ab-repeat",
       name: "Loop a Segment",
       summary:
-        "Pick a start point and an end point, and the video will loop between them. Use [ to mark the start, ] to mark the end, and \\ to clear.",
+        "Pick a start point and an end point, and the video will loop between them.",
       masterKey: "abLoopOn",
       keys: ["abLoopOn", "abA", "abB"],
       apply(e) {
@@ -8401,16 +8416,6 @@
           ]),
         );
       },
-    }),
-    xa.register({
-      id: "frame-step",
-      name: "Frame Stepping",
-      summary:
-        "When the video is paused, press , or . to move one frame at a time.",
-      masterKey: "frameStep",
-      keys: ["frameStep"],
-      apply() {},
-      settings() {},
     }),
     xa.register({
       id: "auto-hd",
@@ -9584,6 +9589,7 @@
         "sbToast",
         "sbToastDur",
         "sbSeekbar",
+        "sbHud",
       ].concat(i.flatMap((e) => ["sb_" + e.id + "_en", "sb_" + e.id + "_act"])),
       apply(e) {
         ft();
@@ -9626,6 +9632,9 @@
         );
         e.appendChild(
           Io("Show segments on the video timeline", "sbSeekbar")
+        );
+        e.appendChild(
+          Io("Show SB stats chip on screen", "sbHud")
         );
 
         e.appendChild(To("div", "ytp-section-hdr", "API Controls"));
@@ -9727,23 +9736,30 @@
       apply(e) {
         if (!S.sessionRestoreOn) return void Ue();
         (e.onNav(() => {
-          (Ke(), e.addTimeout(Ke, 1200));
+          (Ke(), e.addTimeout(Ke, 1200), e.addTimeout(u, 1200));
         }),
-          Ke());
+          Ke(),
+          u());
         for (const t of [400, 1500, 3e3]) e.addTimeout(Ke, t);
         Yt["session-restore"].push(Ue);
         const t = () => {
             const e = ie.videoId();
             e && Xe(e, { duration: ie.el() ? ie.el().duration : 0 });
           },
-          a = ie.el();
-        a &&
-          (a.addEventListener("ended", t),
-          Yt["session-restore"].push(() => {
+          u = () => {
+            const a = ie.el();
+            if (!a || a._ytpHistEndedBound) return;
             try {
-              a.removeEventListener("ended", t);
+              (a._ytpHistEndedBound = !0),
+                a.addEventListener("ended", t),
+                Yt["session-restore"].push(() => {
+                  try {
+                    a.removeEventListener("ended", t), (a._ytpHistEndedBound = !1);
+                  } catch (e) {}
+                });
             } catch (e) {}
-          }));
+          };
+        u();
       },
       settings(e) {
         e.appendChild(
@@ -9919,7 +9935,7 @@
       id: "pip-button",
       name: "Floating Pop-out Window",
       summary:
-        "Press P to pop the video out into a small floating window that stays on top while you browse other tabs.",
+        "Pop the video out into a small floating window that stays on top while you browse other tabs.",
       masterKey: "pipOn",
       keys: ["pipOn"],
       apply() {},
@@ -9946,6 +9962,18 @@
             Io("Copy to clipboard (no download)", "screenshotClipboard"),
           ),
           e.appendChild(Eo([Oo("Capture now", Ia, "primary")])));
+      },
+    }),
+    xa.register({
+      id: "bookmarks",
+      name: "Bookmarks",
+      summary:
+        "Save a marker at the current time of the video and jump back to it later from the dashboard.",
+      masterKey: "bookmarksOn",
+      keys: ["bookmarksOn"],
+      apply() {},
+      settings(e) {
+        e.appendChild(Eo([Oo("Bookmark current time", et, "primary")]));
       },
     }),
     xa.register({
@@ -10673,19 +10701,6 @@
       ),
       e.insertAdjacentElement("afterend", n));
   }
-  function Ua() {
-    const e = location.pathname || "";
-    let t = e.match(
-      /^\/(@[^/?#]+)(?:\/(?:featured|videos|shorts|streams|live|releases|playlists|community|about))?\/?$/i,
-    );
-    return t
-      ? { kind: "handle", handle: t[1], raw: t[1] }
-      : ((t = e.match(/^\/channel\/(UC[\w-]{20,})(?:\/[^?#]*)?$/i)),
-        t
-          ? { kind: "ucid", ucid: t[1], raw: t[1] }
-          : ((t = e.match(/^\/(c|user)\/([^/?#]+)(?:\/[^?#]*)?$/i)),
-            t ? { kind: t[1], legacy: t[2], raw: t[2] } : null));
-  }
   xa.register({
     id: "channel-blocker",
     name: "Channel Blocker",
@@ -11001,16 +11016,6 @@
             rn("Highlight timestamp links", "highlightTimestampLinksOn"),
           ));
       },
-    }),
-    xa.register({
-      id: "chapter-navigation-bundle",
-      name: "Chapter Navigation",
-      summary:
-        "Jump between video chapters with the keyboard. Press N for next, P for previous. You can change these in Custom Shortcuts.",
-      masterKey: "chapterHotkeysOn",
-      keys: ["chapterHotkeysOn"],
-      apply() {},
-      settings() {},
     }),
     (() => {
       try {
@@ -13062,6 +13067,7 @@
       apply(e) {
         if (!S.forwardRewindOn) return;
         const t = () => {
+          if (!S.forwardRewindOn) return;
           const r = document.querySelector("#movie_player .ytp-left-controls, .html5-video-player .ytp-left-controls");
           if (!r || r.querySelector(".ytp-fr-btn")) return;
           const o = ie.el && ie.el();
@@ -13113,7 +13119,7 @@
           d && d.parentNode === r ? r.insertBefore(l, d) : r.appendChild(l);
         };
         t();
-        Mr("forward-rewind", t);
+        Mr("forward-rewind-buttons", t);
         e.onNav(() => e.addTimeout(t, 700));
         Yt["forward-rewind-buttons"].push(() => {
           document.querySelectorAll(".ytp-fr-btn").forEach((e) => e.remove());
@@ -13247,7 +13253,7 @@
         S.flipVideoOn && (mount(), t());
         Mr("flip-video", () => S.flipVideoOn && mount());
         e.onNav(() => e.addTimeout(() => S.flipVideoOn && (mount(), t()), 1200));
-        So("cfg.changed", ({ key: n }) => {
+        const cfgSub = So("cfg.changed", ({ key: n }) => {
           if ("flipVideoOn" === n) {
             if (S.flipVideoOn) mount(), t();
             else {
@@ -13258,6 +13264,7 @@
           } else if (n === "flipVideoH" || n === "flipVideoV") t();
         });
         Yt["flip-video"].push(() => {
+          try { cfgSub(); } catch (e) {}
           const n = ie.el && ie.el();
           n && (n.style.transform = "");
           document.querySelectorAll(".ytp-flip-btn").forEach((e) => e.remove());
@@ -13269,111 +13276,6 @@
         e.appendChild(Io("Flip vertically by default", "flipVideoV"));
       },
     }));
-  let _n = null;
-
-  function _nClear() {
-    if (!_n) return;
-    try {
-      _n.btn.classList.remove("listening");
-    } catch (e) {}
-    if (_n.btn && "press a key…" === _n.btn.textContent) {
-      try { _n.btn.textContent = _n.prevText; } catch (e) {}
-    }
-    if (_n.handler) {
-      try {
-        document.removeEventListener("keydown", _n.handler, !0);
-      } catch (e) {}
-    }
-    _n = null;
-  }
-  function Hn(e) {
-    e.replaceChildren();
-    const t = To(
-      "div",
-      "ytp-hist-note",
-      "Click any box, then press the key combination you want to use. Combinations with Ctrl, Shift, Alt, or Command are supported. Press the [x] button to remove a shortcut. Note that keyboard shortcuts require the master “Keyboard shortcuts” switch at the top of the dashboard to be turned on.",
-    );
-    e.appendChild(t);
-    const a = Oo(
-      "Reset all to defaults",
-      () => {
-        e.confirm("Reset every hotkey to its default?") &&
-          (Ta("hotkeyMap", {}), Hn(e));
-      },
-      "ytp-danger",
-    );
-    e.appendChild(Eo([a]));
-    for (const t of Zo) {
-      const a = To("div", "ytp-hk-row");
-      a.appendChild(To("div", "ytp-hk-lbl", t.label));
-      const n = Qo(t),
-        r = document.createElement("button");
-      ((r.type = "button"),
-        (r.className = "ytp-hk-key" + (n ? "" : " empty")),
-        (r.textContent = n ? $o(n) : "unbound"),
-        r.addEventListener("click", () => {
-
-          _nClear();
-          const e = r.textContent;
-          (r.classList.add("listening"), (r.textContent = "press a key…"));
-          const a = (n) => {
-            if (
-              [
-                "ShiftLeft",
-                "ShiftRight",
-                "ControlLeft",
-                "ControlRight",
-                "AltLeft",
-                "AltRight",
-                "MetaLeft",
-                "MetaRight",
-              ].includes(n.code)
-            )
-              return;
-            (n.preventDefault(), n.stopPropagation());
-            const o = Jo(n);
-
-            _nClear();
-            if ("Escape" === n.key) {
-              r.textContent = e;
-              return;
-            }
-            const i = Object.assign({}, S.hotkeyMap || {});
-            ((i[t.id] = o),
-              Ta("hotkeyMap", i),
-              (r.textContent = $o(o)),
-              r.classList.remove("empty"));
-            for (const e of Zo)
-              if (e.id !== t.id && Qo(e) === o) {
-                pe(
-                  "That shortcut is also used by “" + e.label + "”.",
-                  3e3,
-                  "info",
-                );
-                break;
-              }
-          };
-
-          ((_n = { btn: r, prevText: e, handler: a }),
-            document.addEventListener("keydown", a, !0));
-        }),
-        a.appendChild(r));
-      const o = document.createElement("button");
-      ((o.type = "button"),
-        (o.className = "ytp-hk-clr"),
-        (o.textContent = "[x]"),
-        (o.title = "Unbind"),
-        o.addEventListener("click", () => {
-          const e = Object.assign({}, S.hotkeyMap || {});
-          ((e[t.id] = ""),
-            Ta("hotkeyMap", e),
-            (r.textContent = "unbound"),
-            r.classList.add("empty"));
-        }),
-        a.appendChild(o),
-        e.appendChild(a));
-    }
-  }
   (xa.register({
       id: "session-replay",
       name: "Click & Navigation Recorder",
@@ -15900,7 +15802,7 @@
       hidden: !0,
       name: "Chapter Hotkeys",
       summary:
-        "Use N and P to jump to next/previous chapter (rebindable in Hotkey Customization).",
+        "Use - and = to jump to previous/next chapter.",
       masterKey: "chapterHotkeysOn",
       keys: ["chapterHotkeysOn"],
       apply() {},
@@ -19357,9 +19259,9 @@
     Hr = null;
   }
   const Wr = "ytp-theme-overhaul-style";
-  let Ur = null,
-    Kr = [],
-    Yr = !1;
+  let Kr = [],
+    Yr = !1,
+    _themeOrig = null;
     function _overhaulBuildCSS() {
     if (!S.themeGlassOverhaulOn) return "";
     const _ease = S.themeFxReducedMotion ? "none" : "all .18s ease-out";
@@ -19398,13 +19300,12 @@
           t.remove();
         } catch (e) {}
       const a = _overhaulBuildCSS();
-      if (!a) return void (Ur = null);
+      if (!a) return;
       const n = document.createElement("style");
       ((n.id = Wr),
         n.setAttribute("data-ytp-overhaul", "1"),
         (n.textContent = a),
-        e.appendChild(n),
-        (Ur = n));
+        e.appendChild(n));
     } catch (e) {
       try {
         h("overhaul mount", e && e.message);
@@ -19425,7 +19326,6 @@
       const e = document.getElementById(Wr);
       e && e.remove();
     } catch (e) {}
-    Ur = null;
   }
   function Qr(e) {
     const t = To("div", "ytp-theme-card");
@@ -19533,6 +19433,29 @@
             const n = "dark" === t,
               r = a !== n;
             try {
+              if (!_themeOrig) {
+                let pref = "",
+                  f6 = "";
+                try {
+                  const c = document.cookie.match(/(?:^|;\s*)PREF=([^;]*)/);
+                  if (c) {
+                    pref = decodeURIComponent(c[1]);
+                    const fm = pref.match(/f6=(\d+)/);
+                    f6 = (fm && fm[1]) || "";
+                  }
+                } catch (e) {}
+                _themeOrig = {
+                  dark: a,
+                  colorScheme: document.documentElement.style.colorScheme || "",
+                  theme: (e.ytcfg && e.ytcfg.get && e.ytcfg.get("THEME")) || "",
+                  bg: (e.ytcfg && e.ytcfg.get && e.ytcfg.get("BACKGROUND_COLOR")) || "",
+                  meta: (document.querySelector('meta[name="theme-color"]') || {}).content || "",
+                  pref: pref,
+                  f6: f6,
+                };
+              }
+            } catch (e) {}
+            try {
               const e = document.documentElement;
               n ? e.setAttribute("dark", "") : e.removeAttribute("dark");
             } catch (e) {}
@@ -19573,7 +19496,7 @@
                     const t = e.indexOf("=");
                     t > 0 && (r[e.substring(0, t)] = e.substring(t + 1));
                   }),
-                  (r.f6 = n ? "4400" : "4404"));
+                  (r.f6 = String(n ? (parseInt(r.f6 || "0", 10) | 32) & ~16 : (parseInt(r.f6 || "0", 10) | 16) & ~32)));
                 const o = Object.keys(r)
                     .map((e) => e + "=" + r[e])
                     .join("&"),
@@ -20628,7 +20551,48 @@
             }, e);
         }),
         Yt["theme-engine"].push(zr),
-        Yt["theme-engine"].push(Zr));
+        Yt["theme-engine"].push(Zr),
+        Yt["theme-engine"].push(() => {
+          const o = _themeOrig;
+          if (!o) return;
+          _themeOrig = null;
+          try {
+            const de = document.documentElement;
+            o.dark ? de.setAttribute("dark", "") : de.removeAttribute("dark");
+            de.style.colorScheme = o.colorScheme || "";
+          } catch (e) {}
+          try {
+            e.ytcfg && e.ytcfg.set && e.ytcfg.set({ THEME: o.theme, BACKGROUND_COLOR: o.bg });
+          } catch (e) {}
+          try {
+            const m = document.querySelector('meta[name="theme-color"]');
+            m && m.setAttribute("content", o.meta || "");
+          } catch (e) {}
+          try {
+            const mgr = typeof ti !== "undefined" && ti.cookieControl && ti.cookieControl.manager;
+            if (o.pref) {
+              const exp = new Date(Date.now() + 3456e7).toUTCString();
+              if (mgr) mgr.set("PREF", o.pref, { domain: ".youtube.com", path: "/", sameSite: "Lax", expires: exp });
+              else document.cookie = "PREF=" + o.pref + "; expires=" + exp + "; path=/; SameSite=Lax";
+            } else {
+              const past = new Date(0).toUTCString();
+              if (mgr) mgr.set("PREF", "", { domain: ".youtube.com", path: "/", sameSite: "Lax", expires: past });
+              else document.cookie = "PREF=; expires=" + past + "; path=/; SameSite=Lax";
+            }
+          } catch (e) {}
+          try {
+            document.dispatchEvent(
+              new CustomEvent("yt-action", {
+                detail: {
+                  actionName: o.dark
+                    ? "yt-signal-action-toggle-dark-theme-on"
+                    : "yt-signal-action-toggle-dark-theme-off",
+                  args: [],
+                },
+              }),
+            );
+          } catch (e) {}
+        }));
     },
     settings(t) {
       const a = (function () {
@@ -20983,152 +20947,6 @@
       },
       settings() {},
     }));
-  let ao = 0;
-  function no() {
-    (ao && clearTimeout(ao), (ao = setTimeout(oo, 350)));
-  }
-  function ro() {
-    document
-      .querySelectorAll("#ytp-uhm-svg,.ytp-uhm-mark,.ytp-uhm-chapter")
-      .forEach((e) => {
-        try {
-          e.remove();
-        } catch (e) {}
-      });
-  }
-  function oo() {
-    if (((ao = 0), ro(), !S.unifiedHeatmapOn)) return;
-    const t =
-      document.querySelector("#movie_player .ytp-progress-bar-container") ||
-      document.querySelector(
-        ".html5-video-player .ytp-progress-bar-container",
-      ) ||
-      document.querySelector(".ytp-progress-bar-container") ||
-      document.querySelector(".ytp-progress-bar");
-    if (!t) return;
-    const n = ie.el();
-    if (!n || !isFinite(n.duration) || n.duration < 1) return;
-    const r = n.duration;
-    if (S.unifiedHeatmapShowReplays) {
-      const n = (function () {
-        try {
-          const t = e.ytInitialPlayerResponse,
-            a =
-              t &&
-              t.playerOverlays &&
-              t.playerOverlays.playerOverlayRenderer &&
-              t.playerOverlays.playerOverlayRenderer.decoratedPlayerBarRenderer,
-            n = a && a.decoratedPlayerBarRenderer,
-            r = n && n.playerBar && n.playerBar.multiMarkersPlayerBarRenderer,
-            o = r && r.markersMap;
-          if (!o) return null;
-          for (const e of o) {
-            const t = e.value && e.value.heatmap;
-            if (t && t.heatmapRenderer)
-              return t.heatmapRenderer.heatMarkers || [];
-          }
-        } catch (e) {}
-        return null;
-      })();
-      if (n && n.length) {
-        let e = 0;
-        for (const t of n) {
-          const a = t && t.heatMarkerRenderer;
-          a && (e += a.markerDurationMillis || 0);
-        }
-        e || (e = 1e3 * r);
-        const o = [];
-        let i = 0;
-        for (const t of n) {
-          const a = t && t.heatMarkerRenderer;
-          if (!a) continue;
-          const n = (i / e) * 100,
-            r =
-              40 -
-              36 *
-                Math.max(
-                  0,
-                  Math.min(1, a.heatMarkerIntensityScoreNormalized || 0),
-                );
-          (o.push([n, r]),
-            (i += a.markerDurationMillis || 0),
-            o.push([(i / e) * 100, r]));
-        }
-        if (o.length >= 2) {
-          (o.unshift([0, 40]), o.push([100, 40]));
-          const e =
-              "M " +
-              o.map(([e, t]) => e.toFixed(2) + "," + t.toFixed(2)).join(" L ") +
-              " Z",
-            n = "http://www.w3.org/2000/svg",
-            r = document.createElementNS(n, "svg");
-          ((r.id = "ytp-uhm-svg"),
-            r.setAttribute("viewBox", "0 0 100 40"),
-            r.setAttribute("preserveAspectRatio", "none"),
-            (r.style.cssText =
-              "position:absolute;left:0;right:0;bottom:0;width:100%;height:100%;min-height:12px;pointer-events:none;z-index:30;opacity:.55;overflow:visible"));
-          const i = document.createElementNS(n, "defs"),
-            d = "ytpUhmGrad-" + Date.now().toString(36);
-          (a(
-            i,
-            '<linearGradient id="' +
-              d +
-              '" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#ff6f00" stop-opacity=".9"/><stop offset="100%" stop-color="#ffeb3b" stop-opacity=".5"/></linearGradient>',
-          ),
-            r.appendChild(i));
-          const c = document.createElementNS(n, "path");
-          (c.setAttribute("d", e),
-            c.setAttribute("fill", "url(#" + d + ")"),
-            c.setAttribute("stroke", "rgba(255,255,255,0.85)"),
-            c.setAttribute("stroke-width", "0.3"),
-            r.appendChild(c),
-            t.appendChild(r));
-        }
-      }
-    }
-    if (S.unifiedHeatmapShowSB && typeof SponsorBlockEngine !== "undefined")
-      for (const e of SponsorBlockEngine.getSegments()) {
-        if (!e || !e.segment) continue;
-        const a = e.category;
-        if (a && !1 === S["sb_" + a + "_en"]) continue;
-        const n = i && i.find((e) => e.id === a),
-          o = e.segment[0],
-          d = e.segment[1];
-        if (!isFinite(o) || !isFinite(d) || d <= o) continue;
-        const c = Math.max(0, (o / r) * 100),
-          s = Math.max(0.15, ((d - o) / r) * 100),
-          l = document.createElement("div");
-        ((l.className = "ytp-uhm-mark"),
-          (l.title =
-            (n ? n.label : a || "Segment") + " - " + ce(o) + " - " + ce(d)),
-          (l.style.cssText =
-            "position:absolute;top:0;bottom:0;left:" +
-            c.toFixed(3) +
-            "%;width:" +
-            s.toFixed(3) +
-            "%;background:" +
-            (n ? n.color : "#fff") +
-            ";opacity:.78;pointer-events:none;z-index:31;border-radius:1px;box-shadow:0 0 0 1px rgba(0,0,0,.35)"),
-          t.appendChild(l));
-      }
-    if (S.unifiedHeatmapShowChapters)
-      try {
-        const e = Jr();
-        for (const a of e) {
-          if (!a || !isFinite(a.t)) continue;
-          const e = (a.t / r) * 100;
-          if (e <= 0.05 || e >= 99.95) continue;
-          const n = document.createElement("div");
-          ((n.className = "ytp-uhm-chapter"),
-            (n.title = "Chapter - " + ce(a.t) + " - " + (a.title || "")),
-            (n.style.cssText =
-              "position:absolute;top:-3px;bottom:-3px;left:" +
-              e.toFixed(3) +
-              "%;width:2px;margin-left:-1px;background:#fff;opacity:.85;pointer-events:none;z-index:32;box-shadow:0 0 3px rgba(0,0,0,.7)"),
-            t.appendChild(n));
-        }
-      } catch (e) {}
-  }
   xa.register({
       id: "block-yt-ai",
       name: "Hide YouTube AI Features",
@@ -23545,7 +23363,8 @@
   let wo = null;
   const Co = [];
   function So(e, t) {
-    Co.push(g.on(e, t));
+    const n = g.on(e, t);
+    return (Co.push(n), n);
   }
   function To(e, t, a) {
     const n = document.createElement(e);
@@ -24540,136 +24359,6 @@
       ),
       e.click());
   }
-  const Zo = [
-    {
-      id: "toggleDash",
-      label: "Open/close dashboard",
-      def: "Alt+KeyY",
-      gated: !1,
-      run: () => Yo(),
-    },
-    {
-      id: "forceWatched",
-      label: "Force watched",
-      def: "Shift+KeyW",
-      gated: "forceWatchedOn",
-      run: () => {
-        Promise.resolve().then(Ut);
-      },
-    },
-    {
-      id: "stopPlayback",
-      label: "Stop playback (reset + pause)",
-      def: "Shift+KeyS",
-      gated: "stopButtonOn",
-      run: () => yr(),
-    },
-    {
-      id: "abSetA",
-      label: "A-B: set A point",
-      def: "BracketLeft",
-      gated: "abLoopOn",
-      needHotkeyOptIn: !0,
-      run: () => {
-        const e = ie.el();
-        e &&
-          (Ta("abA", e.currentTime),
-          pe("A=" + ce(e.currentTime), 1300, "info"));
-      },
-    },
-    {
-      id: "abSetB",
-      label: "A-B: set B point",
-      def: "BracketRight",
-      gated: "abLoopOn",
-      needHotkeyOptIn: !0,
-      run: () => {
-        const e = ie.el();
-        e &&
-          (Ta("abB", e.currentTime),
-          pe("B=" + ce(e.currentTime), 1300, "info"));
-      },
-    },
-    {
-      id: "abClear",
-      label: "A-B: clear",
-      def: "Backslash",
-      gated: "abLoopOn",
-      needHotkeyOptIn: !0,
-      run: () => {
-        (Oa({ abA: -1, abB: -1 }), pe("AB cleared", 1300, "info"));
-      },
-    },
-    {
-      id: "bookmarkNow",
-      label: "Bookmark current time",
-      def: "KeyB",
-      gated: "bookmarksOn",
-      needHotkeyOptIn: !0,
-      run: () => et(),
-    },
-    {
-      id: "togglePiP",
-      label: "Toggle Picture-in-Picture",
-      def: "KeyP",
-      gated: "pipOn",
-      needHotkeyOptIn: !0,
-      run: () => Pa(),
-    },
-    {
-      id: "screenshot",
-      label: "Screenshot frame",
-      def: "KeyX",
-      gated: "screenshotOn",
-      needHotkeyOptIn: !0,
-      run: () => Ia(),
-    },
-
-
-    {
-      id: "frameBack",
-      label: "Frame step back",
-      def: "Comma",
-      gated: "frameStep",
-      needHotkeyOptIn: !0,
-      run: () => {
-        const e = ie.el();
-        e && e.paused && (e.currentTime -= 1 / 30);
-      },
-    },
-    {
-      id: "frameFwd",
-      label: "Frame step forward",
-      def: "Period",
-      gated: "frameStep",
-      needHotkeyOptIn: !0,
-      run: () => {
-        const e = ie.el();
-        e && e.paused && (e.currentTime += 1 / 30);
-      },
-    },
-    {
-      id: "chapterPrev",
-      label: "Previous chapter",
-      def: "Minus",
-      gated: "chapterHotkeysOn",
-      needHotkeyOptIn: !0,
-      run: () => Er(-1),
-    },
-    {
-      id: "chapterNext",
-      label: "Next chapter",
-      def: "Equal",
-      gated: "chapterHotkeysOn",
-      needHotkeyOptIn: !0,
-      run: () => Er(1),
-    },
-
-  ];
-  function Qo(e) {
-    const t = S.hotkeyMap || {};
-    return e.id in t ? t[e.id] || null : e.def;
-  }
   function Jo(e) {
     if (!e.code) return "";
     if (
@@ -24695,27 +24384,6 @@
       t.join("+")
     );
   }
-  function $o(e) {
-    return e
-      ? e
-          .replace(/^Key([A-Z])$/, "$1")
-          .replace(/\+Key([A-Z])/g, "+$1")
-          .replace(/^Digit(\d)$/, "$1")
-          .replace(/\+Digit(\d)/g, "+$1")
-          .replace(/BracketLeft/g, "[")
-          .replace(/BracketRight/g, "]")
-          .replace(/Backslash/g, "\\")
-          .replace(/Comma/g, ",")
-          .replace(/Period/g, ".")
-          .replace(/Slash/g, "/")
-          .replace(/Semicolon/g, ";")
-          .replace(/Quote/g, "'")
-          .replace(/Minus/g, "-")
-          .replace(/Equal/g, "=")
-          .replace(/Backquote/g, "`")
-          .replace(/Space/g, "Space")
-      : "-";
-  }
   function ei(e, t) {
     return !!t && Jo(e) === t;
   }
@@ -24733,9 +24401,9 @@
     closeDashboard: Ko,
     toggleDashboard: Yo,
 
-    actions: (typeof _kp !== "undefined" && _kp) ? _kp.actions : null,
-    palette: (typeof _kp !== "undefined" && _kp) ? _kp.palette : null,
-    cheat:   (typeof _kp !== "undefined" && _kp) ? _kp.cheat : null,
+    actions: null,
+    palette: null,
+    cheat: null,
     flushCfg: G,
     history: $e,
     forceWatched: Ut,
@@ -26834,7 +26502,6 @@ body.zen-mood-learn ytd-watch-flexy #secondary{display:none!important}
     // Guided sessions to shift the algorithm toward desired topics.
     const TrainingEngine = (() => {
       let trainingActive = false;
-      let trainingQueue = [];
       let trainingProgress = { completed: 0, total: 0 };
 
       const startTraining = async (targetTopics, opts = {}) => {
@@ -26864,7 +26531,6 @@ body.zen-mood-learn ytd-watch-flexy #secondary{display:none!important}
           }
         }
 
-        trainingQueue = actions;
         trainingProgress.total = actions.length;
 
         // Execute actions with human-like pacing; stops immediately on request
@@ -28294,12 +27960,7 @@ body.zen-mood-learn ytd-watch-flexy #secondary{display:none!important}
       !(function () {
         if ("function" == typeof GM_registerMenuCommand) {
           try {
-            GM_registerMenuCommand("Open YT-zen dashboard (Alt+Y)", Uo);
-          } catch (e) {}
-          try {
-            GM_registerMenuCommand("Open command palette (Ctrl+Shift+K)", () => {
-              if (typeof _kp !== "undefined" && _kp) _kp.palette.open("");
-            });
+            GM_registerMenuCommand("Open YT-zen dashboard", Uo);
           } catch (e) {}
           try {
             GM_registerMenuCommand("Export settings to file", Go);
@@ -28349,6 +28010,33 @@ body.zen-mood-learn ytd-watch-flexy #secondary{display:none!important}
             Ut();
           } catch (err) {
             m("hotkey force watched", err);
+          }
+        }
+
+        if (S.screenshotOn && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey && (e.code === "KeyX" || e.key === "x")) {
+          e.preventDefault();
+          try {
+            Ia();
+          } catch (err) {
+            m("hotkey screenshot", err);
+          }
+        }
+
+        if (S.stopButtonOn && e.shiftKey && (e.code === "KeyS" || e.key === "S" || e.key === "s")) {
+          e.preventDefault();
+          try {
+            yr();
+          } catch (err) {
+            m("hotkey stop playback", err);
+          }
+        }
+
+        if (S.chapterHotkeysOn && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey && (e.code === "Minus" || e.code === "Equal")) {
+          e.preventDefault();
+          try {
+            Er(e.code === "Minus" ? -1 : 1);
+          } catch (err) {
+            m("hotkey chapter", err);
           }
         }
       }, false);
@@ -28468,14 +28156,6 @@ body.zen-mood-learn ytd-watch-flexy #secondary{display:none!important}
     } catch (e) {
       m("loadCfg failed", e);
     }
-    try {
-      const e = await v("kv", "__sb_saved__");
-      e && "number" == typeof e.v && (rt = e.v);
-    } catch (e) {}
-    try {
-      const e = await v("kv", "__sb_skips__");
-      e && "number" == typeof e.v && (ot = e.v);
-    } catch (e) {}
     try {
       S.geoOverrideOn && Mn();
     } catch (e) {}

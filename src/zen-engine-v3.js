@@ -1117,7 +1117,6 @@ body.zen-mood-learn ytd-watch-flexy #secondary{display:none!important}
     // Guided sessions to shift the algorithm toward desired topics.
     const TrainingEngine = (() => {
       let trainingActive = false;
-      let trainingQueue = [];
       let trainingProgress = { completed: 0, total: 0 };
 
       const startTraining = async (targetTopics, opts = {}) => {
@@ -1147,7 +1146,6 @@ body.zen-mood-learn ytd-watch-flexy #secondary{display:none!important}
           }
         }
 
-        trainingQueue = actions;
         trainingProgress.total = actions.length;
 
         // Execute actions with human-like pacing; stops immediately on request

@@ -45,13 +45,11 @@ let bundle = read("yt-zen.user.js");
 // ZenResources runtime: sync the canonical source into the resource block.
 // Match the header line only; the box-drawing row above it is prone to
 // whitespace/unicode drift and must not gate the build.
-const resourceStart =
-  "  //  ZenResources — Memory Safety & Resource Efficiency Layer";
 const resourceStartCurrent =
   "  //  ZenResources — bounded, disposable, visibility-aware resource primitives";
 bundle = replaceBetween(
   bundle,
-  bundle.includes(resourceStart) ? resourceStart : resourceStartCurrent,
+  resourceStartCurrent,
   "\n\n    const oe = {",
   read("src/zen-resources.js"),
 );

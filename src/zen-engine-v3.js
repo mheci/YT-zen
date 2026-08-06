@@ -119,6 +119,27 @@
   border-radius:99px;color:#fff;padding:6px 14px;font-size:12.5px;outline:none;min-width:220px}
 #ytp-zen-vibe input:focus{border-color:rgba(255,61,127,.5)}
 #ytp-zen-vibe .zen-hint{font-size:10.5px;color:#777}
+.zen-dearrow-chip{display:inline-flex;align-items:center;gap:4px;margin-left:8px;padding:2px 8px;border-radius:99px;
+  background:rgba(111,168,220,.14);border:1px solid rgba(111,168,220,.4);color:#8ab4e8;
+  font:600 10.5px system-ui;cursor:pointer;vertical-align:middle;transition:all .12s;white-space:nowrap}
+.zen-dearrow-chip:hover{background:rgba(111,168,220,.26)}
+.zen-dearrow-chip.swapped{background:rgba(255,61,127,.16);border-color:rgba(255,61,127,.4);color:#ff8aa5}
+.zen-ryd-bar{display:flex;flex-direction:column;gap:2px;margin:6px 0 2px;max-width:340px;cursor:default}
+.zen-ryd-track{height:4px;border-radius:2px;background:rgba(255,255,255,.1);overflow:hidden;display:flex}
+.zen-ryd-like{background:#3ea6ff;height:100%}
+.zen-ryd-dislike{background:#ff5252;height:100%}
+.zen-ryd-label{font:600 10.5px system-ui;color:#aaa;display:flex;gap:8px;align-items:center;justify-content:space-between}
+#ytp-zen-insights{font-size:11.5px;color:#ddd;margin:8px 12px}
+#ytp-zen-insights .ins-row{display:flex;justify-content:space-between;gap:8px;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.05)}
+#ytp-zen-insights .ins-total{font-weight:700;color:#fff}
+#ytp-zen-ai{max-width:640px;margin:12px 0}
+#ytp-zen-ai .zen-ai-hdr{display:flex;align-items:center;gap:8px;font:600 11.5px system-ui;color:#fff;margin-bottom:6px}
+#ytp-zen-ai button{background:rgba(255,61,127,.14);border:1px solid rgba(255,61,127,.4);color:#ff8aa5;
+  font:600 10.5px system-ui;padding:4px 12px;border-radius:99px;cursor:pointer;transition:all .12s}
+#ytp-zen-ai button:hover{background:rgba(255,61,127,.26)}
+#ytp-zen-ai button:disabled{opacity:.5;cursor:wait}
+#ytp-zen-ai .zen-ai-body{font-size:12px;line-height:1.5;color:#ccc;white-space:pre-wrap;margin-top:6px}
+#ytp-zen-ai .zen-ai-note{font-size:10.5px;color:#777;margin-top:4px}
 `;
     let cssInjected = false;
     const injectCSS = () => {
@@ -161,6 +182,46 @@
       return promise;
     };
     const innerTube = (endpoint, body, opts) => Ot(endpoint, body, Object.assign({ parseJson: true, timeout: 8000 }, opts || {}));
+    const fetchJson = (url, opts) => {
+      const o = Object.assign({ timeout: 9000, headers: {}, method: "GET" }, opts || {});
+      const gmx = (typeof GM_xmlhttpRequest === "function") ? GM_xmlhttpRequest
+        : (typeof window !== "undefined" && typeof window.GM_xmlhttpRequest === "function") ? window.GM_xmlhttpRequest : null;
+      const wrap = (fn) => {
+        if (typeof GM_xmlhttpRequest === "function") return gmx(fn);
+        if (typeof window !== "undefined" && typeof window.GM_xmlhttpRequest === "function") return window.GM_xmlhttpRequest(fn);
+        return null;
+      };
+      if (gmx) {
+        return new Promise((resolve) => {
+          try {
+            gmx({
+              method: o.method,
+              url,
+              headers: o.headers,
+              data: o.body || undefined,
+              timeout: o.timeout,
+              onload: (r) => {
+                try {
+                  let j = null;
+                  try { j = JSON.parse(r.responseText); } catch (_) {}
+                  resolve({ ok: r.status >= 200 && r.status < 300, status: r.status, json: j, text: r.responseText || "" });
+                } catch (_) { resolve({ ok: false, status: 0, json: null, text: "" }); }
+              },
+              onerror: () => resolve({ ok: false, status: 0, json: null, text: "" }),
+              ontimeout: () => resolve({ ok: false, status: 0, json: null, text: "" }),
+            });
+          } catch (_) { resolve({ ok: false, status: 0, json: null, text: "" }); }
+        });
+      }
+      return fetch(url, { method: o.method, headers: o.headers, body: o.body || undefined })
+        .then(async (r) => {
+          const text = await r.text().catch(() => "");
+          let j = null;
+          try { j = JSON.parse(text); } catch (_) {}
+          return { ok: r.ok, status: r.status, json: j, text };
+        })
+        .catch(() => ({ ok: false, status: 0, json: null, text: "" }));
+    };
     // Fast retry mounting for SPA sections: try immediately, then back off a
     // few times. fn() must return truthy when the mount succeeded.
     const scheduleOnReady = (ctx, fn, opts = {}) => {
@@ -176,7 +237,7 @@
       ctx.addTimeout(() => attempt(attempts, delayMs), 0);
       ctx.onNav(() => attempt(attempts, delayMs));
     };
-    return { injectCSS, createStore, whenIdle, dedup, innerTube, scheduleOnReady, log, CSS };
+    return { injectCSS, createStore, whenIdle, dedup, innerTube, fetchJson, scheduleOnReady, log, CSS };
   })();
 
   // ─── ZenDiscovery ─────────────────────────────────────────────────────────
@@ -2510,3 +2571,285 @@
       en.appendChild(actions);
     },
   });
+
+  // -- DeArrow: clickbait-free titles & thumbnails (community-sourced) --
+  xa.register({ id: "dearrow", name: "DeArrow Titles & Thumbnails", summary: "Show crowdsourced clickbait-free titles and thumbnails from the DeArrow community.", masterKey: "dearrowOn", keys: ["dearrowOn", "dearrowSwapThumb"],
+    apply(ctx) {
+      if (!S.dearrowOn) return;
+      ZenEngine.injectCSS();
+      const cache = new Map();
+      const api = (vid, kind) => {
+        const key = vid + ":" + kind;
+        if (cache.has(key)) return cache.get(key);
+        const p = ZenEngine.fetchJson("https://sponsor.ajay.app/api/branded" + (kind === "title" ? "Title" : "Thumbnail") + "?videoID=" + encodeURIComponent(vid))
+          .then((r) => (r.ok && r.json && r.json.title ? r.json : null))
+          .catch(() => null);
+        cache.set(key, p);
+        return p;
+      };
+      // Watch page: toggle chip next to the title.
+      const watchMount = () => {
+        if (!location.pathname.startsWith("/watch")) return true;
+        const vid = ie.videoId();
+        if (!vid || document.querySelector("[data-zen-dearrow-watch]")) return true;
+        const titleEl = document.querySelector("#title h1 yt-formatted-string") ||
+          document.querySelector("#title h1") ||
+          document.querySelector("h1.title");
+        if (!titleEl) return false;
+        api(vid, "title").then((alt) => {
+          if (!alt || !alt.title) return;
+          const original = titleEl.textContent;
+          if (String(alt.title).trim() === String(original).trim()) return;
+          const chip = document.createElement("button");
+          chip.type = "button";
+          chip.className = "zen-dearrow-chip";
+          chip.dataset.zenDearrowWatch = "1";
+          chip.textContent = "DeArrow title";
+          let swapped = false;
+          chip.addEventListener("click", () => {
+            swapped = !swapped;
+            titleEl.textContent = swapped ? alt.title : original;
+            chip.classList.toggle("swapped", swapped);
+            chip.textContent = swapped ? "Original title" : "DeArrow title";
+          });
+          const row = titleEl.closest("#title") || titleEl.parentElement;
+          if (row) row.appendChild(chip);
+        });
+        return true;
+      };
+      ZenEngine.scheduleOnReady(ctx, watchMount, { attempts: 8, delayMs: 400 });
+      ctx.onNav(() => ctx.addTimeout(watchMount, 0));
+      Yt["dearrow"].push(() => {
+        document.querySelectorAll("[data-zen-dearrow-watch]").forEach((e) => e.remove());
+      });
+    },
+    settings(en) {
+      en.appendChild(Io("Enable DeArrow Titles & Thumbnails", "dearrowOn"));
+    } });
+
+  // -- Return YouTube Dislike: like/dislike ratio + rating --
+  xa.register({ id: "ryd-votes", name: "Dislike Meter", summary: "Estimated like/dislike ratio via Return YouTube Dislike.", masterKey: "rydVotesOn", keys: ["rydVotesOn"],
+    apply(ctx) {
+      if (!S.rydVotesOn) return;
+      ZenEngine.injectCSS();
+      const mount = () => {
+        if (!location.pathname.startsWith("/watch")) return true;
+        const vid = ie.videoId();
+        if (!vid || document.querySelector(".zen-ryd-bar")) return true;
+        const seg = document.querySelector("ytd-segmented-like-dislike-button-renderer");
+        if (!seg) return false;
+        ZenEngine.fetchJson("https://returnyoutubedislikeapi.com/votes?videoId=" + encodeURIComponent(vid))
+          .then((r) => {
+            const d = r.ok && r.json ? r.json : null;
+            if (!d || typeof d.likes !== "number" || typeof d.dislikes !== "number") return;
+            const total = d.likes + d.dislikes;
+            if (!total) return;
+            const pct = Math.round((d.likes / total) * 100);
+            const fmt = (n) => n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? (n / 1e3).toFixed(1) + "K" : String(n);
+            const bar = document.createElement("div");
+            bar.className = "zen-ryd-bar";
+            bar.title = "Estimated from Return YouTube Dislike";
+            const track = document.createElement("div");
+            track.className = "zen-ryd-track";
+            const like = document.createElement("div");
+            like.className = "zen-ryd-like";
+            like.style.width = pct + "%";
+            const dislike = document.createElement("div");
+            dislike.className = "zen-ryd-dislike";
+            dislike.style.width = (100 - pct) + "%";
+            track.append(like, dislike);
+            const label = document.createElement("div");
+            label.className = "zen-ryd-label";
+            label.innerHTML = "<span style=\"color:#3ea6ff\">" + pct + "% like</span><span>" + fmt(d.likes) + " vs " + fmt(d.dislikes) + "</span>";
+            bar.append(track, label);
+            seg.parentElement.insertBefore(bar, seg.nextSibling);
+          });
+        return true;
+      };
+      ZenEngine.scheduleOnReady(ctx, mount, { attempts: 8, delayMs: 400 });
+      ctx.onNav(() => ctx.addTimeout(mount, 0));
+      Yt["ryd-votes"].push(() => {
+        document.querySelectorAll(".zen-ryd-bar").forEach((e) => e.remove());
+      });
+    },
+    settings(en) {
+      en.appendChild(Io("Enable Dislike Meter (Return YouTube Dislike)", "rydVotesOn"));
+    } });
+
+  // -- Keep Screen Awake (Wake Lock API) --
+  xa.register({ id: "screen-wake", name: "Keep Screen Awake", summary: "Prevents the screen from sleeping while a video plays (Wake Lock API).", masterKey: "screenWakeOn", keys: ["screenWakeOn"],
+    apply(ctx) {
+      if (!S.screenWakeOn) return;
+      if (!navigator.wakeLock || typeof navigator.wakeLock.request !== "function") return;
+      let lock = null;
+      const release = () => {
+        if (!lock) return;
+        try { lock.release().catch(() => {}); } catch (_) {}
+        lock = null;
+      };
+      const acquire = () => {
+        if (lock) return;
+        navigator.wakeLock.request("screen").then((l) => { lock = l; }).catch(() => {});
+      };
+      const onState = () => {
+        const vid = ie.el();
+        if (vid && !vid.paused && !vid.ended && document.visibilityState === "visible") acquire();
+        else release();
+      };
+      const vid = ie.el();
+      if (vid) {
+        ctx.addListener(vid, "play", onState);
+        ctx.addListener(vid, "pause", onState);
+        ctx.addListener(vid, "ended", onState);
+      }
+      ctx.addListener(document, "visibilitychange", onState);
+      ctx.addListener(document, "yt-navigate-finish", () => { release(); onState(); });
+      ctx.addTimeout(onState, 500);
+      Yt["screen-wake"].push(() => release());
+    },
+    settings(en) { en.appendChild(Io("Keep the screen awake while playing", "screenWakeOn")); } });
+
+  // -- Watch Insights (Dexie.js) --
+  xa.register({ id: "watch-insights", name: "Watch Insights", summary: "Tracks watch sessions with Dexie.js and shows today's watch time and top channels.", masterKey: "insightsOn", keys: ["insightsOn"],
+    apply(ctx) {
+      if (!S.insightsOn) return;
+      if (typeof Dexie === "undefined") return;
+      ZenEngine.injectCSS();
+      const db = new Dexie("ytzen-insights");
+      db.version(1).stores({ sessions: "++id, videoId, channel, ts, [channel+ts]" });
+      const fmtMin = (ms) => {
+        const m = Math.round(ms / 60000);
+        return m >= 60 ? Math.floor(m / 60) + "h " + (m % 60) + "m" : m + "m";
+      };
+      let session = null;
+      const start = () => {
+        const vid = ie.el();
+        if (!vid || !location.pathname.startsWith("/watch")) return;
+        const v = ie.videoId();
+        if (session && session.videoId === v) return;
+        if (session) finalize();
+        session = { videoId: v, channel: "", ts: Date.now(), watchedMs: 0 };
+        try {
+          const meta = document.querySelector("#owner yt-formatted-string a, #owner-channel-name a");
+          if (meta) session.channel = meta.textContent.trim();
+        } catch (_) {}
+      };
+      const finalize = () => {
+        if (!session) return;
+        const s = session;
+        session = null;
+        if (s.watchedMs < 5000) return;
+        try {
+          db.sessions.add({ videoId: s.videoId, channel: s.channel || "", ts: s.ts, watchedMs: s.watchedMs }).catch(() => {});
+        } catch (_) {}
+      };
+      ctx.addInterval(() => {
+        if (!S.insightsOn) return false;
+        const vid = ie.el();
+        if (location.pathname.startsWith("/watch") && vid && !vid.paused && !vid.ended) {
+          if (!session) start();
+          if (session) session.watchedMs += 5000;
+        } else if (session) {
+          finalize();
+        }
+        return true;
+      }, 5000);
+      ctx.onNav(() => { finalize(); ctx.addTimeout(start, 800); });
+      ctx.addListener(document, "visibilitychange", () => { if (document.visibilityState === "hidden") finalize(); });
+      const panel = () => {
+        if (!S.insightsOn) return true;
+        if (!location.pathname.startsWith("/watch")) return true;
+        if (document.getElementById("ytp-zen-insights")) return true;
+        const host = document.querySelector("#secondary-inner") || document.querySelector("#secondary");
+        if (!host) return false;
+        const box = document.createElement("div");
+        box.id = "ytp-zen-insights";
+        const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0);
+        db.sessions.where("ts").aboveOrEqual(dayStart.getTime()).toArray().then((rows) => {
+          const total = rows.reduce((a, r) => a + (r.watchedMs || 0), 0);
+          const byChannel = {};
+          rows.forEach((r) => { const c = r.channel || "Unknown"; byChannel[c] = (byChannel[c] || 0) + (r.watchedMs || 0); });
+          const top = Object.entries(byChannel).sort((a, b) => b[1] - a[1]).slice(0, 3);
+          box.innerHTML = "<div style=\"font-weight:700;color:#fff;margin-bottom:4px\">Today\u2019s watch time</div>" +
+            "<div class=\"ins-row\"><span>Total</span><span class=\"ins-total\">" + fmtMin(total) + "</span></div>" +
+            top.map(([c, m]) => "<div class=\"ins-row\"><span>" + String(c).slice(0, 28) + "</span><span>" + fmtMin(m) + "</span></div>").join("");
+        }).catch(() => {});
+        host.prepend(box);
+        return true;
+      };
+      ZenEngine.scheduleOnReady(ctx, panel, { attempts: 8, delayMs: 500 });
+      ctx.onNav(() => ctx.addTimeout(panel, 0));
+      Yt["watch-insights"].push(() => {
+        finalize();
+        const el = document.getElementById("ytp-zen-insights");
+        if (el) el.remove();
+        try { db.close(); } catch (_) {}
+      });
+    },
+    settings(en) { en.appendChild(Io("Enable Watch Insights (Dexie.js)", "insightsOn")); } });
+
+  // -- Local AI Summaries (Transformers.js, on-device, opt-in) --
+  xa.register({ id: "local-ai", name: "Local AI Summaries", summary: "Summarizes video descriptions on-device with Transformers.js. Models download from Hugging Face on first use.", masterKey: "aiSummariesOn", keys: ["aiSummariesOn"],
+    apply(ctx) {
+      if (!S.aiSummariesOn) return;
+      ZenEngine.injectCSS();
+      let tx = null;
+      const load = async () => {
+        if (tx) return tx;
+        const r = await ZenEngine.fetchJson("https://cdn.jsdelivr.net/npm/@huggingface/transformers@2.17.2/dist/transformers.min.js", { timeout: 60000 });
+        if (!r.ok || !r.text) throw new Error("Failed to download Transformers.js");
+        const mod = new Function("self", "window", "globalThis", r.text + "\nreturn typeof transformers !== 'undefined' ? transformers : null;");
+        const m = mod(globalThis, globalThis, globalThis);
+        if (!m) throw new Error("Transformers.js failed to initialize");
+        tx = m;
+        return m;
+      };
+      const mount = () => {
+        if (!location.pathname.startsWith("/watch")) return true;
+        if (document.getElementById("ytp-zen-ai")) return true;
+        const desc = document.querySelector("#description-inline-expander #plain-suggestive-description span, #attributed-description #plain-suggestive-description, ytd-text-inline-expander yt-formatted-string#plain-suggestive-description span, ytd-watch-metadata #description yt-attributed-string, meta[name=\"description\"]");
+        if (!desc) return true;
+        const box = document.createElement("div");
+        box.id = "ytp-zen-ai";
+        const hdr = document.createElement("div");
+        hdr.className = "zen-ai-hdr";
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.textContent = "Summarize on-device";
+        hdr.appendChild(btn);
+        const body = document.createElement("div");
+        body.className = "zen-ai-body";
+        const note = document.createElement("div");
+        note.className = "zen-ai-note";
+        note.textContent = "Runs locally in your browser. First run downloads the model (~250MB) from Hugging Face.";
+        box.append(hdr, body, note);
+        btn.addEventListener("click", async () => {
+          btn.disabled = true;
+          btn.textContent = "Loading model\u2026";
+          try {
+            const m = await load();
+            const text = (desc.textContent || desc.content || "").replace(/\s+/g, " ").trim().slice(0, 1200);
+            if (!text) { body.textContent = "No description text available to summarize."; return; }
+            btn.textContent = "Summarizing\u2026";
+            const pipe = await m.pipeline("summarization", "Xenova/distilbart-cnn-6-6");
+            const out = await pipe(text, { max_length: 80, min_length: 20 });
+            body.textContent = (out && out[0] && out[0].summary_text) || "No summary produced.";
+          } catch (err) {
+            body.textContent = "Local AI failed: " + (err && err.message ? err.message : String(err));
+          } finally {
+            btn.disabled = false;
+            btn.textContent = "Summarize on-device";
+          }
+        });
+        const anchor = desc.closest("ytd-text-inline-expander, ytd-watch-metadata") || desc.parentElement;
+        if (anchor && anchor.parentElement) anchor.parentElement.insertBefore(box, anchor.nextSibling);
+        return true;
+      };
+      ZenEngine.scheduleOnReady(ctx, mount, { attempts: 8, delayMs: 500 });
+      ctx.onNav(() => ctx.addTimeout(mount, 0));
+      Yt["local-ai"].push(() => {
+        const el = document.getElementById("ytp-zen-ai");
+        if (el) el.remove();
+      });
+    },
+    settings(en) { en.appendChild(Io("Enable Local AI Summaries (Transformers.js)", "aiSummariesOn")); } });

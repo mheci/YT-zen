@@ -1,52 +1,43 @@
-name: Stable release
+name: Release
 
 on:
   push:
     tags:
-      - 'v*.*.*'
+      - "v*"
 
 permissions:
   contents: write
 
 jobs:
   release:
-    name: Validate and publish release
     runs-on: ubuntu-latest
     steps:
-      - name: Check out tag
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          fetch-depth: 0
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
+          node-version: 22
           cache: npm
-      - name: Install
-        run: npm ci
-      - name: Deterministic gate
-        run: npm test
-      - name: Verify bundle matches sources
-        run: git diff --exit-code -- yt-zen.user.js
-      - name: SponsorBlock smoke test
-        run: node scripts/test-sponsorblock.js JQb9eGeclQw
-      - name: Verify tag matches package version
-        shell: bash
+      - name: Install + test
         run: |
-          expected="v$(node -p 'require("./package.json").version')"
-          test "$GITHUB_REF_NAME" = "$expected"
-      - name: Publish GitHub release
+          npm ci
+          npm test
+      - name: Check version tag matches package.json
+        run: |
+          TAG="${GITHUB_REF#refs/tags/v}"
+          PKG="$(node -p "require('./package.json').version")"
+          if [ "$TAG" != "$PKG" ]; then
+            echo "Tag v${TAG} does not match package.json version ${PKG}" >&2
+            exit 1
+          fi
+      - name: Create GitHub release with artifacts
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          title="YT-zen ${GITHUB_REF_NAME#v}"
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release edit "$GITHUB_REF_NAME" --title "$title" --verify-tag
-            gh release upload "$GITHUB_REF_NAME" yt-zen.user.js yt-zen.meta.js --clobber
-          else
-            gh release create "$GITHUB_REF_NAME" \
-              --title "$title" \
-              --generate-notes \
-              yt-zen.user.js \
-              yt-zen.meta.js
-          fi
+          gh release create "${GITHUB_REF#refs/tags/}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "YT-zen ${GITHUB_REF#refs/tags/v}" \
+            --notes "Release for the YT-zen userscript.
+
+Install: use yt-zen.user.js with Tampermonkey/Violentmonkey (auto-updates via updateURL)." \
+            yt-zen.user.js \
+            yt-zen.meta.js

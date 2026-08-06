@@ -30344,4 +30344,8 @@ const Nr = [
       try { console.error("[YT-zen] boot error:", e && (e.message || String(e))); } catch (e3) {}
     }
   });
+  try {
+    window.__PRISM_READY__ = true;
+    window.dispatchEvent(new CustomEvent("prism:ready"));
+  } catch (e) {}
 })();

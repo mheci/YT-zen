@@ -28,6 +28,9 @@
 // @connect      ggpht.com
 // @connect      api.github.com
 // @connect      doubleclick.net
+// @connect      returnyoutubedislikeapi.com
+// @connect      cdn.jsdelivr.net
+// @connect      huggingface.co
 // @icon         https://raw.githubusercontent.com/mheci/YT-zen/main/icon.png
 // @noframes
 // @updateURL    https://github.com/mheci/YT-zen/releases/latest/download/yt-zen.meta.js

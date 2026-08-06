@@ -1103,18 +1103,12 @@
         netBudgetGB: 50,
         netBudgetAlerted: {},
         netQualityAttribOn: !1,
-        unifiedHeatmapOn: !1,
-        unifiedHeatmapShowSB: !0,
-        unifiedHeatmapShowChapters: !0,
-        unifiedHeatmapShowReplays: !0,
-
 
         sbSubmitOn: !1,
         sbSubmitUserId: "",
         inVideoSearchOn: !1,
         inVideoSearchHotkey: "Ctrl+KeyF",
         perfProfilerOn: !1,
-        hotkeyMap: {},
         stopButtonOn: !1,
         // ── Advanced Features Pack defaults ──
         timeMachineOn: !1,
@@ -1128,14 +1122,10 @@
         momentumOn: !1,
         sceneJumperOn: !1,
         smartQueueOn: !1,
-        parallelPlayerOn: !1,
         videoDnaOn: !1,
         smartSpeedOn: !1,
         smartSpeedBase: 1,
         smartSpeedFast: 1.5,
-        moodLayoutsOn: !1,
-        moodCurrent: "normal",
-        adaptiveThumbsOn: !1,
         livingSidebarOn: !1,
         inlinePreviewsOn: !1,
         vibeSearchOn: !1,
@@ -1144,7 +1134,6 @@
         deadLinkOn: !1,
         watchGenomeOn: !1,
         collectionsOn: !1,
-        sessionMemoryOn: !1,
         timeBudgetOn: !1,
         timeBudgetMinutes: 60,
         // ── Algorithm Intelligence defaults ──
@@ -1242,11 +1231,7 @@
                 r.createIndex("pinned", "pinned", { unique: !1 }),
                 r.createIndex("completed", "completed", { unique: !1 }),
                 r.createIndex("channelId", "channelId", { unique: !1 }));
-            (a.objectStoreNames.contains("bookmarks") ||
-              a
-                .createObjectStore("bookmarks", { keyPath: "id" })
-                .createIndex("ts", "ts", { unique: !1 }),
-              a.objectStoreNames.contains("replay") ||
+            (a.objectStoreNames.contains("replay") ||
                 a.createObjectStore("replay", {
                   keyPath: "id",
                   autoIncrement: !0,
@@ -9158,7 +9143,11 @@
                 ? ".ytp-caption-window-container{top:2%!important;bottom:auto!important}"
                 : "middle" === n
                   ? ".ytp-caption-window-container{top:50%!important;bottom:auto!important}"
-                  : ".ytp-caption-window-container{bottom:0%!important;top:auto!important}"),
+                  : "left" === n
+                    ? ".ytp-caption-window-container{left:4px!important;right:auto!important;bottom:10%!important;top:auto!important}"
+                    : "right" === n
+                      ? ".ytp-caption-window-container{right:4px!important;left:auto!important;bottom:10%!important;top:auto!important}"
+                      : ".ytp-caption-window-container{bottom:0%!important;top:auto!important;left:0!important;right:0!important}"),
             ".ytp-caption-segment{font-size:" +
               a +
               "px!important;font-family:" +
@@ -9345,11 +9334,15 @@
                             ? "0 0 3px #000,0 0 5px #000,0 2px 4px #000"
                             : "-1px -1px 0 #000,1px -1px 0 #000,-1px 1px 0 #000,1px 1px 0 #000,0 2px 3px #000";
                   return [
-                    ("top" === n
+                  ("top" === n
                 ? ".ytp-caption-window-container{top:2%!important;bottom:auto!important}"
                 : "middle" === n
                   ? ".ytp-caption-window-container{top:50%!important;bottom:auto!important}"
-                  : ".ytp-caption-window-container{bottom:0%!important;top:auto!important}"),
+                  : "left" === n
+                    ? ".ytp-caption-window-container{left:4px!important;right:auto!important;bottom:10%!important;top:auto!important}"
+                    : "right" === n
+                      ? ".ytp-caption-window-container{right:4px!important;left:auto!important;bottom:10%!important;top:auto!important}"
+                      : ".ytp-caption-window-container{bottom:0%!important;top:auto!important;left:0!important;right:0!important}"),
                     ".ytp-caption-segment{font-size:" +
                       a +
                       "px!important;font-family:" +
@@ -9527,6 +9520,8 @@
             bottom: "Bottom",
             middle: "Middle",
             top: "Top",
+            left: "Left",
+            right: "Right",
           }),
         ),
         e.appendChild(
@@ -10068,27 +10063,28 @@
       keys: ["cinemaMode", "cinemaOp"],
       apply(e) {
         if (!S.cinemaMode) return;
-        const t = document.createElement("div");
+        const p = document.createElement("div");
+        p.id = "ytp-zen-cinema-spot";
+        p.style.cssText =
+          "position:fixed;z-index:1300;pointer-events:none;display:none";
+        document.body && document.body.appendChild(p);
         const upd = () => {
-          const p = document.querySelector("#movie_player");
-          if (!p) return;
-          const r = p.getBoundingClientRect();
-          t.style.cssText =
-            "position:fixed;inset:0;z-index:1996;pointer-events:none;background:rgba(0,0,0," +
-            S.cinemaOp +
-            ");clip-path:inset(" +
-            Math.max(0, r.top) +
-            "px " +
-            Math.max(0, innerWidth - r.right) +
-            "px " +
-            Math.max(0, innerHeight - r.bottom) +
-            "px " +
-            Math.max(0, r.left) +
-            "px)";
+          const player = document.querySelector("#movie_player");
+          if (!player) return;
+          const r = player.getBoundingClientRect();
+          if (!r.width || !r.height) return;
+          const op = Math.max(0.05, Math.min(0.95, Number(S.cinemaOp) || 0.85));
+          p.style.display = "block";
+          p.style.left = r.left + "px";
+          p.style.top = r.top + "px";
+          p.style.width = r.width + "px";
+          p.style.height = r.height + "px";
+          p.style.boxShadow =
+            "0 0 0 9999px rgba(0,0,0," + op + ")";
         };
-        document.body && document.body.appendChild(t);
-        (upd(), e.addInterval(upd, 250));
-        Yt["cinema-mode"].push(() => t.remove());
+        upd();
+        e.addInterval(upd, 250);
+        Yt["cinema-mode"].push(() => p.remove());
       },
       settings(e) {
         e.appendChild(
@@ -10603,7 +10599,7 @@
       "Hide Top Bar",
       "Hide the YouTube top navigation bar.",
       "hideMasthead",
-      "ytd-masthead,#masthead{display:none!important}ytd-page-manager{margin-top:0!important}",
+      "ytd-masthead,#masthead,#masthead-container,ytd-topbar,#topbar,#topbar-container,ytd-masthead-container{display:none!important}ytd-page-manager,#page-manager,ytd-app.guide-collapsed{--ytd-masthead-height:0px;margin-top:0!important}",
     ),
     Ha(
       "hide-banner-ads",
@@ -22487,6 +22483,24 @@ const Nr = [
           const e = document.getElementById("ytp-chapter-panel");
           return void (e && e.remove());
         }
+        e.addStyle(
+          "#ytp-chapter-panel{display:flex;flex-direction:column;gap:2px;margin:10px 12px;" +
+            "padding:8px 10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);" +
+            "border-radius:10px;font:12px system-ui;color:#ddd}" +
+            "#ytp-chapter-panel .ytp-ch-hdr{display:flex;align-items:center;justify-content:space-between;" +
+            "gap:8px;font-size:12px;font-weight:700;color:#fff}" +
+            "#ytp-chapter-panel .ytp-ch-toggle{background:transparent;border:0;color:#888;cursor:pointer;font-size:11px}" +
+            "#ytp-chapter-panel .ytp-ch-list{display:flex;flex-direction:column;gap:2px;margin-top:6px;" +
+            "max-height:280px;overflow-y:auto}" +
+            "#ytp-chapter-panel .ytp-ch-row{display:flex;align-items:baseline;gap:8px;padding:5px 7px;" +
+            "border-radius:7px;cursor:pointer;transition:background .12s}" +
+            "#ytp-chapter-panel .ytp-ch-row:hover{background:rgba(255,255,255,.07)}" +
+            "#ytp-chapter-panel .ytp-ch-row.current{background:rgba(255,61,127,.14)}" +
+            "#ytp-chapter-panel .ytp-ch-row.current .ytp-ch-title{color:#fff;font-weight:600}" +
+            "#ytp-chapter-panel .ytp-ch-row.current .ytp-ch-t{color:#ff3d7f;font-weight:600}" +
+            "#ytp-chapter-panel .ytp-ch-t{font-family:monospace;font-size:11px;color:#ff3d7f;flex-shrink:0}" +
+            "#ytp-chapter-panel .ytp-ch-title{color:#ccc;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
+        );
         const t = () =>
           (function () {
             const e = document.getElementById("ytp-chapter-panel");
@@ -25807,7 +25821,7 @@ const Nr = [
                   if (
                     "function" == typeof e.confirm &&
                     !e.confirm(
-                      "Start over with the default settings? Your saved notes, bookmarks, and history will stay.",
+                      "Start over with the default settings? Your saved notes and history will stay.",
                     )
                   )
                     return;
@@ -25995,7 +26009,6 @@ const Nr = [
         ts: Date.now(),
         cfg: S,
         history: await Ie(),
-        bookmarks: await w("bookmarks", "ts", "prev"),
       },
       t = new Blob([JSON.stringify(e, null, 2)], { type: "application/json" }),
       a = URL.createObjectURL(t),
@@ -26036,18 +26049,6 @@ const Nr = [
                           e.videoId,
                       )
                       .map((e) => Be(e)),
-                  )),
-                Array.isArray(t.bookmarks) &&
-                  (await Promise.all(
-                    t.bookmarks
-                      .filter(
-                        (e) =>
-                          e &&
-                          "object" == typeof e &&
-                          "string" == typeof e.id &&
-                          e.id,
-                      )
-                      .map((e) => k("bookmarks", e)),
                   )),
                 Y(),
                 ue(),
@@ -27149,8 +27150,8 @@ const Nr = [
   background:rgba(255,255,255,.55);transition:all .15s;pointer-events:auto;cursor:pointer}
 #ytp-zen-scene .zen-scene-mark:hover{background:#ff3d7f;width:4px}
 #ytp-zen-dna{position:absolute;left:0;right:0;bottom:100%;height:18px;
-  border-radius:3px 3px 0 0;overflow:hidden;pointer-events:auto;cursor:pointer;
-  opacity:0.7;transition:opacity .2s;z-index:30}
+  border-radius:3px 3px 0 0;overflow:hidden;pointer-events:none;
+  opacity:0.7;transition:opacity .2s;z-index:5}
 #ytp-zen-dna:hover{opacity:1}
 #ytp-zen-dna canvas{width:100%;height:100%;display:block}
 #ytp-zen-budget{position:fixed;bottom:0;left:0;right:0;height:30px;z-index:2147483634;
@@ -27160,9 +27161,21 @@ const Nr = [
 #ytp-zen-budget .zen-budget-track{flex:1;height:5px;background:rgba(255,255,255,.08);
   border-radius:3px;overflow:hidden}
 #ytp-zen-budget .zen-budget-fill{height:100%;border-radius:3px;transition:width .5s,background .3s}
-#ytp-zen-disco{max-width:min(340px,100%);width:100%;margin-left:auto;padding:10px;font-size:12px}
-#ytp-zen-disco .zen-disco-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+#ytp-zen-disco{position:fixed;right:12px;top:12px;z-index:2147483647;width:min(360px,calc(100vw - 24px));
+  max-height:calc(100vh - 24px);display:flex;flex-direction:column;margin:0;padding:10px;font-size:12px;
+  background:rgba(14,16,22,.96);border:1px solid rgba(255,255,255,.12);border-radius:12px;
+  box-shadow:0 16px 44px rgba(0,0,0,.55);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);overflow:hidden}
+#ytp-zen-disco.collapsed{display:none}
+#ytp-zen-disco .zen-disco-hdr{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px}
 #ytp-zen-disco .zen-disco-title{font-size:13px;font-weight:700;color:#fff}
+#ytp-zen-disco .zen-disco-close{background:transparent;border:0;color:#888;cursor:pointer;font-size:15px;line-height:1;
+  padding:2px 7px;border-radius:6px;flex-shrink:0}
+#ytp-zen-disco .zen-disco-close:hover{color:#fff;background:rgba(255,255,255,.12)}
+#ytp-zen-disco .zen-disco-bodies{overflow-y:auto;min-height:0;flex:1 1 auto;max-height:calc(100vh - 170px);padding-right:2px}
+#ytp-zen-disco-reopen{position:fixed;right:12px;top:12px;z-index:2147483647;display:none;align-items:center;gap:6px;
+  padding:8px 14px;border-radius:999px;cursor:pointer;background:rgba(255,61,127,.92);border:1px solid rgba(255,255,255,.22);
+  color:#fff;font:600 12px system-ui;box-shadow:0 10px 28px rgba(0,0,0,.45)}
+#ytp-zen-disco-reopen.show{display:inline-flex}
 #ytp-zen-disco .zen-disco-tabs{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px}
 #ytp-zen-disco .zen-disco-tab{padding:3px 9px;border-radius:999px;background:rgba(255,255,255,.05);
   border:1px solid rgba(255,255,255,.08);color:#ccc;font:600 10px system-ui;cursor:pointer;transition:all .12s}
@@ -27337,11 +27350,35 @@ const Nr = [
       title.className = "zen-disco-title";
       title.textContent = "Discover";
       header.appendChild(title);
+      const closeBtn = document.createElement("button");
+      closeBtn.type = "button";
+      closeBtn.className = "zen-disco-close";
+      closeBtn.textContent = "×";
+      header.appendChild(closeBtn);
       const tabs = document.createElement("div");
       tabs.className = "zen-disco-tabs";
       const bodies = document.createElement("div");
       bodies.className = "zen-disco-bodies";
       root.append(header, tabs, bodies);
+      const reopen = () => {
+        const rp = document.getElementById("ytp-zen-disco-reopen");
+        if (!rp) return;
+        rp.classList.remove("show");
+        root.classList.remove("collapsed");
+      };
+      closeBtn.addEventListener("click", () => {
+        root.classList.add("collapsed");
+        let rp = document.getElementById("ytp-zen-disco-reopen");
+        if (!rp) {
+          rp = document.createElement("button");
+          rp.id = "ytp-zen-disco-reopen";
+          rp.type = "button";
+          rp.textContent = "Discover";
+          rp.addEventListener("click", () => { rp.classList.remove("show"); root.classList.remove("collapsed"); });
+          (document.body || document.documentElement).appendChild(rp);
+        }
+        rp.classList.add("show");
+      });
       const sections = new Map();
       let activeId = null;
       let mountScheduled = false;
@@ -27381,7 +27418,12 @@ const Nr = [
         sections.delete(id);
         if (sec.btn.parentNode) sec.btn.remove();
         if (sec.body.parentNode) sec.body.remove();
-        if (!sections.size) { if (root.parentNode) root.remove(); return; }
+        if (!sections.size) {
+          if (root.parentNode) root.remove();
+          const rp = document.getElementById("ytp-zen-disco-reopen");
+          if (rp && rp.parentNode) rp.remove();
+          return;
+        }
         if (activeId === id) activate([...sections.keys()][0], true);
       };
       const addSection = (id, label, load) => {
@@ -28642,8 +28684,8 @@ const Nr = [
         ZenSearch.search(topic).then(videos => {
           api.clear();
           if (!videos.length) { api.status("Nothing surfaced for " + topic + ". Surprise me again."); return; }
-          videos.slice(0, 6).forEach(v => api.row(v));
-          api.status("Showing " + videos.slice(0, 6).length + " picks from " + topic);
+          videos.slice(0, 20).forEach(v => api.row(v));
+          api.status("Showing " + videos.slice(0, 20).length + " picks from " + topic);
         }).catch(() => { api.status("Search failed. Try again."); });
       });
       api.button("Surprise me", "primary", () => api.refresh(true));
@@ -28669,7 +28711,7 @@ const Nr = [
               velocity: v.viewCount / Math.max(1, (Date.now() - v.publishedAt) / 3600000),
             }))
             .sort((a, b) => b.velocity - a.velocity)
-            .slice(0, 6);
+            .slice(0, 20);
           api.status(ranked.length
             ? "Top " + ranked.length + " rising videos (views/hour)"
             : "Not enough data this month. Try again later.");
@@ -28886,12 +28928,6 @@ const Nr = [
         progressBar.style.position = "relative";
         progressBar.appendChild(dnaEl);
         ZenPlayback.renderDNA(canvas, vid.duration, ZenPlayback.getHeatmap());
-        dnaEl.addEventListener("click", (ev) => {
-          ev.stopPropagation();
-          if (_isLiveStream()) return;
-          const rect = dnaEl.getBoundingClientRect();
-          vid.currentTime = ((ev.clientX - rect.left) / rect.width) * vid.duration;
-        });
         return true;
       };
       ZenEngine.scheduleOnReady(ctx, build, { attempts: 10, delayMs: 500 });

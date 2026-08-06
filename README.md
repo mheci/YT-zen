@@ -9,12 +9,47 @@ The installable artifacts are:
 
 ## Install
 
-1. Install Violentmonkey, Tampermonkey, or another userscript manager.
-2. Open the current GitHub release.
-3. Install `yt-zen.user.js`.
-4. Allow updates from the release metadata when prompted.
+### 1. Add a userscript manager
 
-YT-zen runs on YouTube, YouTube Music, and mobile YouTube matches declared in the userscript header. Features are disabled by default unless their individual setting says otherwise. SponsorBlock is the exception: it is enabled with every supported category enabled and automatic skip actions selected.
+YT-zen needs a userscript manager. Install one from your browser's official store:
+
+| Manager | Chrome / Edge (Chromium) | Firefox |
+| --- | --- | --- |
+| **Tampermonkey** (recommended) | [Chrome Web Store](https://chromewebstore.google.com/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo) · [Edge Add-ons](https://microsoftedge.microsoft.com/addons/detail/tampermonkey/iikmkjmpaadaobahmlepeloendndfphd) | [Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/tampermonkey/) |
+| **Violentmonkey** | [Chrome Web Store](https://chromewebstore.google.com/detail/violent-monkey/jinjaccalgkegednnccohejagnlnfdag) · [Edge Add-ons](https://microsoftedge.microsoft.com/addons/detail/violentmonkey/eeagobfjdenkkddmbclomhiblgggliao) | [Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/violentmonkey/) |
+| **Greasemonkey** | — | [Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/greasemonkey/) |
+
+Chromium-based browsers (Edge, Opera, Brave, Vivaldi) can also install from the Chrome Web Store.
+
+1. Open the store page for the manager you picked and click **Add to Chrome** / **Install for Firefox**.
+2. Approve the permission prompt — the manager's icon appears in your browser toolbar.
+
+### 2. Install YT-zen
+
+1. Open the [latest YT-zen release](https://github.com/mheci/YT-zen/releases/latest) and click **`yt-zen.user.js`** under Assets — or open the direct link: <https://github.com/mheci/YT-zen/releases/latest/download/yt-zen.user.js>.
+2. Your manager intercepts the download and opens its install page. Review the script (name, version, and the `@match` sites it runs on: `youtube.com`, `m.youtube.com`, `music.youtube.com`).
+3. Click **Install** (Tampermonkey) or **Confirm** (Violentmonkey).
+4. Done — open or refresh `youtube.com`. YT-zen is now active.
+
+### 3. Set up (about a minute)
+
+1. Open any YouTube page.
+2. Open the **YT-zen dashboard**:
+   - click the **YT-zen logo button** next to the player's settings gear (enabled by default), or
+   - right-click your manager's toolbar icon → **Open YT-zen dashboard**, or
+   - use a dashboard hotkey if you mapped one.
+3. Browse the sections (**Theming**, **Playback**, **Feed**, **Hiding**, …) and flip the switches you want — changes apply instantly, no reload needed.
+4. Use the **search box** at the top of the dashboard to filter features by name.
+5. Under **Theming**, pick one of the 200 built-in themes, or keep "Default (YouTube)".
+6. Under **Hide Page Elements**, try a quick preset such as *Minimal Clean*, or hide individual page pieces with a live preview.
+
+### Updates
+
+YT-zen checks for updates through the release metadata (`yt-zen.meta.js`). When a new version ships, your manager will offer to install it — keep automatic updates enabled and allow the update when prompted.
+
+### What YT-zen covers
+
+YT-zen runs on YouTube, YouTube Music, and the mobile YouTube site, per the matches in the userscript header. Features are disabled by default unless their individual setting says otherwise. SponsorBlock is the exception: it is enabled with every supported category enabled and automatic skip actions selected.
 
 ## SponsorBlock
 
@@ -39,7 +74,7 @@ The API contract is documented in [`docs/SPONSORBLOCK_API_CONTRACT.md`](docs/SPO
 The userscript is the canonical distribution. Every subsystem under `src/` is the canonical source and is synchronized into the bundle by `scripts/build-userscript.js` using marker replacement; edits belong in `src/`, never in `yt-zen.user.js` directly.
 
 - `src/zen-resources.js` — the shared runtime platform: bounded caches, shared observers/tickers, deferred work, abort groups, tracked blob URLs, disposable scopes, a bus, a logger, persisted state stores, DOM helpers, and retry logic;
-- `src/zen-engine-v3.js` — the Zen feature ecosystem: ZenEngine core, discovery, playback (shared audio graph, scene detection, video DNA), search, session/genome, layout moods, queue, the AlgoEngine, and all feature registrations;
+- `src/zen-engine-v3.js` — the Zen feature ecosystem: ZenEngine core, discovery host and tabs, playback (shared audio graph, scene detection, video DNA), search, session/genome, queue, the AlgoEngine, and all feature registrations;
 - `src/sponsorblock-engine-v2.js` — SponsorBlock state, API, cache, playback, UI, and lifecycle orchestration;
 - `src/ublock-filter-engine.js` — the uBlock Origin cosmetic-filter interpreter used by channel blocking;
 - `scripts/` — build, release checks, deterministic tests, and the live SponsorBlock harness;

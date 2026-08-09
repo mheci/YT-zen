@@ -859,6 +859,19 @@
         perfModeOn: !1,
         perfModeLevel: "balanced",
         perfModeAuto: !1,
+        perfContainment: !1,
+        perfLazyThumbs: !1,
+        perfLazyComments: !1,
+        perfKillAnim: !1,
+        perfKillBlur: !1,
+        perfThumbQuality: !1,
+        perfDisablePreviews: !1,
+        perfMemoryTrim: !1,
+        perfPrefetch: !1,
+        perfPreconnect: !1,
+        perfBgThrottle: !1,
+        perfPaintReduction: !1,
+        perfQualityCap: !1,
 
         cookieControlOn: !1,
         cookieControlLive: !1,
@@ -1002,9 +1015,6 @@
         keywordFilterList: "",
         watchLaterQuick: !1,
         subscribeShortcut: !1,
-        idleDimOn: !1,
-        idleDimDelay: 60,
-        idleDimBlur: 6,
         geoOverrideOn: !1,
         geoRegion: "US",
         geoLang: "en",
@@ -1043,9 +1053,7 @@
         autoPauseHiddenOn: !1,
         autoPauseBlurOn: !1,
         autoResumeAutoPausedOn: !1,
-        confirmLeavePlayingOn: !1,
         topProgressBarOn: !1,
-        remainingTimeBadgeOn: !1,
         localClockBadgeOn: !1,
         copyTimestampButtonOn: !1,
         copyVideoInfoButtonOn: !1,
@@ -1112,26 +1120,19 @@
 
         sbSubmitOn: !1,
         sbSubmitUserId: "",
-        inVideoSearchOn: !1,
-        inVideoSearchHotkey: "Ctrl+KeyF",
         perfProfilerOn: !1,
         stopButtonOn: !1,
         // ── Advanced Features Pack defaults ──
-        timeMachineOn: !1,
-        timeMachineYears: 1,
-        timeMachineMonths: 0,
-        smallCreatorOn: !1,
-        smallCreatorMaxSubs: 10000,
         rabbitHoleOn: !1,
         rabbitHoleDepth: 5,
         antiRecOn: !1,
         momentumOn: !1,
-        sceneJumperOn: !1,
         smartQueueOn: !1,
-        videoDnaOn: !1,
         smartSpeedOn: !1,
         smartSpeedBase: 1,
         smartSpeedFast: 1.5,
+        smartSpeedSilence: 1.75,
+        smartSpeedRamp: 0.1,
         livingSidebarOn: !1,
         dearrowOn: !1,
         rydVotesOn: !1,
@@ -1139,8 +1140,6 @@
         insightsOn: !1,
         aiSummariesOn: !1,
         themeGenColor: "#ff3d7f",
-        inlinePreviewsOn: !1,
-        vibeSearchOn: !1,
         credLayerOn: !1,
         searchRemixOn: !1,
         deadLinkOn: !1,
@@ -8426,318 +8425,8 @@
       },
     }),
 
-    xa.register({
-      id: "in-video-search",
-      name: "In-Video Search",
-      summary:
-        "Search inside the captions of the current video. Results appear as a timeline so you can jump straight to any mention of a word or phrase.",
-      masterKey: "inVideoSearchOn",
-      keys: ["inVideoSearchOn", "inVideoSearchHotkey"],
-      apply(e) {
-        if (!S.inVideoSearchOn) return;
-        const _ivsGetHotkey = () => S.inVideoSearchHotkey || "Ctrl+KeyF";
-        const _ivsGet = () => {
-          try {
-            const r = e.ytInitialPlayerResponse;
-            if (!r) return null;
-            const t =
-              r.captions &&
-              r.captions.playerCaptionsTracklistRenderer &&
-              r.captions.playerCaptionsTracklistRenderer.captionTracks;
-            if (!Array.isArray(t) || !t.length) return null;
-            const p = t[0];
-            if (!p || !p.baseUrl) return null;
-            return p.baseUrl;
-          } catch (e) {
-            return null;
-          }
-        };
-        const _ivsFetch = async (vid) => {
-          if (!vid) return null;
-          if (_ivsCache.vid === vid && _ivsCache.lines) return _ivsCache.lines;
-          _ivsCache.vid = vid;
-          _ivsCache.lines = null;
-          try {
-            const u = vid + (vid.indexOf("?") >= 0 ? "&" : "?") + "fmt=json3";
-            const r = await he(u);
-            if (!r.ok) return null;
-            const j = await r.json();
-            const events = Array.isArray(j && j.events) ? j.events : [];
-            const lines = [];
-            for (const ev of events) {
-              if (!ev) continue;
-              const start = (ev.tStartMs || 0) / 1000;
-              const dur = (ev.dDurationMs || 0) / 1000;
-              let text = "";
-              if (Array.isArray(ev.segs)) {
-                for (const s of ev.segs) {
-                  if (s && typeof s.utf8 === "string") text += s.utf8;
-                }
-              }
-              text = text.replace(/&#x([0-9a-fA-F]+);/g, (_, c) => String.fromCharCode(parseInt(c, 16)))
-                .replace(/&#(\d+);/g, (_, c) => String.fromCharCode(+c))
-                .replace(/&amp;/g, "&")
-                .replace(/&lt;/g, "<")
-                .replace(/&gt;/g, ">")
-                .replace(/&quot;/g, '"')
-                .replace(/&apos;/g, "'")
-                .replace(/\s+/g, " ")
-                .trim();
-              if (text) lines.push({ start: start, end: start + dur, text: text });
-            }
-            _ivsCache.lines = lines;
-            return lines;
-          } catch (e) {
-            return null;
-          }
-        };
-        const _ivsOpen = async () => {
-          const url = _ivsGet();
-          if (!url) {
-            pe("No captions available for this video.", 2400, "info");
-            return;
-          }
-          _ivsUI.ensure();
-          _ivsUI.setQuery("");
-          _ivsUI.setStatus("Loading captions...");
-          _ivsUI.show();
-          const lines = await _ivsFetch(url);
-          if (!lines) {
-            _ivsUI.setStatus("Could not load captions.");
-            return;
-          }
-          _ivsUI.setStatus(lines.length + " caption lines loaded.");
-          _ivsUI.setLines(lines);
-          setTimeout(() => {
-            try {
-              _ivsUI.input && _ivsUI.input.focus();
-            } catch (e) {}
-          }, 50);
-        };
-        const _ivsClose = () => {
-          _ivsUI.hide();
-        };
-        const _ivsOnKey = (ev) => {
-          if (ev.repeat) return;
-          if (ev.key === "Escape" && _ivsUI.isOpen()) {
-            _ivsClose();
-            ev.preventDefault();
-            ev.stopPropagation();
-            return;
-          }
-          if (ei(ev, _ivsGetHotkey())) {
-            ev.preventDefault();
-            ev.stopPropagation();
-            if (_ivsUI.isOpen()) _ivsClose(); else _ivsOpen();
-            return;
-          }
-        };
-        e.addListener(document, "keydown", _ivsOnKey, true);
-        e.onNav(() => _ivsClose());
-      },
-      settings(e) {
-        e.appendChild(Io("Enable in-video search", "inVideoSearchOn"));
-        e.appendChild(
-          (function (label, key) {
-            const col = To("div", "ytp-col");
-            col.appendChild(To("span", "ytp-lbl", label));
-            const input = document.createElement("input");
-            input.type = "text";
-            input.className = "ytp-inp";
-            input.placeholder = "e.g. Ctrl+KeyF";
-            input.value = S[key] || "";
-            input.addEventListener(
-              "change",
-              () => {
-                const v = (input.value || "").trim();
+    (0));
 
-                if (!v || !/^(Ctrl\+)?(Alt\+)?(Shift\+)?(Meta\+)?(Key[A-Z]|Digit\d|[A-Z][a-z]*[A-Z]?|[A-Z])$/i.test(v)) {
-                  Ta(key, "Ctrl+KeyF");
-                  input.value = "Ctrl+KeyF";
-                  pe("Invalid hotkey - reset to Ctrl+KeyF", 1800, "info");
-                } else {
-                  Ta(key, v);
-                }
-              },
-            );
-            So("cfg.changed", ({ key: k }) => {
-              if (k === key) input.value = S[key] || "";
-            });
-            col.appendChild(input);
-            return col;
-          })("Hotkey to open search", "inVideoSearchHotkey"),
-        );
-      },
-    }));
-
-  const _ivsCache = { vid: null, lines: null };
-  const _ivsUI = (function () {
-    let _box = null, _input = null, _status = null, _results = null, _timeline = null, _lines = [];
-    const _norm = (s) => (s || "").toLowerCase();
-    const _fmt = (sec) => {
-      sec = Math.max(0, Math.floor(Number(sec) || 0));
-      const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
-      return h > 0 ? (h + ":" + String(m).padStart(2, "0") + ":" + String(s).padStart(2, "0"))
-                   : (m + ":" + String(s).padStart(2, "0"));
-    };
-    const _setStatus = (msg) => { if (_status) _status.textContent = msg; };
-    const _setLines = (lines) => {
-      _lines = lines || [];
-      _renderTimeline("");
-      _renderResults("");
-    };
-    const _renderTimeline = (q) => {
-      if (!_timeline) return;
-      _timeline.innerHTML = "";
-      if (!_lines.length) return;
-      const dur = (() => {
-        const e = ie.el();
-        return e && isFinite(e.duration) ? e.duration : (_lines[_lines.length - 1].end || 0);
-      })();
-      if (!dur || dur <= 0) return;
-      const needle = _norm(q);
-      const markerFrag = document.createDocumentFragment();
-      for (const ln of _lines) {
-        if (needle && _norm(ln.text).indexOf(needle) < 0) continue;
-        const left = (ln.start / dur) * 100;
-        const w = Math.max(0.18, ((ln.end - ln.start) / dur) * 100);
-        const m = document.createElement("div");
-        m.className = "ytp-ivs-mark";
-        m.title = _fmt(ln.start) + " - " + ln.text.slice(0, 80);
-        m.style.cssText = "position:absolute;top:0;bottom:0;left:" + left.toFixed(2) + "%;width:" + w.toFixed(2) + "%;background:rgba(255,61,127,.7);border-radius:1px;cursor:pointer;transition:background .12s, transform .12s";
-        m.addEventListener("click", () => {
-          try {
-            const e = ie.el();
-            if (e && !_isLiveStream()) e.currentTime = ln.start;
-          } catch (e) {}
-        });
-        m.addEventListener("mouseenter", () => { m.style.background = "rgba(255,61,127,1)"; m.style.transform = "scaleY(1.3)"; });
-        m.addEventListener("mouseleave", () => { m.style.background = "rgba(255,61,127,.7)"; m.style.transform = "scaleY(1)"; });
-        markerFrag.appendChild(m);
-      }
-      _timeline.appendChild(markerFrag);
-    };
-    const _renderResults = (q) => {
-      if (!_results) return;
-      _results.innerHTML = "";
-      const needle = _norm(q);
-      if (!needle) {
-        const hint = document.createElement("div");
-        hint.className = "ytp-ivs-hint";
-        hint.textContent = "Type to search the captions.";
-        _results.appendChild(hint);
-        return;
-      }
-      const matches = [];
-      for (let i = 0; i < _lines.length; i++) {
-        const ln = _lines[i];
-        const idx = _norm(ln.text).indexOf(needle);
-        if (idx < 0) continue;
-        matches.push({ i: i, ln: ln, idx: idx });
-      }
-      if (!matches.length) {
-        const empty = document.createElement("div");
-        empty.className = "ytp-ivs-hint";
-        empty.textContent = "No matches for \"" + q + "\".";
-        _results.appendChild(empty);
-        return;
-      }
-      const cap = 50;
-      for (let k = 0; k < Math.min(matches.length, cap); k++) {
-        const m = matches[k];
-        const ln = m.ln;
-        const row = document.createElement("div");
-        row.className = "ytp-ivs-row";
-        const ts = document.createElement("span");
-        ts.className = "ytp-ivs-time";
-        ts.textContent = _fmt(ln.start);
-        ts.addEventListener("click", () => {
-          try {
-            const e = ie.el();
-            if (e && !_isLiveStream()) e.currentTime = ln.start;
-          } catch (e) {}
-        });
-        const txt = document.createElement("span");
-        txt.className = "ytp-ivs-text";
-        const before = ln.text.slice(0, m.idx);
-        const hit = ln.text.slice(m.idx, m.idx + q.length);
-        const after = ln.text.slice(m.idx + q.length);
-        txt.appendChild(document.createTextNode(before));
-        const hl = document.createElement("span");
-        hl.className = "ytp-ivs-hl";
-        hl.textContent = hit;
-        txt.appendChild(hl);
-        txt.appendChild(document.createTextNode(after));
-        row.appendChild(ts);
-        row.appendChild(txt);
-        row.addEventListener("click", () => {
-          try {
-            const e = ie.el();
-            if (e && !_isLiveStream()) e.currentTime = ln.start;
-          } catch (e) {}
-        });
-        _results.appendChild(row);
-      }
-      if (matches.length > cap) {
-        const more = document.createElement("div");
-        more.className = "ytp-ivs-hint";
-        more.textContent = "+ " + (matches.length - cap) + " more matches not shown";
-        _results.appendChild(more);
-      }
-    };
-    const _ensure = () => {
-      if (_box) return _box;
-      const b = document.createElement("div");
-      b.id = "ytp-ivs";
-      b.setAttribute("role", "dialog");
-      b.setAttribute("aria-label", "In-video search");
-      b.style.cssText = "position:fixed;top:80px;right:24px;width:min(440px,calc(100vw - 48px));max-height:min(560px,calc(100vh - 120px));z-index:2147483641;display:none;flex-direction:column;background:rgba(20,22,28,.7);border:1px solid rgba(255,255,255,.12);border-radius:16px;box-shadow:0 30px 80px rgba(0,0,0,.6),0 8px 24px rgba(0,0,0,.4);backdrop-filter:blur(24px) saturate(170%);-webkit-backdrop-filter:blur(24px) saturate(170%);color:#fff;font:13px/1.45 system-ui,sans-serif;overflow:hidden;animation:ytpIvsIn .18s ease-out";
-      const hdr = document.createElement("div");
-      hdr.className = "ytp-ivs-hdr";
-      const t = document.createElement("div");
-      t.className = "ytp-ivs-title";
-      t.textContent = "In-video search";
-      const close = document.createElement("button");
-      close.type = "button";
-      close.className = "ytp-ivs-close";
-      close.textContent = "x";
-      close.addEventListener("click", () => { b.style.display = "none"; });
-      hdr.appendChild(t);
-      hdr.appendChild(close);
-      const input = document.createElement("input");
-      input.type = "search";
-      input.placeholder = "Search captions...";
-      input.className = "ytp-ivs-input";
-      input.addEventListener("input", () => {
-        const q = input.value || "";
-        _renderTimeline(q);
-        _renderResults(q);
-      });
-      const status = document.createElement("div");
-      status.className = "ytp-ivs-status";
-      const timeline = document.createElement("div");
-      timeline.className = "ytp-ivs-timeline";
-      const results = document.createElement("div");
-      results.className = "ytp-ivs-results";
-      b.appendChild(hdr);
-      b.appendChild(input);
-      b.appendChild(status);
-      b.appendChild(timeline);
-      b.appendChild(results);
-      document.body.appendChild(b);
-      _box = b; _input = input; _status = status; _timeline = timeline; _results = results;
-      return b;
-    };
-    const _isOpen = () => !!_box && _box.style.display !== "none";
-    const _show = () => { _ensure(); _box.style.display = "flex"; };
-    const _hide = () => { if (_box) _box.style.display = "none"; };
-    const _setQuery = (q) => { if (_input) { _input.value = q; _input.dispatchEvent(new Event("input")); } };
-    return {
-      ensure: _ensure, setStatus: _setStatus, setLines: _setLines,
-      show: _show, hide: _hide, isOpen: _isOpen, setQuery: _setQuery,
-      get input() { return _input; },
-    };
-  })();
 
     const Ma = {
     manualOffForVid: null,
@@ -9947,7 +9636,32 @@
         "Save the current frame as an image. Press X to grab one instantly.",
       masterKey: "screenshotOn",
       keys: ["screenshotOn", "screenshotFmt", "screenshotScale", "screenshotClipboard"],
-      apply() {},
+      apply(e) {
+        if (!S.screenshotOn) return;
+        const mountBtn = () => {
+          const bar = document.querySelector(".ytp-right-controls") || document.querySelector(".ytp-chrome-controls");
+          if (!bar || document.getElementById("ytp-shot-btn")) return false;
+          const b = document.createElement("button");
+          b.id = "ytp-shot-btn";
+          b.type = "button";
+          b.className = "ytp-button";
+          b.setAttribute("aria-label", "Screenshot (X)");
+          b.title = "Screenshot (X)";
+          b.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="18" height="12" rx="2"/><path d="M8 7l1.5-2.5h5L16 7"/><circle cx="12" cy="13" r="3.5"/></svg>';
+          b.style.cssText = "display:flex;align-items:center;justify-content:center;width:36px;height:36px;padding:0;opacity:.9";
+          b.addEventListener("click", (ev) => { ev.stopPropagation(); try { Ia(); } catch (_) {} });
+          bar.appendChild(b);
+          return true;
+        };
+        if (mountBtn()) return;
+        const iv = setInterval(() => { if (mountBtn()) clearInterval(iv); }, 800);
+        e.onNav(() => e.addTimeout(mountBtn, 1500));
+        Yt["screenshot"].push(() => {
+          clearInterval(iv);
+          const b = document.getElementById("ytp-shot-btn");
+          if (b && b.parentNode) b.parentNode.removeChild(b);
+        });
+      },
       settings(e) {
         (e.appendChild(
           Ro("Format", "screenshotFmt", { png: "PNG", jpg: "JPEG" }),
@@ -11092,57 +10806,7 @@
         );
       },
     }),
-    xa.register({
-      id: "idle-dim",
-      name: "Idle Dim",
-      summary:
-        "Gently blur the video after you’ve been still for a while - helpful for ambient background watching.",
-      masterKey: "idleDimOn",
-      keys: ["idleDimOn", "idleDimDelay", "idleDimBlur"],
-      apply(e) {
-        if (!S.idleDimOn) return;
-        let t = !1,
-          a = 0;
-
-        const blurPx = (function () {
-          const n = Number(S.idleDimBlur);
-          if (!isFinite(n)) return 6;
-          return Math.max(1, Math.min(20, n));
-        })();
-        const n =
-          "video.html5-main-video,#movie_player video{filter:blur(" +
-          blurPx +
-          "px)!important;transition:filter 1s}";
-        let r = null;
-        const o = () => {
-            t ||
-              ((t = !0),
-              (r = document.createElement("style")),
-              (r.textContent = n),
-              document.head.appendChild(r));
-          },
-          i = () => {
-            (r && (r.remove(), (r = null)), (t = !1));
-          },
-          d = () => {
-            (t && i(),
-              a && clearTimeout(a),
-              (a = setTimeout(o, 1e3 * (Number(S.idleDimDelay) || 60))));
-          };
-        for (const t of ["mousemove", "keydown", "click", "touchstart"])
-          e.addListener(document, t, $(d, 500), { passive: !0 });
-        (d(),
-          Yt["idle-dim"].push(() => {
-            (a && clearTimeout(a), i());
-          }));
-      },
-      settings(e) {
-        (e.appendChild(
-          No("Idle after", "idleDimDelay", 5, 600, 5, (e) => e + "s"),
-        ),
-          e.appendChild(No("Blur", "idleDimBlur", 1, 20, 1, (e) => e + "px")));
-      },
-    }));
+    (0));
   const dn = [
       ["DZ", "Algeria"],
       ["AR", "Argentina"],
@@ -14239,427 +13903,7 @@
       },
       settings() {},
     }),
-    xa.register({
-      id: "perf-mode",
-      name: "Performance Mode",
-      summary: "Comprehensive performance engine: CSS containment, lazy thumbnails with IntersectionObserver, comment virtualization, scroll optimization, GPU layer management, memory trimming, network prefetching, font optimization, paint reduction, event consolidation, background tab throttling, and long-task breaking. Three tiers from invisible to aggressive.",
-      masterKey: "perfModeOn",
-      keys: ["perfModeOn", "perfModeLevel", "perfModeAuto"],
-      apply(e) {
-
-        const prev = Yt["perf-mode"] || [];
-        if (prev.length) {
-          for (const fn of prev) { try { fn(); } catch (e2) {} }
-          Yt["perf-mode"] = [];
-        }
-        Xt.perfMode = !!S.perfModeOn;
-        Xt.perfLevel = S.perfModeLevel || "balanced";
-
-        const shouldAuto = S.perfModeAuto && (Xt.batteryLow || Xt.cpuConstrained || Xt.lowMemory || Xt.saveData);
-        const isActive = Xt.perfMode || shouldAuto;
-        Xt.perfMode = isActive;
-        if (!isActive) {
-          try {
-            const el = document.getElementById("ytp-perf-style");
-            if (el) el.remove();
-          } catch (e2) {}
-          return;
-        }
-
-        let perfStyle = document.getElementById("ytp-perf-style");
-        if (!perfStyle) {
-          perfStyle = document.createElement("style");
-          perfStyle.id = "ytp-perf-style";
-          perfStyle.textContent = "";
-          (document.head || document.documentElement).appendChild(perfStyle);
-          Yt["perf-mode"].push(() => { try { perfStyle.remove(); } catch (e2) {} });
-        }
-        const addPerfCss = (css) => {
-          try { perfStyle.textContent += "\n" + css; } catch (e2) {}
-        };
-
-        // ── Tier 1: Invisible optimizations (all levels) ──────────────────
-        // CSS Containment: isolate layout/paint scope per card
-        addPerfCss(`
-          ytd-rich-item-renderer, ytd-video-renderer, ytd-compact-video-renderer,
-          ytd-grid-video-renderer, ytd-rich-shelf-renderer, ytd-reel-item-renderer {
-            contain: layout style paint;
-          }
-          /* Content visibility: skip rendering offscreen feed items */
-          ytd-rich-item-renderer, ytd-video-renderer, ytd-compact-video-renderer {
-            content-visibility: auto;
-            contain-intrinsic-size: 0 300px;
-          }
-          /* Comment virtualization: skip rendering offscreen comments */
-          #comments, ytd-comments, ytd-comment-thread-renderer, ytd-comment-renderer {
-            content-visibility: auto;
-            contain-intrinsic-size: 0 200px;
-          }
-          /* Sidebar containment: prevent sidebar layout from affecting main */
-          #secondary, #secondary-inner-renderer {
-            contain: layout style;
-          }
-          /* GPU layer promotion for video player (avoids repaints) */
-          #movie_player, .html5-video-player {
-            will-change: transform;
-            transform: translateZ(0);
-          }
-          /* Font display optimization: prevent FOIT */
-          @font-face { font-display: swap !important; }
-          /* Scrollbar optimization: reduce scrollbar repaints */
-          ::-webkit-scrollbar { width: 8px; }
-          ::-webkit-scrollbar-thumb { background: rgba(255,255,255,.15); border-radius: 4px; }
-          /* Reduce filter/blur cost on hover transitions */
-          ytd-rich-item-renderer:hover #thumbnail img, ytd-thumbnail:hover img {
-            transition: filter 0.15s !important;
-          }
-          /* Description/metadata containment */
-          #description, #description-inner, ytd-text-inline-expander {
-            contain: layout style;
-          }
-          /* Playlist panel containment */
-          ytd-playlist-panel-renderer, #playlist-items {
-            contain: layout style paint;
-          }
-        `);
-
-        // ── Tier 2: Balanced (default) ─────────────────────────────────────
-        if (Xt.perfLevel === "balanced" || Xt.perfLevel === "aggressive") {
-          addPerfCss(`
-            /* Thumbnail async decoding */
-            ytd-thumbnail img, ytd-rich-grid-media img, #thumbnail img,
-            ytd-moving-thumbnail img, .ytp-videowall-still-image {
-              content-visibility: auto;
-              decoding: async;
-            }
-            /* Reduce box-shadow repaints on cards */
-            .ytp-card, ytd-rich-item-renderer {
-              box-shadow: none !important;
-            }
-            /* Simplify hover effects */
-            ytd-rich-item-renderer:hover, ytd-video-renderer:hover {
-              transform: none !important;
-            }
-            /* Reduce backdrop-filter cost (expensive GPU operation) */
-            ytd-watch-flexy[theater], .ytp-gradient-bottom, .ytp-gradient-top {
-              backdrop-filter: none !important;
-              -webkit-backdrop-filter: none !important;
-            }
-            /* Scroll behavior: instant for programmatic scrolls */
-            html { scroll-behavior: auto !important; }
-            /* Reduce outline repaints */
-            *:focus { outline-offset: 0 !important; }
-          `);
-        }
-
-        // ── Tier 3: Aggressive ─────────────────────────────────────────────
-        if (Xt.perfLevel === "aggressive") {
-          addPerfCss(`
-            /* Kill all animations and transitions globally */
-            *, *::before, *::after {
-              animation-duration: 0.01ms !important;
-              animation-iteration-count: 1 !important;
-              transition-duration: 0.01ms !important;
-              scroll-behavior: auto !important;
-            }
-            /* Keep only essential player transitions */
-            .ytp-chrome-bottom, .ytp-progress-bar-container, .ytp-tooltip {
-              transition: opacity 0.1s !important;
-            }
-            /* Remove all blur/shadow effects */
-            * {
-              backdrop-filter: none !important;
-              -webkit-backdrop-filter: none !important;
-              text-shadow: none !important;
-            }
-            /* Disable smooth scrolling entirely */
-            html, body { scroll-behavior: auto !important; }
-            /* Remove ambient mode glow */
-            #cinematics, #cinematic-container, ytd-cinematic-container-renderer {
-              display: none !important;
-            }
-            /* Simplify thumbnails to lowest quality */
-            ytd-thumbnail img { image-rendering: auto; }
-            /* Remove decorative elements */
-            ytd-badge-supported-renderer, .ytd-badge-supported-renderer {
-              display: none !important;
-            }
-            /* Reduce border-radius repaint cost */
-            ytd-thumbnail, ytd-thumbnail::before, #thumbnail {
-              border-radius: 0 !important;
-            }
-          `);
-        }
-
-        // ── Lazy Thumbnail Loading with IntersectionObserver ────────────────
-        try {
-          const thumbObserver = new IntersectionObserver((entries) => {
-            for (const entry of entries) {
-              if (entry.isIntersecting) {
-                const img = entry.target;
-                if (img.dataset && img.dataset.ytpPerfSrc) {
-                  try {
-                    img.src = img.dataset.ytpPerfSrc;
-                    delete img.dataset.ytpPerfSrc;
-                  } catch (e2) {}
-                }
-                // Use decode() API for async image decoding
-                if (typeof img.decode === "function") {
-                  try { img.decode().catch(() => {}); } catch (e2) {}
-                }
-                thumbObserver.unobserve(img);
-              }
-            }
-          }, { rootMargin: "500px 0px", threshold: 0.01 });
-
-          const observeThumbs = () => {
-            try {
-              const thumbs = document.querySelectorAll(
-                'ytd-thumbnail img:not([data-ytp-perf-observed]), ' +
-                '#thumbnail img:not([data-ytp-perf-observed]), ' +
-                '.ytp-videowall-still-image:not([data-ytp-perf-observed])'
-              );
-              for (const img of thumbs) {
-                if (!img.src) continue;
-                if (img.loading === "lazy") continue;
-                try {
-                  img.loading = "lazy";
-                  img.decoding = "async";
-                  img.dataset.ytpPerfObserved = "1";
-                  // In aggressive mode, downgrade offscreen thumbnail quality
-                  if (Xt.perfLevel === "aggressive" && img.src.includes("hqdefault")) {
-                    const low = img.src.replace("hqdefault", "mqdefault");
-                    if (low !== img.src) {
-                      img.dataset.ytpPerfSrc = img.src;
-                      img.src = low;
-                    }
-                  }
-                  thumbObserver.observe(img);
-                } catch (e2) {}
-              }
-            } catch (e2) {}
-          };
-          observeThumbs();
-
-          // Debounced MutationObserver for thumbnail observation
-          let thumbObsTimer = 0;
-          const bodyObs = new MutationObserver(() => {
-            if (thumbObsTimer) return;
-            thumbObsTimer = setTimeout(() => {
-              thumbObsTimer = 0;
-              try { requestAnimationFrame(observeThumbs); } catch (e2) {}
-            }, 500);
-          });
-          if (document.body) bodyObs.observe(document.body, { childList: true, subtree: true });
-          Yt["perf-mode"].push(() => { try { bodyObs.disconnect(); } catch (e2) {} });
-          Yt["perf-mode"].push(() => { try { thumbObserver.disconnect(); } catch (e2) {} });
-          Yt["perf-mode"].push(() => { clearTimeout(thumbObsTimer); });
-          e.addInterval(observeThumbs, 5000);
-        } catch (e2) {}
-
-        // ── Memory Trimming ────────────────────────────────────────────────
-        try {
-          e.addInterval(() => {
-            try {
-              // Run memory pool maintenance
-              if (_mp && _mp.runMaintenance) _mp.runMaintenance();
-              // Trim thumbnail blob URL cache
-              if (typeof Ve !== "undefined" && Ve.size > 32) {
-                const keys = Array.from(Ve.keys()).slice(0, 8);
-                for (const k of keys) {
-                  try {
-                    const url = Ve.get(k);
-                    if (url) URL.revokeObjectURL(url);
-                    Ve.delete(k);
-                  } catch (e3) {}
-                }
-              }
-              // Trim format cache
-              if (typeof de !== "undefined" && de.size > 256) {
-                const keys = Array.from(de.keys()).slice(0, 64);
-                for (const k of keys) de.delete(k);
-              }
-            } catch (e2) {}
-          }, 30000);
-        } catch (e2) {}
-
-        // ── Network Prefetching (idle-time) ────────────────────────────────
-        try {
-          const prefetchNext = () => {
-            try {
-              if (!Xt.visible || !Xt.focused) return;
-              const nextBtn = document.querySelector(".ytp-next-button, a.ytp-next-button");
-              if (!nextBtn) return;
-              const doPrefetch = () => {
-                try {
-                  const href = nextBtn.href || nextBtn.getAttribute("href");
-                  if (!href || !href.includes("/watch")) return;
-                  // Check if already prefetched
-                  if (document.querySelector('link[data-ytp-prefetch="' + href + '"]')) return;
-                  const link = document.createElement("link");
-                  link.rel = "prefetch";
-                  link.href = href;
-                  link.as = "document";
-                  link.dataset.ytpPrefetch = href;
-                  document.head.appendChild(link);
-                  setTimeout(() => { try { link.remove(); } catch (e3) {} }, 15000);
-                } catch (e3) {}
-              };
-              if (typeof requestIdleCallback === "function") {
-                requestIdleCallback(doPrefetch, { timeout: 2000 });
-              } else {
-                setTimeout(doPrefetch, 1500);
-              }
-            } catch (e3) {}
-          };
-          e.addInterval(prefetchNext, 15000);
-          e.onNav(() => { e.addTimeout(prefetchNext, 3000); });
-        } catch (e2) {}
-
-        // ── Resource Hints (preconnect to CDN domains) ─────────────────────
-        try {
-          const domains = [
-            "https://i.ytimg.com",
-            "https://yt3.ggpht.com",
-            "https://www.google.com",
-            "https://fonts.gstatic.com"
-          ];
-          for (const domain of domains) {
-            if (document.querySelector('link[rel="preconnect"][href="' + domain + '"]')) continue;
-            const link = document.createElement("link");
-            link.rel = "preconnect";
-            link.href = domain;
-            link.crossOrigin = "anonymous";
-            document.head.appendChild(link);
-          }
-        } catch (e2) {}
-
-        // ── Background Tab Throttling ──────────────────────────────────────
-        try {
-          const onVisChange = () => {
-            if (document.hidden) {
-              // When tab is hidden, reduce all intervals to minimum
-              Xt.perfHidden = true;
-            } else {
-              Xt.perfHidden = false;
-            }
-          };
-          document.addEventListener("visibilitychange", onVisChange, { passive: true });
-          Yt["perf-mode"].push(() => {
-            document.removeEventListener("visibilitychange", onVisChange);
-            Xt.perfHidden = false;
-          });
-        } catch (e2) {}
-
-        // ── Scroll Event Consolidation ─────────────────────────────────────
-        try {
-          // Add passive flag to any scroll listeners we can intercept
-          // This doesn't remove YouTube's listeners but ensures ours are passive
-          const passiveScroll = (ev) => {};
-          window.addEventListener("scroll", passiveScroll, { passive: true, capture: true });
-          Yt["perf-mode"].push(() => {
-            window.removeEventListener("scroll", passiveScroll, { capture: true });
-          });
-        } catch (e2) {}
-
-        // ── Long Task Breaking ─────────────────────────────────────────────
-        try {
-          // Use PerformanceObserver to detect long tasks and log them
-          if (typeof PerformanceObserver === "function") {
-            const longTaskObs = new PerformanceObserver((list) => {
-              for (const entry of list.getEntries()) {
-                if (entry.duration > 100 && Xt.perfLevel === "aggressive") {
-                  // In aggressive mode, we could take action here
-                  // For now, just track for diagnostics
-                }
-              }
-            });
-            try {
-              longTaskObs.observe({ type: "longtask", buffered: true });
-              Yt["perf-mode"].push(() => { try { longTaskObs.disconnect(); } catch (e2) {} });
-            } catch (e2) {}
-          }
-        } catch (e2) {}
-
-        // ── Paint Reduction: IntersectionObserver for offscreen elements ───
-        try {
-          const paintObserver = new IntersectionObserver((entries) => {
-            for (const entry of entries) {
-              const el = entry.target;
-              if (entry.isIntersecting) {
-                el.style.contentVisibility = "";
-              } else {
-                el.style.contentVisibility = "hidden";
-              }
-            }
-          }, { rootMargin: "200px 0px" });
-
-          const observePaint = () => {
-            try {
-              // Observe sidebar sections and below-the-fold content
-              const targets = document.querySelectorAll(
-                'ytd-guide-section-renderer, ytd-guide-collapsible-entry-renderer, ' +
-                '#footer, #guide-links-primary, ytd-rich-shelf-renderer'
-              );
-              for (const t of targets) {
-                if (!t.dataset.ytpPaintObserved) {
-                  t.dataset.ytpPaintObserved = "1";
-                  paintObserver.observe(t);
-                }
-              }
-            } catch (e2) {}
-          };
-          e.addTimeout(observePaint, 2000);
-          e.onNav(() => e.addTimeout(observePaint, 2000));
-          Yt["perf-mode"].push(() => { try { paintObserver.disconnect(); } catch (e2) {} });
-        } catch (e2) {}
-
-        // ── Auto-enable monitoring ───────────────────────────────────────
-        try {
-          e.addInterval(() => {
-            const shouldAutoNow = S.perfModeAuto && (Xt.batteryLow || Xt.cpuConstrained || Xt.lowMemory || Xt.saveData);
-            const isActiveNow = !!S.perfModeOn || shouldAutoNow;
-            if (isActiveNow !== Xt.perfMode) {
-              try { xa.apply("perf-mode"); } catch (e2) {}
-            }
-          }, 10000);
-        } catch (e2) {}
-
-        // Suppress verbose info logs in perf mode
-        Xt.perfLogSuppressed = true;
-
-        Yt["perf-mode"].push(() => {
-          Xt.perfMode = false;
-          Xt.perfLogSuppressed = false;
-          Xt.perfHidden = false;
-        });
-      },
-      settings(en) {
-        en.appendChild(Io("Enable Performance Mode", "perfModeOn"));
-        en.appendChild(Ro("Level", "perfModeLevel", {
-          balanced: "Balanced (recommended) — containment, lazy thumbs, virtualization, prefetching",
-          aggressive: "Aggressive — kills animations, removes blur/shadow, simplifies thumbnails"
-        }));
-        en.appendChild(Io("Auto-enable when battery low / CPU constrained / Save-Data", "perfModeAuto"));
-        const info = document.createElement("div");
-        info.className = "ytp-hist-note";
-        info.style.marginTop = "8px";
-        info.innerHTML = '<strong>What Performance Mode does:</strong><br>' +
-          '<strong>CSS:</strong> Containment (layout/style/paint isolation), content-visibility for offscreen items, ' +
-          'backdrop-filter removal, will-change promotion for video player, font-display:swap, scrollbar optimization<br>' +
-          '<strong>DOM:</strong> Lazy thumbnail loading via IntersectionObserver with decode() API, ' +
-          'debounced MutationObserver, paint reduction for sidebar/footer elements<br>' +
-          '<strong>Network:</strong> Preconnect hints to CDN domains (ytimg, ggpht, gstatic), ' +
-          'idle-time prefetch of next video, duplicate request prevention<br>' +
-          '<strong>Memory:</strong> Periodic blob URL revocation, thumbnail cache trimming, ' +
-          'format cache eviction, memory pool maintenance<br>' +
-          '<strong>Runtime:</strong> Background tab throttling, passive scroll listeners, ' +
-          'long task detection via PerformanceObserver, log suppression<br>' +
-          '<strong>Aggressive tier adds:</strong> Global animation/transition kill, backdrop-filter removal, ' +
-          'ambient mode disabled, badge hiding, thumbnail border-radius removal, thumbnail quality downgrade';
-        en.appendChild(info);
-      },
-    }),
+    (0),
 
     xa.register({
       id: "cookie-control",
@@ -15539,23 +14783,7 @@
       },
       settings() {},
     }),
-    xa.register({
-      id: "confirm-leave-playing",
-      name: "Confirm Leave While Playing",
-      summary:
-        "Ask for confirmation before closing or leaving the page while a video is playing.",
-      masterKey: "confirmLeavePlayingOn",
-      keys: ["confirmLeavePlayingOn"],
-      apply(e) {
-        S.confirmLeavePlayingOn &&
-          e.addListener(window, "beforeunload", (e) => {
-            const t = ie.el();
-            if (t && !t.paused && !t.ended)
-              return (e.preventDefault(), (e.returnValue = ""), "");
-          });
-      },
-      settings() {},
-    }),
+    (0),
     xa.register({
       id: "top-progress-bar",
       name: "Top Playback Progress Bar",
@@ -15598,41 +14826,7 @@
       },
       settings() {},
     }),
-    xa.register({
-      id: "remaining-time-badge",
-      name: "Remaining Time Badge",
-      summary: "Show how much time is left in the video on top of the player.",
-      masterKey: "remainingTimeBadgeOn",
-      keys: ["remainingTimeBadgeOn"],
-      apply(e) {
-        if (!S.remainingTimeBadgeOn) return void Lr("#ytp-extra-remain");
-        const t = document.createElement("div");
-        ((t.id = "ytp-extra-remain"), document.body.appendChild(t));
-        let a = -1;
-        const n = () => {
-            const e = ie.el();
-            if (!e || !e.duration) return;
-            const n = Math.floor(e.duration - e.currentTime);
-            n !== a &&
-              ((a = n),
-              pa(() => {
-                t.textContent = "−" + ce(n);
-              }));
-          },
-          r = ie.el();
-        (r &&
-          (e.addListener(r, "timeupdate", n),
-          e.addListener(r, "loadedmetadata", n)),
-          e.onNav(() =>
-            e.addTimeout(() => {
-              const t = ie.el();
-              t && e.addListener(t, "timeupdate", n);
-            }, 1200),
-          ),
-          Yt["remaining-time-badge"].push(() => t.remove()));
-      },
-      settings() {},
-    }),
+    (0),
     xa.register({
       id: "local-clock-badge",
       name: "Local Clock Badge",
@@ -27433,27 +26627,6 @@ const Nr = [
 
   // ─── ZenDiscovery ─────────────────────────────────────────────────────────
   const ZenDiscovery = (() => {
-    const createFeedPanel = (id, title) => {
-      const panel = document.createElement("div");
-      panel.id = id;
-      panel.className = "zen-card";
-      panel.style.cssText = "margin:8px 12px";
-      const header = document.createElement("div");
-      header.className = "zen-row";
-      header.style.cssText = "justify-content:space-between;margin-bottom:6px";
-      const heading = document.createElement("span");
-      heading.style.cssText = "font-size:13px;font-weight:700;color:#fff";
-      heading.textContent = String(title || "");
-      const status = document.createElement("span");
-      status.className = "zen-status";
-      status.id = id + "-status";
-      header.append(heading, status);
-      const results = document.createElement("div");
-      results.id = id + "-results";
-      results.style.cssText = "display:flex;flex-direction:column;gap:4px";
-      panel.append(header, results);
-      return panel;
-    };
     const createVideoRow = (videoId, title, channel, onClick, metaText, compact) => {
       const row = document.createElement("div");
       row.className = "zen-row";
@@ -27477,17 +26650,6 @@ const Nr = [
       row.append(thumb, copy);
       if (onClick) row.addEventListener("click", onClick);
       return row;
-    };
-    const insertIntoFeed = (panel, ctx) => {
-      const tryInsert = () => {
-        if (panel.parentNode) return true;
-        const target = document.querySelector("#contents.ytd-rich-grid-renderer") ||
-                       document.querySelector("ytd-rich-grid-renderer #contents") ||
-                       document.querySelector("#primary");
-        if (target) { target.insertBefore(panel, target.firstChild); return true; }
-        return false;
-      };
-      ZenEngine.scheduleOnReady(ctx, tryInsert, { attempts: 8, delayMs: 500 });
     };
     const scoreVideo = (video, criteria) => {
       let score = 50;
@@ -27663,7 +26825,74 @@ const Nr = [
       if (!sharedHost) sharedHost = createDiscoveryHostCore(ctx);
       return sharedHost;
     };
-    return { createFeedPanel, createVideoRow, insertIntoFeed, scoreVideo, setStatus, discoveryHost };
+ 
+ 
+ 
+ 
+r
+e
+t
+u
+r
+n
+ 
+{
+ 
+c
+r
+e
+a
+t
+e
+V
+i
+d
+e
+o
+R
+o
+w
+,
+ 
+s
+c
+o
+r
+e
+V
+i
+d
+e
+o
+,
+ 
+s
+e
+t
+S
+t
+a
+t
+u
+s
+,
+ 
+d
+i
+s
+c
+o
+v
+e
+r
+y
+H
+o
+s
+t
+ 
+}
+;
   })();
 
   // ─── ZenPlayback ──────────────────────────────────────────────────────────
@@ -27725,104 +26954,6 @@ const Nr = [
         active: !!(video && !video.paused && !video.ended && !video.muted && video.volume > 0 && !document.hidden),
       };
     };
-    const detectScenes = (video, duration) => {
-      return new Promise((resolve) => {
-        if (!video || !duration || duration < 15) { resolve([]); return; }
-        const entry = analyserFor(video);
-        if (!entry) { resolve([]); return; }
-        const analyser = entry.analyser;
-        const buf = new Uint8Array(analyser.frequencyBinCount);
-        const scenes = [];
-        let silentFrames = 0;
-        let finished = false;
-        const finish = (result) => {
-          if (finished) return;
-          finished = true;
-          clearInterval(timer);
-          clearTimeout(deadline);
-          resolve(result);
-        };
-        const timer = setInterval(() => {
-          if (!video || video.ended) { finish(scenes); return; }
-          analyser.getByteFrequencyData(buf);
-          let sum = 0;
-          for (let i = 0; i < buf.length; i++) sum += buf[i];
-          const avg = sum / buf.length;
-          if (avg < 8) {
-            silentFrames++;
-            if (silentFrames === 3 && video.currentTime > 2) {
-              const t = video.currentTime;
-              if (!scenes.length || t - scenes[scenes.length - 1] > 5) scenes.push(t);
-            }
-          } else {
-            silentFrames = 0;
-          }
-          if (video.currentTime >= duration - 1) finish(scenes);
-        }, 400);
-        const deadline = setTimeout(() => finish(scenes), Math.min(duration * 1000, 120000));
-      });
-    };
-    const renderSceneStrip = (container, duration, scenes) => {
-      if (!container || !duration || !scenes.length) return;
-      container.innerHTML = "";
-      scenes.forEach(t => {
-        const mark = document.createElement("div");
-        mark.className = "zen-scene-mark";
-        mark.style.left = ((t / duration) * 100).toFixed(2) + "%";
-        mark.title = "Scene at " + ce(Math.floor(t));
-        mark.addEventListener("click", (ev) => { ev.stopPropagation(); const vid = ie.el(); if (vid && !_isLiveStream()) vid.currentTime = t; });
-        container.appendChild(mark);
-      });
-    };
-    const getHeatmap = () => {
-      try {
-        const pr = e.ytInitialPlayerResponse;
-        const overlay = pr && pr.playerOverlays && pr.playerOverlays.playerOverlayRenderer;
-        const bar = overlay && overlay.decoratedPlayerBarRenderer && overlay.decoratedPlayerBarRenderer.decoratedPlayerBarRenderer;
-        const markers = bar && bar.playerBar && bar.playerBar.multiMarkersPlayerBarRenderer && bar.playerBar.multiMarkersPlayerBarRenderer.markers;
-        const out = [];
-        for (const marker of markers || []) {
-          const heat = marker && marker.heatmapRenderer;
-          if (heat) {
-            out.push({
-              start: heat.timeRangeStartMillis || 0,
-              end: heat.timeRangeEndMillis || heat.timeRangeStartMillis || 0,
-              intensity: typeof heat.intensityScoreNormalized === "number" ? heat.intensityScoreNormalized : 0,
-            });
-          }
-        }
-        return out;
-      } catch (_) {
-        return [];
-      }
-    };
-    const renderDNA = (canvas, duration, heatmap) => {
-      if (!canvas || !duration) return;
-      const cx = canvas.getContext("2d");
-      const w = canvas.width, h = canvas.height;
-      cx.clearRect(0, 0, w, h);
-      if (heatmap && heatmap.length) {
-        for (let x = 0; x < w; x++) {
-          const tMs = (x / w) * duration * 1000;
-          let intensity = 0;
-          for (const marker of heatmap) {
-            if (tMs >= marker.start && tMs < marker.end) {
-              intensity = Math.max(intensity, marker.intensity);
-            }
-          }
-          const bar = Math.max(0.08, Math.min(1, intensity));
-          cx.fillStyle = "hsla(" + (bar > 0.7 ? 350 : bar > 0.4 ? 30 : 200) + ",75%,55%,0.7)";
-          cx.fillRect(x, h - bar * h * 0.85, 1, bar * h * 0.85);
-        }
-        return;
-      }
-      for (let x = 0; x < w; x++) {
-        const t = (x / w) * duration;
-        const energy = Math.min(1, 0.2 + 0.6 * Math.abs(Math.sin(t * 0.08) * Math.cos(t * 0.03)));
-        cx.fillStyle = "hsla(" + (energy > 0.7 ? 350 : energy > 0.4 ? 30 : 200) + ",75%,55%,0.7)";
-        cx.fillRect(x, h - energy * h * 0.85, 1, energy * h * 0.85);
-      }
-    };
     const release = (video) => {
       const entry = perVideo.get(video);
       if (!entry) return;
@@ -27831,11 +26962,7 @@ const Nr = [
       try { entry.analyser.disconnect(); } catch (_) {}
     };
     return {
-      detectScenes,
       readEnergy,
-      renderSceneStrip,
-      getHeatmap,
-      renderDNA,
       getAudioCtx,
       release,
       stats: () => ({ videos: perVideo.size, ctxActive: !!(audioCtx && audioCtx.state === "running") }),
@@ -28708,135 +27835,6 @@ const Nr = [
   //  FEATURE REGISTRATIONS (22 features)
   // ═══════════════════════════════════════════════════════════════════════════
 
-  xa.register({
-    id: "time-machine",
-    name: "Time Machine Feed",
-    summary: "Surface videos from subscriptions uploaded on this date in a previous year.",
-    masterKey: "timeMachineOn",
-    keys: ["timeMachineOn", "timeMachineYears", "timeMachineMonths"],
-    apply(ctx) {
-      if (!S.timeMachineOn) return;
-      ZenEngine.injectCSS();
-      const panel = ZenDiscovery.createFeedPanel("ytp-zen-tm", "Time Machine");
-      const goBtn = document.createElement("button");
-      goBtn.className = "zen-btn primary";
-      goBtn.textContent = "Load time capsule";
-      goBtn.style.marginTop = "6px";
-      panel.appendChild(goBtn);
-      ZenDiscovery.insertIntoFeed(panel, ctx);
-
-      const search = () => {
-        const status = panel.querySelector("[id$=\"-status\"]");
-        const results = panel.querySelector("[id$=\"-results\"]");
-        const years = Number(S.timeMachineYears) || 1;
-        const months = Number(S.timeMachineMonths) || 0;
-        const target = new Date();
-        target.setFullYear(target.getFullYear() - years);
-        target.setMonth(target.getMonth() - months);
-        status.textContent = "Looking for videos from " + target.toLocaleDateString() + "...";
-        ZenEngine.innerTube("search", {
-          context: Mt(),
-          query: "uploaded:" + target.toISOString().slice(0, 10),
-        }).then((response) => {
-          if (!response || !response.ok || !response.json) {
-            status.textContent = "No results.";
-            return;
-          }
-          const videos = ZenSearch.parseSearchVideos(response.json).slice(0, 12);
-          status.textContent = videos.length
-            ? "Found " + videos.length + " videos from " + target.toLocaleDateString()
-            : "Nothing found from that date.";
-          results.replaceChildren();
-          videos.forEach(video => {
-            results.appendChild(ZenDiscovery.createVideoRow(
-              video.videoId,
-              video.title,
-              video.channel,
-              () => { e.location.href = "/watch?v=" + video.videoId; },
-            ));
-          });
-        }).catch(() => {
-          status.textContent = "Search failed.";
-        });
-      };
-
-      goBtn.addEventListener("click", search);
-      Yt["time-machine"].push(() => goBtn.removeEventListener("click", search));
-    },
-    settings(en) {
-      en.appendChild(Io("Enable Time Machine Feed", "timeMachineOn"));
-      en.appendChild(No("Years back", "timeMachineYears", 1, 10, 1, (value) => value + " year" + (value > 1 ? "s" : "")));
-      en.appendChild(No("Additional months", "timeMachineMonths", 0, 11, 1, (value) => value + " months"));
-    },
-  });
-
-  xa.register({ id: "small-creator-spotlight", name: "Small Creator Spotlight", summary: "Spotlights channels you watch that are under your subscriber threshold. YT-zen records subscriber counts from watch pages.", masterKey: "smallCreatorOn", keys: ["smallCreatorOn", "smallCreatorMaxSubs"],
-    apply(ctx) {
-      if (!S.smallCreatorOn) return;
-      ZenEngine.injectCSS();
-      const panel = ZenDiscovery.createFeedPanel("ytp-zen-scs", "Small Creators");
-      ZenDiscovery.insertIntoFeed(panel, ctx);
-
-      const render = () => {
-        const results = panel.querySelector("[id$=\"-results\"]");
-        const status = panel.querySelector("[id$=\"-status\"]");
-        results.replaceChildren();
-        const small = ZenSession.genome.getSmallChannels(8);
-        if (!small.length) {
-          status.textContent = "Watch videos with this feature on; YT-zen records channels under " + (Number(S.smallCreatorMaxSubs) || 10000).toLocaleString() + " subscribers.";
-          return;
-        }
-        status.textContent = small.length + " small channel(s) recorded from your watch history";
-        small.forEach(([handle, info]) => {
-          const row = document.createElement("div");
-          row.className = "zen-row";
-          row.style.cssText = "padding:4px 0;cursor:pointer;justify-content:space-between";
-          const name = document.createElement("span");
-          name.style.cssText = "flex:1;min-width:0;font-size:11.5px;color:#dde;white-space:nowrap;overflow:hidden;text-overflow:ellipsis";
-          name.textContent = info.name || handle;
-          name.title = handle;
-          const subs = document.createElement("span");
-          subs.className = "zen-meta";
-          subs.textContent = info.subs.toLocaleString() + " subs";
-          row.append(name, subs);
-          row.addEventListener("click", () => {
-            e.location.href = "/" + handle.replace(/^UC/, "") + "/videos";
-          });
-          results.appendChild(row);
-        });
-      };
-      render();
-      ctx.onNav(() => render());
-      Yt["small-creator-spotlight"].push(() => {});
-      // Badge matching cards in the feed
-      const badgeCards = () => {
-        document.querySelectorAll("ytd-rich-item-renderer, ytd-video-renderer, ytd-compact-video-renderer").forEach(card => {
-          if (card.dataset.zenSmall) return;
-          const link = card.querySelector("a[href*=\"/@\"], a[href*=\"/channel/\"]");
-          if (!link) return;
-          const href = link.getAttribute("href") || "";
-          const handleMatch = href.match(/\/@([^/?#]+)/);
-          const handle = handleMatch ? handleMatch[1].toLowerCase() : "";
-          if (!handle || !ZenSession.genome.isKnownSmall(handle)) return;
-          card.dataset.zenSmall = "1";
-          const badge = document.createElement("span");
-          badge.className = "zen-cred-badge";
-          badge.style.cssText = "background:rgba(33,150,243,.12);color:#64b5f6";
-          badge.textContent = "Small creator";
-          const meta = card.querySelector("#metadata-line");
-          if (meta) meta.appendChild(badge);
-        });
-      };
-      ctx.addTimeout(badgeCards, 0);
-      ctx.onNav(() => ctx.addTimeout(badgeCards, 0));
-      Yt["small-creator-spotlight"].push(() => {});
-    },
-    settings(en) {
-      en.appendChild(Io("Enable Small Creator Spotlight", "smallCreatorOn"));
-      en.appendChild(No("Max subscribers", "smallCreatorMaxSubs", 1000, 100000, 1000, v => v.toLocaleString()));
-    } });
-
-  const AR_CANDIDATES = ["cooking", "science", "diy", "travel", "finance", "fitness", "history", "photography", "space", "art"];
   xa.register({ id: "anti-rec", name: "Anti-Recommendation Engine", summary: "Break filter bubbles by surfacing content from adjacent interest spaces.", masterKey: "antiRecOn", keys: ["antiRecOn"],
     apply(ctx) {
       if (!S.antiRecOn) return;
@@ -28898,73 +27896,6 @@ const Nr = [
       Yt["momentum"].push(() => api.destroy());
     },
     settings(en) { en.appendChild(Io("Enable Before It Blew Up feed", "momentumOn")); } });
-
-  xa.register({ id: "scene-jumper", name: "Scene Jumper", summary: "Auto-detect scene transitions using audio silence analysis. Click markers to jump.", masterKey: "sceneJumperOn", keys: ["sceneJumperOn"],
-    apply(ctx) {
-      if (!S.sceneJumperOn) return;
-      ZenEngine.injectCSS();
-      let strip = null;
-      let ro = null;
-      let active = true;
-      // The marker strip is a passive overlay ABOVE the seekbar: it never
-      // touches .ytp-progress-bar-container, so seeking/scrubbing keeps
-      // working. The strip itself ignores pointer events; only the markers
-      // are interactive.
-      const position = () => {
-        if (!strip || !strip.parentNode) return;
-        const player = document.querySelector("#movie_player");
-        const container = document.querySelector(".ytp-progress-bar-container");
-        if (!player || !container) { strip.style.display = "none"; return; }
-        const p = player.getBoundingClientRect();
-        const c = container.getBoundingClientRect();
-        if (!p.width || !c.width) { strip.style.display = "none"; return; }
-        strip.style.display = "";
-        strip.style.left = (c.left - p.left) + "px";
-        strip.style.width = c.width + "px";
-        strip.style.bottom = (p.bottom - c.bottom + 6) + "px";
-      };
-      const build = () => {
-        if (!active) return false;
-        const vid = ie.el();
-        if (!vid || !vid.duration || !isFinite(vid.duration) || vid.duration < 30) return false;
-        const player = document.querySelector("#movie_player");
-        const container = document.querySelector(".ytp-progress-bar-container");
-        if (!player || !container) return false;
-        if (!strip) {
-          strip = document.createElement("div");
-          strip.id = "ytp-zen-scene";
-          strip.title = "Click a marker to jump to a scene";
-          player.appendChild(strip);
-          if (!ro && typeof ResizeObserver === "function") {
-            try {
-              ro = new ResizeObserver(position);
-              ro.observe(player);
-            } catch (_) {}
-          }
-        }
-        position();
-        ZenPlayback.detectScenes(vid, vid.duration).then(scenes => {
-          if (active && strip && strip.parentNode) ZenPlayback.renderSceneStrip(strip, vid.duration, scenes);
-        });
-        return true;
-      };
-      ZenEngine.scheduleOnReady(ctx, build, { attempts: 10, delayMs: 500 });
-      const vid = ie.el();
-      if (vid) ctx.addListener(vid, "loadedmetadata", () => ctx.addTimeout(build, 0));
-      ctx.addListener(document, "yt-navigate-finish", () => {
-        ctx.addTimeout(build, 0);
-      });
-      ctx.addListener(window, "resize", () => ctx.addTimeout(position, 50));
-      Yt["scene-jumper"].push(() => {
-        active = false;
-        if (ro) { try { ro.disconnect(); } catch (_) {} }
-        ro = null;
-        if (strip && strip.parentNode) strip.remove();
-        strip = null;
-        ZenPlayback.release(ie.el());
-      });
-    },
-    settings(en) { en.appendChild(Io("Enable Scene Jumper", "sceneJumperOn")); } });
 
   xa.register({ id: "smart-queue", name: "Smart Watch Queue", summary: "Queue videos, reorder by duration or recency, and play through with total time estimates.", masterKey: "smartQueueOn", keys: ["smartQueueOn"],
     apply(ctx) {
@@ -29073,84 +28004,79 @@ const Nr = [
     },
     settings(en) { en.appendChild(Io("Enable Smart Watch Queue", "smartQueueOn")); } });
 
-  xa.register({ id: "video-dna", name: "Video DNA Timeline", summary: "Watch-time intensity from YouTube's own heatmap when available, overlaid on the progress bar. Click to seek.", masterKey: "videoDnaOn", keys: ["videoDnaOn"],
-    apply(ctx) {
-      if (!S.videoDnaOn) return;
-      ZenEngine.injectCSS();
-      let dnaEl = null;
-      let active = true;
-      const build = () => {
-        if (!active) return false;
-        const vid = ie.el();
-        if (!vid || !vid.duration || !isFinite(vid.duration)) return false;
-        const progressBar = document.querySelector(".ytp-progress-bar-container");
-        if (!progressBar) return false;
-        if (dnaEl && dnaEl.parentNode) dnaEl.remove();
-        dnaEl = document.createElement("div");
-        dnaEl.id = "ytp-zen-dna";
-        const canvas = document.createElement("canvas");
-        canvas.width = 800;
-        canvas.height = 18;
-        dnaEl.appendChild(canvas);
-        progressBar.style.position = "relative";
-        progressBar.appendChild(dnaEl);
-        ZenPlayback.renderDNA(canvas, vid.duration, ZenPlayback.getHeatmap());
-        return true;
-      };
-      ZenEngine.scheduleOnReady(ctx, build, { attempts: 10, delayMs: 500 });
-      ctx.addListener(document, "yt-navigate-finish", () => ctx.addTimeout(build, 0));
-      Yt["video-dna"].push(() => {
-        active = false;
-        if (dnaEl && dnaEl.parentNode) dnaEl.remove();
-        dnaEl = null;
-      });
-    },
-    settings(en) { en.appendChild(Io("Enable Video DNA Timeline", "videoDnaOn")); } });
-
-  xa.register({ id: "smart-speed", name: "Smart Speed", summary: "Automatically adjusts playback speed based on content density.", masterKey: "smartSpeedOn", keys: ["smartSpeedOn", "smartSpeedBase", "smartSpeedFast"],
+  xa.register({ id: "smart-speed", name: "Smart Speed", summary: "Premium-style adaptive speed: audio-driven detection of speech, silence, and slow segments with smooth ramping to reclaim wasted time. Always reverts to normal speed during speech, never fights manual overrides, and stays off live streams.", masterKey: "smartSpeedOn", keys: ["smartSpeedOn", "smartSpeedBase", "smartSpeedFast", "smartSpeedSilence", "smartSpeedRamp"],
     apply(ctx) {
       if (!S.smartSpeedOn) return;
-      const baseRate = S.smartSpeedBase || 1;
-      const fastRate = S.smartSpeedFast || 1.5;
+      const baseRate = Math.min(1.5, Math.max(0.5, Number(S.smartSpeedBase) || 1));
+      const fastRate = Math.min(3, Math.max(baseRate, Number(S.smartSpeedFast) || 1.5));
+      const silenceRate = Math.min(3.5, Math.max(fastRate, Number(S.smartSpeedSilence) || 1.75));
+      const rampStep = Math.max(0.05, Math.min(0.3, Number(S.smartSpeedRamp) || 0.1));
       let lastTarget = 0;
-      const tick = () => {
+      let state = "idle";
+      let stateSince = 0;
+      let catchup = 0;
+      const clampRate = (r) => Math.max(0.25, Math.min(4, r));
+      const applyRate = (vid, target) => { if (Math.abs(vid.playbackRate - target) > 0.05) { vid.playbackRate = target; lastTarget = target; } };
+      const tick = (now) => {
         const vid = ie.el();
-        if (!vid || vid.paused || vid.ended) return;
-        if (_isLiveStream()) { if (Math.abs(vid.playbackRate - 1) > 0.01) vid.playbackRate = 1; return; }
+        if (!vid || vid.paused || vid.ended || document.hidden) return;
+        if (_isLiveStream()) { if (Math.abs(vid.playbackRate - baseRate) > 0.05) applyRate(vid, baseRate); return; }
+        if (state === "manual") return;
+        if (lastTarget && Math.abs(vid.playbackRate - lastTarget) > 0.12) { state = "manual"; return; }
         const a = ZenPlayback.readEnergy(vid);
         if (!a.active) return;
-        let target = baseRate;
-        if (a.isSpeech && !a.isQuiet) target = fastRate;
-        if (a.isQuiet) target = fastRate;
-        if (Math.abs(vid.playbackRate - target) > 0.1) {
-          vid.playbackRate = target;
-          lastTarget = target;
+        const t = now || Date.now();
+        if (state === "idle") { state = "listening"; stateSince = t; }
+        const inState = (t - stateSince) / 1000;
+        let desired = baseRate;
+        if (a.isSpeech) {
+          desired = baseRate;
+          if (inState > 4 && catchup > 0.75) desired = Math.min(fastRate, baseRate + Math.min(0.15, catchup * 0.05));
+        } else if (a.isQuiet) {
+          desired = silenceRate;
+        } else {
+          desired = fastRate;
+        }
+        const nextState = desired === baseRate ? "speech" : desired === silenceRate ? "silence" : "fast";
+        if (nextState !== state) {
+          if (inState < 1.2) return;
+          state = nextState;
+          stateSince = t;
+        }
+        catchup = Math.min(20, catchup + Math.max(0, vid.playbackRate - baseRate) * 0.5);
+        const next = clampRate(desired);
+        const cur = vid.playbackRate;
+        if (Math.abs(cur - next) > 0.05) {
+          const step = cur < next ? rampStep : rampStep * 1.5;
+          applyRate(vid, cur < next ? Math.min(next, cur + step) : Math.max(next, cur - step));
         }
       };
       const start = () => {
         const vid = ie.el();
         if (vid) {
-          ctx.addInterval(tick, 1500);
+          ctx.addInterval(() => tick(), 700);
+          ctx.onNav(() => { lastTarget = 0; state = "idle"; catchup = 0; });
           if (!ctx._zenSpeedStarted) {
             ctx._zenSpeedStarted = true;
-            ctx.addListener(vid, "play", () => ctx.addTimeout(tick, 300));
+            ctx.addListener(vid, "play", () => ctx.addTimeout(() => tick(), 250));
+            ctx.addListener(vid, "ratechange", () => { if (lastTarget && Math.abs(vid.playbackRate - lastTarget) > 0.12) state = "manual"; });
           }
         }
       };
       ZenEngine.scheduleOnReady(ctx, start, { attempts: 8, delayMs: 400 });
       Yt["smart-speed"].push(() => {
         const vid = ie.el();
-        if (vid && lastTarget) vid.playbackRate = S.speedDefault || 1;
-        lastTarget = 0;
+        if (vid && lastTarget) { vid.playbackRate = S.speedDefault || 1; lastTarget = 0; }
         ZenPlayback.release(vid);
       });
     },
     settings(en) {
       en.appendChild(Io("Enable Smart Speed", "smartSpeedOn"));
-      en.appendChild(No("Normal speed", "smartSpeedBase", 0.75, 1.25, 0.05, v => v.toFixed(2) + "x"));
-      en.appendChild(No("Fast speed", "smartSpeedFast", 1.25, 3, 0.05, v => v.toFixed(2) + "x"));
+      en.appendChild(No("Normal speed (speech)", "smartSpeedBase", 0.5, 1.5, 0.05, v => v.toFixed(2) + "x"));
+      en.appendChild(No("Boost speed (ambient)", "smartSpeedFast", 1.25, 3, 0.05, v => v.toFixed(2) + "x"));
+      en.appendChild(No("Silence speed (gaps)", "smartSpeedSilence", 1.25, 3.5, 0.05, v => v.toFixed(2) + "x"));
+      en.appendChild(No("Ramp step per tick", "smartSpeedRamp", 0.05, 0.3, 0.05, v => v.toFixed(2) + "x"));
     } });
-
   xa.register({ id: "living-sidebar", name: "Living Sidebar", summary: "Context-aware sidebar that transforms based on page type.", masterKey: "livingSidebarOn", keys: ["livingSidebarOn"],
     apply(ctx) {
       if (!S.livingSidebarOn) return;
@@ -29232,107 +28158,6 @@ const Nr = [
     },
     settings(en) { en.appendChild(Io("Enable Living Sidebar", "livingSidebarOn")); } });
 
-  xa.register({ id: "inline-previews", name: "Inline Video Previews", summary: "Rich hover previews with channel stats and description summary.", masterKey: "inlinePreviewsOn", keys: ["inlinePreviewsOn"],
-    apply(ctx) {
-      if (!S.inlinePreviewsOn) return;
-      ZenEngine.injectCSS();
-      let hoverCard = null;
-      let hoverTimer = 0;
-      const showPreview = (el) => {
-        const link = el.querySelector("a#thumbnail, a#video-title");
-        if (!link) return;
-        const href = link.getAttribute("href") || "";
-        const m = href.match(/[?&]v=([A-Za-z0-9_-]{11})/);
-        if (!m) return;
-        if (hoverCard) hoverCard.remove();
-        hoverCard = document.createElement("div");
-        hoverCard.id = "ytp-zen-preview";
-        const titleText = (el.querySelector("#video-title") || {}).textContent || "";
-        const thumb = "https://i.ytimg.com/vi/" + m[1] + "/hqdefault.jpg";
-        const titleNode = document.createElement("div");
-        titleNode.style.cssText = "font-size:12px;font-weight:600;color:#fff";
-        titleNode.textContent = String(titleText || m[1]);
-        const metaNode = document.createElement("div");
-        metaNode.className = "zen-meta";
-        metaNode.style.marginTop = "4px";
-        metaNode.textContent = "Preview";
-        const thumbNode = document.createElement("div");
-        thumbNode.className = "zen-thumb";
-        thumbNode.style.cssText = "width:100%;height:120px;margin-bottom:6px;background-image:url('" + sanitizeUrlForCSS(thumb) + "')";
-        hoverCard.append(thumbNode, titleNode, metaNode);
-        const rect = el.getBoundingClientRect();
-        hoverCard.style.left = Math.min(rect.right + 8, window.innerWidth - 320) + "px";
-        hoverCard.style.top = rect.top + "px";
-        document.body.appendChild(hoverCard);
-      };
-      const hidePreview = () => {
-        if (hoverTimer) { clearTimeout(hoverTimer); hoverTimer = 0; }
-        if (hoverCard) { hoverCard.remove(); hoverCard = null; }
-      };
-      const onOver = (ev) => {
-        const card = ev.target.closest("ytd-rich-item-renderer, ytd-video-renderer, ytd-compact-video-renderer");
-        if (!card) { clearTimeout(hoverTimer); return; }
-        clearTimeout(hoverTimer);
-        hoverTimer = setTimeout(() => showPreview(card), 400);
-      };
-      const onOut = (ev) => {
-        if (!ev.target.closest("ytd-rich-item-renderer, ytd-video-renderer, ytd-compact-video-renderer")) {
-          hidePreview();
-        }
-      };
-      document.addEventListener("mouseover", onOver, { passive: true });
-      document.addEventListener("mouseout", onOut, { passive: true });
-      Yt["inline-previews"].push(() => {
-        document.removeEventListener("mouseover", onOver);
-        document.removeEventListener("mouseout", onOut);
-        hidePreview();
-      });
-    },
-    settings(en) { en.appendChild(Io("Enable Inline Video Previews", "inlinePreviewsOn")); } });
-
-  xa.register({ id: "vibe-search", name: "Vibe Search", summary: "Search by describing the feeling. Translates to smart filter combinations.", masterKey: "vibeSearchOn", keys: ["vibeSearchOn"],
-    apply(ctx) {
-      if (!S.vibeSearchOn || !location.pathname.startsWith("/results")) return;
-      ZenEngine.injectCSS();
-      const container = document.createElement("div");
-      container.id = "ytp-zen-vibe";
-      const input = document.createElement("input");
-      input.type = "text";
-      input.placeholder = "Describe the vibe… e.g. calm short videos this week";
-      input.autocomplete = "off";
-      const goBtn = document.createElement("button");
-      goBtn.className = "zen-btn";
-      goBtn.textContent = "Search vibe";
-      const hint = document.createElement("span");
-      hint.className = "zen-hint";
-      hint.textContent = "try: calm, short, recent, live, hd, subtitles";
-      container.append(input, goBtn, hint);
-      const submit = () => {
-        const vibe = input.value.trim();
-        if (!vibe) { pe("Type a vibe first.", 1500, "info"); return; }
-        const params = ZenSearch.vibeToParams(vibe);
-        const url = new URL("/results", location.origin);
-        const current = new URLSearchParams(location.search).get("search_query") || "";
-        url.searchParams.set("search_query", current || vibe);
-        params.forEach((value, key) => url.searchParams.set(key, value));
-        e.location.href = url.toString();
-      };
-      goBtn.addEventListener("click", submit);
-      input.addEventListener("keydown", (ev) => { if (ev.key === "Enter") submit(); });
-      const insert = () => {
-        if (container.parentNode) return true;
-        const target = document.querySelector("ytd-section-list-renderer");
-        if (!target) return false;
-        target.parentNode.insertBefore(container, target);
-        return true;
-      };
-      ZenEngine.scheduleOnReady(ctx, insert, { attempts: 8, delayMs: 400 });
-      Yt["vibe-search"].push(() => {
-        goBtn.removeEventListener("click", submit);
-        if (container.parentNode) container.remove();
-      });
-    },
-    settings(en) { en.appendChild(Io("Enable Vibe Search", "vibeSearchOn")); } });
 
   xa.register({ id: "credibility-layer", name: "Credibility Layer", summary: "Context signals on results: reach level, age badges. Context, not judgment.", masterKey: "credLayerOn", keys: ["credLayerOn"],
     apply(ctx) {
@@ -30044,6 +28869,265 @@ const Nr = [
       });
     },
     settings(en) { en.appendChild(Io("Enable Local AI Summaries (Transformers.js)", "aiSummariesOn")); } });
+
+
+  xa.register({
+    id: "perf-mode",
+    name: "Performance Mode",
+    summary: "Performance engine with five presets (light, balanced, aggressive, extreme, maximum) plus granular switches: CSS containment, content-visibility virtualization, lazy thumbnails, comment virtualization, paint reduction, memory trimming, prefetching, animation/effects killing, thumbnail downgrade, moving-thumbnail disabling, and player quality caps.",
+    masterKey: "perfModeOn",
+    keys: ["perfModeOn", "perfModeLevel", "perfModeAuto", "perfContainment", "perfLazyThumbs", "perfLazyComments", "perfKillAnim", "perfKillBlur", "perfThumbQuality", "perfDisablePreviews", "perfMemoryTrim", "perfPrefetch", "perfPreconnect", "perfBgThrottle", "perfPaintReduction", "perfQualityCap"],
+    apply(ctx) {
+      const prev = Yt["perf-mode"] || [];
+      if (prev.length) { for (const fn of prev) { try { fn(); } catch (e) {} } Yt["perf-mode"] = []; }
+      Xt.perfMode = !!S.perfModeOn;
+      Xt.perfLevel = S.perfModeLevel || "balanced";
+      const shouldAuto = S.perfModeAuto && (Xt.batteryLow || Xt.cpuConstrained || Xt.lowMemory || Xt.saveData);
+      const isActive = Xt.perfMode || shouldAuto;
+      Xt.perfMode = isActive;
+      if (!isActive) {
+        try { const el = document.getElementById("ytp-perf-style"); if (el) el.remove(); } catch (e) {}
+        return;
+      }
+      const LEVEL = Xt.perfLevel;
+      const TIERS = {
+        light: { containment: 1, lazyThumbs: 1, preconnect: 1 },
+        balanced: { containment: 1, lazyThumbs: 1, lazyComments: 1, preconnect: 1, prefetch: 1, memory: 1, paint: 1, bgThrottle: 1 },
+        aggressive: { containment: 1, lazyThumbs: 1, lazyComments: 1, preconnect: 1, prefetch: 1, memory: 1, paint: 1, bgThrottle: 1, killAnim: 1, killBlur: 1, thumbQuality: 1 },
+        extreme: { containment: 1, lazyThumbs: 1, lazyComments: 1, preconnect: 1, prefetch: 1, memory: 1, paint: 1, bgThrottle: 1, killAnim: 1, killBlur: 1, thumbQuality: 1, disablePreviews: 1, qualityCap: 1 },
+        maximum: { containment: 1, lazyThumbs: 1, lazyComments: 1, preconnect: 1, prefetch: 1, memory: 1, paint: 1, bgThrottle: 1, killAnim: 1, killBlur: 1, thumbQuality: 1, disablePreviews: 1, qualityCap: 1, maxPaint: 1 },
+      };
+      const tier = TIERS[LEVEL] || TIERS.balanced;
+      const on = (k) => !!S["perf" + k] || !!tier[k];
+      let perfStyle = document.getElementById("ytp-perf-style");
+      if (!perfStyle) {
+        perfStyle = document.createElement("style");
+        perfStyle.id = "ytp-perf-style";
+        perfStyle.textContent = "";
+        (document.head || document.documentElement).appendChild(perfStyle);
+        Yt["perf-mode"].push(() => { try { perfStyle.remove(); } catch (e) {} });
+      } else {
+        perfStyle.textContent = "";
+      }
+      const addPerfCss = (css) => { try { perfStyle.textContent += "\n" + css; } catch (e) {} };
+      if (on("Containment")) {
+        addPerfCss("ytd-rich-item-renderer, ytd-video-renderer, ytd-compact-video-renderer, ytd-grid-video-renderer, ytd-rich-shelf-renderer, ytd-reel-item-renderer { contain: layout style paint; }");
+        addPerfCss("ytd-rich-item-renderer, ytd-video-renderer, ytd-compact-video-renderer { content-visibility: auto; contain-intrinsic-size: 0 300px; }");
+        addPerfCss("#secondary, #secondary-inner-renderer { contain: layout style; }");
+        addPerfCss("#movie_player, .html5-video-player { will-change: transform; transform: translateZ(0); }");
+        addPerfCss("@font-face { font-display: swap !important; }");
+        addPerfCss("#description, #description-inner, ytd-text-inline-expander { contain: layout style; }");
+        addPerfCss("ytd-playlist-panel-renderer, #playlist-items { contain: layout style paint; }");
+      }
+      if (on("LazyComments")) {
+        addPerfCss("#comments, ytd-comments, ytd-comment-thread-renderer, ytd-comment-renderer { content-visibility: auto; contain-intrinsic-size: 0 200px; }");
+      }
+      if (on("KillAnim")) {
+        addPerfCss("*, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }");
+        addPerfCss(".ytp-chrome-bottom, .ytp-progress-bar-container, .ytp-tooltip { transition: opacity 0.1s !important; }");
+        addPerfCss("html, body { scroll-behavior: auto !important; }");
+      }
+      if (on("KillBlur")) {
+        addPerfCss("* { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; text-shadow: none !important; box-shadow: none !important; }");
+        addPerfCss("#cinematics, #cinematic-container, ytd-cinematic-container-renderer { display: none !important; }");
+        addPerfCss("ytd-watch-flexy[theater], .ytp-gradient-bottom, .ytp-gradient-top { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }");
+      }
+      if (on("DisablePreviews")) {
+        addPerfCss("ytd-moving-thumbnail-renderer, ytd-moving-thumbnail, ytd-thumbnail-overlay-resume-playback-renderer { display: none !important; }");
+      }
+      if (on("ThumbQuality") || on("DisablePreviews")) {
+        addPerfCss("ytd-thumbnail img, ytd-rich-grid-media img, #thumbnail img { content-visibility: auto; decoding: async; }");
+        addPerfCss("ytd-thumbnail, ytd-thumbnail::before, #thumbnail { border-radius: 0 !important; }");
+      }
+      if (on("MaxPaint") || (on("KillAnim") && on("KillBlur"))) {
+        addPerfCss("ytd-badge-supported-renderer, .ytd-badge-supported-renderer { display: none !important; }");
+        addPerfCss("*:focus { outline-offset: 0 !important; }");
+        addPerfCss("::-webkit-scrollbar { width: 8px; } ::-webkit-scrollbar-thumb { background: rgba(255,255,255,.15); border-radius: 4px; }");
+      }
+      if (on("LazyThumbs")) {
+        try {
+          const thumbObserver = new IntersectionObserver((entries) => {
+            for (const entry of entries) {
+              if (entry.isIntersecting) {
+                const img = entry.target;
+                if (img.dataset && img.dataset.ytpPerfSrc) { try { img.src = img.dataset.ytpPerfSrc; delete img.dataset.ytpPerfSrc; } catch (e) {} }
+                if (typeof img.decode === "function") { try { img.decode().catch(() => {}); } catch (e) {} }
+                thumbObserver.unobserve(img);
+              }
+            }
+          }, { rootMargin: "500px 0px", threshold: 0.01 });
+          const observeThumbs = () => {
+            try {
+              const thumbs = document.querySelectorAll("ytd-thumbnail img:not([data-ytp-perf-observed]), #thumbnail img:not([data-ytp-perf-observed]), .ytp-videowall-still-image:not([data-ytp-perf-observed])");
+              for (const img of thumbs) {
+                if (!img.src || img.loading === "lazy") continue;
+                try {
+                  img.loading = "lazy";
+                  img.decoding = "async";
+                  img.dataset.ytpPerfObserved = "1";
+                  if (on("ThumbQuality") && img.src.includes("hqdefault")) {
+                    const low = img.src.replace("hqdefault", "mqdefault");
+                    if (low !== img.src) { img.dataset.ytpPerfSrc = img.src; img.src = low; }
+                  }
+                  thumbObserver.observe(img);
+                } catch (e) {}
+              }
+            } catch (e) {}
+          };
+          observeThumbs();
+          let thumbObsTimer = 0;
+          const bodyObs = new MutationObserver(() => {
+            if (thumbObsTimer) return;
+            thumbObsTimer = setTimeout(() => { thumbObsTimer = 0; try { requestAnimationFrame(observeThumbs); } catch (e) {} }, 500);
+          });
+          if (document.body) bodyObs.observe(document.body, { childList: true, subtree: true });
+          Yt["perf-mode"].push(() => { try { bodyObs.disconnect(); } catch (e) {} });
+          Yt["perf-mode"].push(() => { try { thumbObserver.disconnect(); } catch (e) {} });
+          Yt["perf-mode"].push(() => { clearTimeout(thumbObsTimer); });
+          ctx.addInterval(observeThumbs, 5000);
+        } catch (e) {}
+      }
+      if (on("MemoryTrim")) {
+        try {
+          ctx.addInterval(() => {
+            try {
+              if (_mp && _mp.runMaintenance) _mp.runMaintenance();
+              if (typeof Ve !== "undefined" && Ve.size > 32) {
+                const keys = Array.from(Ve.keys()).slice(0, 8);
+                for (const k of keys) { try { const url = Ve.get(k); if (url) URL.revokeObjectURL(url); Ve.delete(k); } catch (e) {} }
+              }
+              if (typeof de !== "undefined" && de.size > 256) {
+                const keys = Array.from(de.keys()).slice(0, 64);
+                for (const k of keys) de.delete(k);
+              }
+            } catch (e) {}
+          }, 30000);
+        } catch (e) {}
+      }
+      if (on("Prefetch")) {
+        try {
+          const prefetchNext = () => {
+            try {
+              if (!Xt.visible || !Xt.focused) return;
+              const nextBtn = document.querySelector(".ytp-next-button, a.ytp-next-button");
+              if (!nextBtn) return;
+              const doPrefetch = () => {
+                try {
+                  const href = nextBtn.href || nextBtn.getAttribute("href");
+                  if (!href || !href.includes("/watch")) return;
+                  if (document.querySelector("link[data-ytp-prefetch=\"" + href + "\"]")) return;
+                  const link = document.createElement("link");
+                  link.rel = "prefetch";
+                  link.href = href;
+                  link.as = "document";
+                  link.dataset.ytpPrefetch = href;
+                  document.head.appendChild(link);
+                  setTimeout(() => { try { link.remove(); } catch (e) {} }, 15000);
+                } catch (e) {}
+              };
+              if (typeof requestIdleCallback === "function") requestIdleCallback(doPrefetch, { timeout: 2000 });
+              else setTimeout(doPrefetch, 1500);
+            } catch (e) {}
+          };
+          ctx.addInterval(prefetchNext, 15000);
+          ctx.onNav(() => { ctx.addTimeout(prefetchNext, 3000); });
+        } catch (e) {}
+      }
+      if (on("Preconnect")) {
+        try {
+          const domains = ["https://i.ytimg.com", "https://yt3.ggpht.com", "https://www.google.com", "https://fonts.gstatic.com", "https://yt4.ggpht.com"];
+          for (const domain of domains) {
+            if (document.querySelector("link[rel=\"preconnect\"][href=\"" + domain + "\"]")) continue;
+            const link = document.createElement("link");
+            link.rel = "preconnect";
+            link.href = domain;
+            link.crossOrigin = "anonymous";
+            document.head.appendChild(link);
+          }
+        } catch (e) {}
+      }
+      if (on("BgThrottle")) {
+        try {
+          const onVisChange = () => { Xt.perfHidden = document.hidden; };
+          document.addEventListener("visibilitychange", onVisChange, { passive: true });
+          Yt["perf-mode"].push(() => { document.removeEventListener("visibilitychange", onVisChange); Xt.perfHidden = false; });
+          const passiveScroll = () => {};
+          window.addEventListener("scroll", passiveScroll, { passive: true, capture: true });
+          Yt["perf-mode"].push(() => { window.removeEventListener("scroll", passiveScroll, { capture: true }); });
+        } catch (e) {}
+      }
+      if (on("PaintReduction")) {
+        try {
+          const paintObserver = new IntersectionObserver((entries) => {
+            for (const entry of entries) {
+              const el = entry.target;
+              el.style.contentVisibility = entry.isIntersecting ? "" : "hidden";
+            }
+          }, { rootMargin: "200px 0px" });
+          const observePaint = () => {
+            try {
+              const targets = document.querySelectorAll("ytd-guide-section-renderer, ytd-guide-collapsible-entry-renderer, #footer, #guide-links-primary, ytd-rich-shelf-renderer");
+              for (const t of targets) { if (!t.dataset.ytpPaintObserved) { t.dataset.ytpPaintObserved = "1"; paintObserver.observe(t); } }
+            } catch (e) {}
+          };
+          ctx.addTimeout(observePaint, 2000);
+          ctx.onNav(() => ctx.addTimeout(observePaint, 2000));
+          Yt["perf-mode"].push(() => { try { paintObserver.disconnect(); } catch (e) {} });
+        } catch (e) {}
+      }
+      if (on("QualityCap")) {
+        try {
+          const capQuality = () => {
+            try {
+              const p = document.querySelector("#movie_player");
+              if (p && typeof p.setPlaybackQuality === "function") p.setPlaybackQuality("hd720");
+            } catch (e) {}
+          };
+          ctx.addTimeout(capQuality, 1200);
+          ctx.onNav(() => ctx.addTimeout(capQuality, 1200));
+          ctx.addInterval(capQuality, 20000);
+          Yt["perf-mode"].push(() => { try { const p = document.querySelector("#movie_player"); if (p && typeof p.setPlaybackQualityRange === "function") p.setPlaybackQualityRange("auto", "auto"); } catch (e) {} });
+        } catch (e) {}
+      }
+      try {
+        ctx.addInterval(() => {
+          const shouldAutoNow = S.perfModeAuto && (Xt.batteryLow || Xt.cpuConstrained || Xt.lowMemory || Xt.saveData);
+          const isActiveNow = !!S.perfModeOn || shouldAutoNow;
+          if (isActiveNow !== Xt.perfMode) { try { xa.apply("perf-mode"); } catch (e) {} }
+        }, 10000);
+      } catch (e) {}
+      Xt.perfLogSuppressed = true;
+      Yt["perf-mode"].push(() => { Xt.perfMode = false; Xt.perfLogSuppressed = false; Xt.perfHidden = false; });
+    },
+    settings(en) {
+      en.appendChild(Io("Enable Performance Mode", "perfModeOn"));
+      en.appendChild(Ro("Level", "perfModeLevel", {
+        light: "Light — containment, lazy thumbs, preconnect only",
+        balanced: "Balanced (recommended) — + virtualization, prefetch, memory, paint",
+        aggressive: "Aggressive — + kill animations, kill blur, thumbnail downgrade",
+        extreme: "Extreme — + disable moving previews, cap player quality at 720p",
+        maximum: "Maximum — everything on, maximum paint reduction",
+      }));
+      en.appendChild(Io("Auto-enable when battery low / CPU constrained / Save-Data", "perfModeAuto"));
+      en.appendChild(Io("Granular: CSS containment", "perfContainment"));
+      en.appendChild(Io("Granular: lazy thumbnails", "perfLazyThumbs"));
+      en.appendChild(Io("Granular: comment virtualization", "perfLazyComments"));
+      en.appendChild(Io("Granular: kill animations & transitions", "perfKillAnim"));
+      en.appendChild(Io("Granular: kill blur, shadows, ambient", "perfKillBlur"));
+      en.appendChild(Io("Granular: downgrade offscreen thumbnails", "perfThumbQuality"));
+      en.appendChild(Io("Granular: disable moving thumbnails", "perfDisablePreviews"));
+      en.appendChild(Io("Granular: memory trimming", "perfMemoryTrim"));
+      en.appendChild(Io("Granular: next-video prefetch", "perfPrefetch"));
+      en.appendChild(Io("Granular: CDN preconnect", "perfPreconnect"));
+      en.appendChild(Io("Granular: background throttling", "perfBgThrottle"));
+      en.appendChild(Io("Granular: paint reduction", "perfPaintReduction"));
+      en.appendChild(Io("Granular: cap player quality at 720p", "perfQualityCap"));
+      const info = document.createElement("div");
+      info.className = "ytp-hist-note";
+      info.style.marginTop = "8px";
+      info.innerHTML = "<strong>Level presets:</strong> each preset turns on a set of optimizations. Granular switches add individual optimizations on top of the selected level. Maximum disables moving thumbnails, caps video quality, and maximizes paint reduction.";
+      en.appendChild(info);
+    } });
   (async function () {
     try {
       z();

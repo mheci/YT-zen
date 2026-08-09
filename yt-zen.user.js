@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YT-zen
 // @namespace    https://github.com/mheci/YT-zen
-// @version      3.12.1
+// @version      3.12.2
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      Unlicense
@@ -26813,74 +26813,7 @@ const Nr = [
       if (!sharedHost) sharedHost = createDiscoveryHostCore(ctx);
       return sharedHost;
     };
- 
- 
- 
- 
-r
-e
-t
-u
-r
-n
- 
-{
- 
-c
-r
-e
-a
-t
-e
-V
-i
-d
-e
-o
-R
-o
-w
-,
- 
-s
-c
-o
-r
-e
-V
-i
-d
-e
-o
-,
- 
-s
-e
-t
-S
-t
-a
-t
-u
-s
-,
- 
-d
-i
-s
-c
-o
-v
-e
-r
-y
-H
-o
-s
-t
- 
-}
-;
+    return { createVideoRow, scoreVideo, setStatus, discoveryHost };
   })();
 
   // ─── ZenPlayback ──────────────────────────────────────────────────────────

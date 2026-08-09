@@ -74,7 +74,7 @@ The API contract is documented in [`docs/SPONSORBLOCK_API_CONTRACT.md`](docs/SPO
 The userscript is the canonical distribution. Every subsystem under `src/` is the canonical source and is synchronized into the bundle by `scripts/build-userscript.js` using marker replacement; edits belong in `src/`, never in `yt-zen.user.js` directly.
 
 - `src/zen-resources.js` — the shared runtime platform: bounded caches, shared observers/tickers, deferred work, abort groups, tracked blob URLs, disposable scopes, a bus, a logger, persisted state stores, DOM helpers, and retry logic;
-- `src/zen-engine-v3.js` — the Zen feature ecosystem: ZenEngine core, discovery host and tabs, playback (shared audio graph, scene detection, video DNA), search, session/genome, queue, the AlgoEngine, and all feature registrations;
+- `src/zen-engine-v3.js` — the Zen feature ecosystem: ZenEngine core, discovery host and tabs, playback (shared audio graph for adaptive-speed analysis), search, session/genome, queue, the AlgoEngine, and all feature registrations;
 - `src/sponsorblock-engine-v2.js` — SponsorBlock state, API, cache, playback, UI, and lifecycle orchestration;
 - `src/ublock-filter-engine.js` — the uBlock Origin cosmetic-filter interpreter used by channel blocking;
 - `scripts/` — build, release checks, deterministic tests, and the live SponsorBlock harness;

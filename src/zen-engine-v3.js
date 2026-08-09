@@ -366,6 +366,7 @@
           if (root.parentNode) root.remove();
           const rp = document.getElementById("ytp-zen-disco-reopen");
           if (rp && rp.parentNode) rp.remove();
+          mountScheduled = false;
           return;
         }
         if (activeId === id) activate([...sections.keys()][0], true);
@@ -572,8 +573,12 @@ t
     const release = (video) => {
       const entry = perVideo.get(video);
       if (!entry) return;
-      perVideo.delete(video);
+      // Keep the perVideo entry: createMediaElementSource throws if called
+      // twice on the same element, so analyserFor must keep returning this one.
+      // Sever the analyser path, then re-route the source straight to the
+      // destination so audio is never left muted.
       try { entry.source.disconnect(); } catch (_) {}
+      try { entry.source.connect(entry.ctx.destination); } catch (_) {}
       try { entry.analyser.disconnect(); } catch (_) {}
     };
     return {
@@ -1911,8 +1916,10 @@ t
           channelName: info.channelName || undefined,
           duration: ie.el() && ie.el().duration,
         });
+        return true;
       };
       ZenEngine.scheduleOnReady(ctx, recordCurrent, { attempts: 6, delayMs: 800 });
+      ctx.onNav(() => ctx.addTimeout(() => { try { recordCurrent(); } catch (e) {} }, 1200));
       const showScores = () => {
         document.querySelectorAll("ytd-rich-item-renderer, ytd-compact-video-renderer, ytd-video-renderer").forEach(card => {
           if (card.dataset.zenGenome) return;

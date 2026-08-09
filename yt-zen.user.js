@@ -1992,6 +1992,7 @@
         this._storage = options.storage || null;
         this._bus = options.bus || null;
         this._loaded = false;
+        this._mutated = false;
         this._loadPromise = null;
         this._listeners = null;
         this._flushes = 0;
@@ -2023,7 +2024,7 @@
           if (!this._storage) { this._loaded = true; return this._data; }
           try {
             const value = await this._storage.get(this._key);
-            if (value !== undefined && value !== null) this._data = value;
+            if (!this._mutated && value !== undefined && value !== null) this._data = value;
           } catch (_) {}
           this._loaded = true;
           return this._data;
@@ -2034,6 +2035,7 @@
       get() { return this._data; }
 
       set(value) {
+        this._mutated = true;
         this._data = value;
         this._scheduleFlush();
         this._emitChange(null, value);
@@ -2042,7 +2044,13 @@
       update(updater) {
         if (typeof updater !== "function") return;
         const key = null;
-        updater(this._data);
+        try {
+          updater(this._data);
+        } catch (error) {
+          try { console.error("[StateStore:" + this._key + "] update failed:", error); } catch (_) {}
+          throw new Error("[StateStore:" + this._key + "] update failed: " + (error instanceof Error ? error.message : String(error)));
+        }
+        this._mutated = true;
         this._scheduleFlush();
         this._emitChange(key, this._data);
       }
@@ -3565,31 +3573,10 @@
   function _isLiveStream() {
     try {
       const v = ie.el();
-      if (v) {
-        // Live streams have duration === Infinity or NaN
-        if (!isFinite(v.duration) || v.duration === Infinity) return true;
-        // Live streams often have seekable length of 0 or very small
-        if (v.seekable && v.seekable.length > 0) {
-          const seekableEnd = v.seekable.end(v.seekable.length - 1);
-          const seekableStart = v.seekable.start(0);
-          // If seekable range is very large relative to current time, likely live
-          if (seekableEnd - seekableStart > 3600 && v.currentTime > 0) return true;
-        }
-      }
+      if (v && v.duration === Infinity) return true;
     } catch (e) {}
     try {
-      // Check ytInitialPlayerResponse for live indicators
-      const pr = e.ytInitialPlayerResponse;
-      if (pr) {
-        if (pr.videoDetails && pr.videoDetails.isLiveContent) return true;
-        if (pr.videoDetails && pr.videoDetails.isLive) return true;
-        if (pr.playabilityStatus && pr.playabilityStatus.liveStreamability) return true;
-        if (pr.playabilityStatus && pr.playabilityStatus.status === "LIVE_STREAM_OFFLINE") return true;
-      }
-    } catch (e) {}
-    try {
-      // Check for live badge in DOM
-      if (document.querySelector(".ytp-live-badge, .ytp-live-badge-small, ytd-badge-supported-renderer .badge-style-type-live-now")) return true;
+      if (document.querySelector(".ytp-live-badge")) return true;
     } catch (e) {}
     return false;
   }
@@ -26751,6 +26738,7 @@ const Nr = [
           if (root.parentNode) root.remove();
           const rp = document.getElementById("ytp-zen-disco-reopen");
           if (rp && rp.parentNode) rp.remove();
+          mountScheduled = false;
           return;
         }
         if (activeId === id) activate([...sections.keys()][0], true);
@@ -26957,8 +26945,12 @@ t
     const release = (video) => {
       const entry = perVideo.get(video);
       if (!entry) return;
-      perVideo.delete(video);
+      // Keep the perVideo entry: createMediaElementSource throws if called
+      // twice on the same element, so analyserFor must keep returning this one.
+      // Sever the analyser path, then re-route the source straight to the
+      // destination so audio is never left muted.
       try { entry.source.disconnect(); } catch (_) {}
+      try { entry.source.connect(entry.ctx.destination); } catch (_) {}
       try { entry.analyser.disconnect(); } catch (_) {}
     };
     return {
@@ -28296,8 +28288,10 @@ t
           channelName: info.channelName || undefined,
           duration: ie.el() && ie.el().duration,
         });
+        return true;
       };
       ZenEngine.scheduleOnReady(ctx, recordCurrent, { attempts: 6, delayMs: 800 });
+      ctx.onNav(() => ctx.addTimeout(() => { try { recordCurrent(); } catch (e) {} }, 1200));
       const showScores = () => {
         document.querySelectorAll("ytd-rich-item-renderer, ytd-compact-video-renderer, ytd-video-renderer").forEach(card => {
           if (card.dataset.zenGenome) return;

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YT-zen
 // @namespace    https://github.com/mheci/YT-zen
-// @version      3.12.2
+// @version      3.12.3
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      Unlicense
@@ -849,6 +849,18 @@
         telemetryOptIn: !1,
         hotkeyOptIn: !1,
         silentToasts: !1,
+privacyPreset: "everyday",
+overlayHubOn: !0,
+overlayHubPos: "bl",
+algoStrength: "balanced",
+algoBoostOn: !0,
+algoBoostInterval: 20,
+algoDiversityOn: !0,
+algoDiversityMax: 60,
+algoAutoLikeOn: !0,
+algoAutoLikePct: 85,
+algoShortsOn: !1,
+algoBlockChannels: "",
         speedDefault: 1,
         speedRemember: !1,
 
@@ -946,8 +958,7 @@
         skipPausedContinueOn: !1,
         logoToSubsOn: !1,
         defaultChannelTab: "featured",
-        blurThumbnailsOn: !1,
-        blurThumbnailsAmount: 12,
+                blurThumbnailsAmount: 12,
         hideTopLiveGamesOn: !1,
         hfrAllowOn: !1,
         openSettingsOnHoverOn: !1,
@@ -1028,8 +1039,7 @@
         geoPatchNavigator: !1,
         sessionSummaryOn: !1,
         sessionSummaryThreshold: 3,
-        chapterListOn: !1,
-        commentSearchOn: !1,
+                commentSearchOn: !1,
         blockYTAIOn: !1,
         elementsControlOn: !1,
         elementsControlHidden: {},
@@ -1127,19 +1137,16 @@
         rabbitHoleDepth: 5,
         antiRecOn: !1,
         momentumOn: !1,
-        smartQueueOn: !1,
-        smartSpeedOn: !1,
+                smartSpeedOn: !1,
         smartSpeedBase: 1,
         smartSpeedFast: 1.5,
         smartSpeedSilence: 1.75,
         smartSpeedRamp: 0.1,
-        livingSidebarOn: !1,
-        dearrowOn: !1,
+                dearrowOn: !1,
         rydVotesOn: !1,
         screenWakeOn: !1,
         insightsOn: !1,
-        aiSummariesOn: !1,
-        themeGenColor: "#ff3d7f",
+                themeGenColor: "#ff3d7f",
         credLayerOn: !1,
         searchRemixOn: !1,
         deadLinkOn: !1,
@@ -8125,13 +8132,17 @@
             "hidden" === S.autoPauseMode || "both" === S.autoPauseMode),
           (S.autoPauseBlurOn =
             "blur" === S.autoPauseMode || "both" === S.autoPauseMode))
-        : "highlightVideoLengthMode" === e &&
-          ((S.highlightLongVideosOn =
-            "long" === S.highlightVideoLengthMode ||
-            "both" === S.highlightVideoLengthMode),
-          (S.highlightShortVideosOn =
-            "short" === S.highlightVideoLengthMode ||
-            "both" === S.highlightVideoLengthMode));
+        : "highlightVideoLengthMode" === e
+          ? ((S.highlightLongVideosOn =
+              "long" === S.highlightVideoLengthMode ||
+              "both" === S.highlightVideoLengthMode),
+            (S.highlightShortVideosOn =
+              "short" === S.highlightVideoLengthMode ||
+              "both" === S.highlightVideoLengthMode))
+          : "privacyPreset" === e &&
+            ((S.privacyShieldOn =
+              "stealth" === S.privacyPreset || "maximum" === S.privacyPreset),
+            (S.safeMode = "maximum" === S.privacyPreset));
   }
   function Ta(e, t) {
     if (S[e] === t) {
@@ -9634,8 +9645,8 @@
           b.className = "ytp-button";
           b.setAttribute("aria-label", "Screenshot (X)");
           b.title = "Screenshot (X)";
-          b.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="18" height="12" rx="2"/><path d="M8 7l1.5-2.5h5L16 7"/><circle cx="12" cy="13" r="3.5"/></svg>';
-          b.style.cssText = "display:flex;align-items:center;justify-content:center;width:36px;height:36px;padding:0;opacity:.9";
+          b.innerHTML = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="18" height="12" rx="2"/><path d="M8 7l1.5-2.5h5L16 7"/><circle cx="12" cy="13" r="3.5"/></svg>';
+          b.style.cssText = "display:flex;align-items:center;justify-content:center;width:40px;height:40px;padding:0;opacity:.9";
           b.addEventListener("click", (ev) => { ev.stopPropagation(); try { Ia(); } catch (_) {} });
           bar.appendChild(b);
           return true;
@@ -9776,12 +9787,17 @@
       keys: ["cinemaMode", "cinemaOp"],
       apply(e) {
         if (!S.cinemaMode) return;
+        if (!location.pathname.startsWith("/watch")) return;
         const p = document.createElement("div");
         p.id = "ytp-zen-cinema-spot";
         p.style.cssText =
           "position:fixed;z-index:1300;pointer-events:none;display:none";
         document.body && document.body.appendChild(p);
         const upd = () => {
+          if (!location.pathname.startsWith("/watch")) {
+            p.style.display = "none";
+            return;
+          }
           const player = document.querySelector("#movie_player");
           if (!player) return;
           const r = player.getBoundingClientRect();
@@ -12554,35 +12570,6 @@
     }),
 
     xa.register({
-      id: "blur-thumbnails",
-      name: "Blur Thumbnails",
-      summary:
-        "Blur video thumbnails until you hover over them. Reduces the visual pull of recommendations and helps you focus.",
-      masterKey: "blurThumbnailsOn",
-      keys: ["blurThumbnailsOn", "blurThumbnailsAmount"],
-      apply(e) {
-        if (!S.blurThumbnailsOn) return;
-        const t = document.createElement("style");
-        (t.id = "ytp-blur-thumbs"),
-          (t.textContent =
-            "ytd-rich-item-renderer #thumbnail yt-image img, ytd-thumbnail img, ytd-playlist-thumbnail img{filter:blur(" +
-            (Number(S.blurThumbnailsAmount) || 12) +
-            "px)!important;transition:filter .25s ease-out}ytd-rich-item-renderer:hover #thumbnail yt-image img, ytd-thumbnail:hover img{filter:blur(0)!important}"),
-          (document.head || document.documentElement).appendChild(t);
-        Yt["blur-thumbnails"].push(() => {
-          try {
-            t.remove();
-          } catch (e) {}
-        });
-      },
-      settings(e) {
-        (e.appendChild(Io("Blur video thumbnails until hover", "blurThumbnailsOn")),
-          e.appendChild(
-            No("Blur strength", "blurThumbnailsAmount", 4, 30, 2, (e) => e + "px"),
-          ));
-      },
-    }),
-    xa.register({
       id: "hide-top-live-games",
       name: "Hide Top Live Games",
       summary:
@@ -13483,6 +13470,7 @@
       "netMonitorPatchFetch",
       "netMonitorPatchXHR",
       "netMonitorPatchBeacon",
+      "privacyPreset",
     ],
     apply(t) {
       S.netMonitorOn && !S.privacyShieldOn
@@ -20218,33 +20206,67 @@ const Nr = [
   let Kr = [],
     Yr = !1,
     _themeOrig = null;
+  let _overhaulUnsub = null;
     function _overhaulBuildCSS() {
-    if (!S.themeGlassOverhaulOn) return "";
+    const glass = !!S.themeGlassOverhaulOn;
+    const overhaul = !!S.themeOverhaulOn;
+    if (!glass && !overhaul) return "";
     const _ease = S.themeFxReducedMotion ? "none" : "all .18s ease-out";
-    return [
-
-      "ytd-masthead{background:rgba(18,20,26,.55)!important;border-bottom:1px solid rgba(255,255,255,.08)!important;backdrop-filter:blur(24px) saturate(170%);-webkit-backdrop-filter:blur(24px) saturate(170%);box-shadow:0 4px 18px rgba(0,0,0,.4)}",
-      "ytd-mini-guide-renderer{background:rgba(18,20,26,.55)!important;border-right:1px solid rgba(255,255,255,.08)!important;backdrop-filter:blur(24px) saturate(170%);-webkit-backdrop-filter:blur(24px) saturate(170%)}",
-      "#guide-content{background:rgba(18,20,26,.55)!important;backdrop-filter:blur(24px) saturate(170%);-webkit-backdrop-filter:blur(24px) saturate(170%)}",
-      "#app-drawer{background:rgba(18,20,26,.7)!important;backdrop-filter:blur(24px) saturate(170%);-webkit-backdrop-filter:blur(24px) saturate(170%)}",
-
-      "#progress{background:rgba(255,61,127,.85)!important;height:3px!important}",
-
-      "#search-input.ytd-searchbox-spt input{background:rgba(255,255,255,.06)!important;border:1px solid rgba(255,255,255,.1)!important;border-radius:8px!important}",
-
-      "tp-yt-iron-dropdown, ytd-popup-container, paper-menu-button, ytd-multi-page-menu-renderer, ytd-menu-popup-renderer, ytd-simple-menu-header-renderer{background:rgba(20,22,28,.92)!important;border:1px solid rgba(255,255,255,.12)!important;border-radius:12px!important;backdrop-filter:blur(20px) saturate(170%);-webkit-backdrop-filter:blur(20px) saturate(170%);box-shadow:0 24px 60px rgba(0,0,0,.6),0 6px 18px rgba(0,0,0,.4);overflow:hidden}",
-
-      "ytd-notification-topbar-renderer, .yt-spec-icon-badge{background:rgba(255,61,127,.85)!important;box-shadow:0 0 10px rgba(255,61,127,.4)}",
-
-      "yt-chip-cloud-chip-renderer{background:rgba(20,22,28,.5)!important;border:1px solid rgba(255,255,255,.08)!important;border-radius:99px!important;transition:" + _ease + "}",
-      "yt-chip-cloud-chip-renderer:hover{background:rgba(20,22,28,.7)!important;border-color:rgba(255,255,255,.18)!important}",
-      "yt-chip-cloud-chip-renderer[selected]{background:linear-gradient(135deg,#ff0033 0%,#ff3d7f 100%)!important;border-color:rgba(255,255,255,.25)!important;color:#fff!important;box-shadow:0 2px 8px rgba(255,61,127,.4)}",
-
-      "ytd-engagement-panel-section-list-renderer{background:rgba(20,22,28,.5)!important;border:1px solid rgba(255,255,255,.08)!important;border-radius:14px!important;backdrop-filter:blur(16px) saturate(160%);-webkit-backdrop-filter:blur(16px) saturate(160%)}",
-
-      "ytd-comments-header-renderer{background:transparent!important}",
-
-    ].join("\n");
+    const GLASS_BG = "rgba(18,20,26,.62)";
+    const GLASS_BG2 = "rgba(18,20,26,.45)";
+    const out = [];
+    if (glass) {
+      out.push(
+        "html,html[dark]{background-color:#0d0e12!important}",
+        "ytd-app,#content,#page-manager,ytd-page-manager{background:transparent!important}",
+        "ytd-masthead{background:" + GLASS_BG + "!important;border-bottom:1px solid rgba(255,255,255,.08)!important;backdrop-filter:blur(24px) saturate(170%);-webkit-backdrop-filter:blur(24px) saturate(170%);box-shadow:0 4px 18px rgba(0,0,0,.4)}",
+        "ytd-mini-guide-renderer{background:" + GLASS_BG + "!important;border-right:1px solid rgba(255,255,255,.08)!important;backdrop-filter:blur(24px) saturate(170%);-webkit-backdrop-filter:blur(24px) saturate(170%)}",
+        "#guide-content{background:" + GLASS_BG + "!important;backdrop-filter:blur(24px) saturate(170%);-webkit-backdrop-filter:blur(24px) saturate(170%)}",
+        "#guide-inner-content,#guide-renderer{background:transparent!important}",
+        "#app-drawer{background:rgba(18,20,26,.7)!important;backdrop-filter:blur(24px) saturate(170%);-webkit-backdrop-filter:blur(24px) saturate(170%)}",
+        "#primary,#secondary,#below,ytd-watch-flexy{background:transparent!important}",
+        "ytd-rich-grid-renderer,#contents.ytd-rich-grid-renderer{background:transparent!important}",
+        "ytd-rich-item-renderer,ytd-rich-grid-media,ytd-video-renderer,ytd-playlist-video-renderer,ytd-grid-video-renderer{background:" + GLASS_BG2 + "!important;border:1px solid rgba(255,255,255,.07)!important;border-radius:14px!important;backdrop-filter:blur(14px) saturate(150%);-webkit-backdrop-filter:blur(14px) saturate(150%);box-shadow:0 6px 18px rgba(0,0,0,.25)}",
+        "ytd-rich-item-renderer:hover,ytd-video-renderer:hover{background:rgba(255,255,255,.08)!important;border-color:rgba(255,255,255,.14)!important}",
+        "ytd-rich-shelf-renderer>#title,ytd-rich-shelf-renderer .ytd-rich-shelf-renderer{border:0!important;background:transparent!important}",
+        "ytd-browse[page-subtype='home'] #primary{background:transparent!important}",
+        "ytd-comments,ytd-comment-thread-renderer,ytd-comment-renderer{background:transparent!important}",
+        "ytd-watch-metadata,#below,#description,#info-container{background:transparent!important}",
+        "#player-container-outer,#player-container-inner,#movie_player{border-radius:16px!important;overflow:hidden!important}",
+        "ytd-engagement-panel-section-list-renderer{background:" + GLASS_BG + "!important;border:1px solid rgba(255,255,255,.08)!important;border-radius:14px!important;backdrop-filter:blur(16px) saturate(160%);-webkit-backdrop-filter:blur(16px) saturate(160%)}",
+        "ytd-playlist-panel-renderer{background:" + GLASS_BG2 + "!important;border:1px solid rgba(255,255,255,.07)!important;border-radius:14px!important;backdrop-filter:blur(14px) saturate(150%);-webkit-backdrop-filter:blur(14px) saturate(150%)}",
+        "ytd-searchbox,ytd-searchbox-spt{background:rgba(255,255,255,.06)!important;border:1px solid rgba(255,255,255,.1)!important;border-radius:10px!important;backdrop-filter:blur(12px) saturate(150%);-webkit-backdrop-filter:blur(12px) saturate(150%)}",
+        "tp-yt-iron-dropdown,ytd-popup-container,paper-menu-button,ytd-multi-page-menu-renderer,ytd-menu-popup-renderer,ytd-simple-menu-header-renderer{background:rgba(20,22,28,.92)!important;border:1px solid rgba(255,255,255,.12)!important;border-radius:12px!important;backdrop-filter:blur(20px) saturate(170%);-webkit-backdrop-filter:blur(20px) saturate(170%);box-shadow:0 24px 60px rgba(0,0,0,.6),0 6px 18px rgba(0,0,0,.4);overflow:hidden}",
+        "ytd-channel-renderer,ytd-grid-channel-renderer,ytd-vertical-list-renderer{background:" + GLASS_BG2 + "!important;border:1px solid rgba(255,255,255,.07)!important;border-radius:14px!important}",
+        "yt-chip-cloud-chip-renderer{background:rgba(20,22,28,.5)!important;border:1px solid rgba(255,255,255,.08)!important;border-radius:99px!important;transition:" + _ease + "}",
+        "yt-chip-cloud-chip-renderer:hover{background:rgba(20,22,28,.7)!important;border-color:rgba(255,255,255,.18)!important}",
+        "yt-chip-cloud-chip-renderer[selected]{background:linear-gradient(135deg,#ff0033 0%,#ff3d7f 100%)!important;border-color:rgba(255,255,255,.25)!important;color:#fff!important;box-shadow:0 2px 8px rgba(255,61,127,.4)}",
+        "yt-live-chat-renderer,#chat,yt-live-chat-item-list-renderer{background:" + GLASS_BG + "!important}",
+        "#progress{background:rgba(255,61,127,.85)!important;height:3px!important}",
+        "ytd-notification-topbar-renderer,.yt-spec-icon-badge{background:rgba(255,61,127,.85)!important;box-shadow:0 0 10px rgba(255,61,127,.4)}",
+        "ytd-comments-header-renderer{background:transparent!important}",
+        "ytd-guide-entry-renderer:hover,#guide-content ytd-guide-entry-renderer:hover{background:rgba(255,255,255,.08)!important}",
+        "ytd-thumbnail,ytd-thumbnail img,#thumbnail,#thumbnail img{border-radius:12px!important}",
+        "ytd-reel-item-renderer,ytd-rich-grid-media{border-radius:14px!important}"
+      );
+    }
+    if (overhaul) {
+      out.push(
+        "html,html[dark]{--yt-spec-base-background:#111318}",
+        "ytd-app,#content{background:linear-gradient(180deg,rgba(20,22,28,.92),rgba(14,15,19,.97))!important}",
+        "ytd-rich-item-renderer,ytd-video-renderer,ytd-compact-video-renderer,ytd-playlist-video-renderer,ytd-grid-video-renderer,ytd-comment-renderer,ytd-comment-thread-renderer{border-radius:14px!important;transition:" + _ease + "}",
+        "ytd-rich-item-renderer:hover,ytd-video-renderer:hover{transform:translateY(-1px);box-shadow:0 8px 24px rgba(0,0,0,.35)}",
+        "ytd-thumbnail,#thumbnail,ytd-thumbnail img{border-radius:12px!important}",
+        "ytd-masthead{background:rgba(20,22,28,.6)!important;backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px)}",
+        "ytd-mini-guide-renderer{background:rgba(20,22,28,.55)!important}",
+        "ytd-watch-metadata,#below,#description,#info-container{background:transparent!important}",
+        "#movie_player{border-radius:14px!important;overflow:hidden!important}",
+        "tp-yt-iron-dropdown,ytd-menu-popup-renderer,ytd-multi-page-menu-renderer{border-radius:12px!important;border:1px solid rgba(255,255,255,.1)!important;box-shadow:0 18px 50px rgba(0,0,0,.55)!important}",
+        "yt-chip-cloud-chip-renderer{border-radius:99px!important}",
+        "#guide-content{background:rgba(20,22,28,.4)!important}"
+      );
+    }
+    return out.join("\n");
   }
   function Gr() {
     try {
@@ -20365,11 +20387,18 @@ const Nr = [
       "themeAccentHue",
     ],
     apply(t) {
-      if ((zr(), Zr(), S.themeGlassOverhaulOn)) {
+      if ((zr(), Zr(), S.themeGlassOverhaulOn || S.themeOverhaulOn)) {
         (Xr(), Yt["theme-engine"].push(Zr));
       } else {
         Zr();
       }
+      if (_overhaulUnsub) { try { _overhaulUnsub(); } catch (_e) {} }
+      _overhaulUnsub = So("cfg.changed", ({ key: k }) => {
+        if (k === "themeGlassOverhaulOn" || k === "themeOverhaulOn" || k === "themeFxReducedMotion") {
+          Zr();
+          (S.themeGlassOverhaulOn || S.themeOverhaulOn) && Xr();
+        }
+      });
       if (!S.themeEngineOn || "none" === S.themeSelected)
         return void (
           S.themeEngineOn &&
@@ -21617,8 +21646,8 @@ const Nr = [
           const hex = String(genInput.value || "#ff3d7f");
           const toHex = (c) => { try { return cu.formatHex(c); } catch (_) { return hex; } };
           const base = cu.hsl(hex);
-          const shade = (factor) => toHex(cu.mix(hex, factor > 0 ? "#000000" : "#ffffff", Math.abs(factor)));
-          const tint = (hex2, w) => toHex(cu.mix(hex2, "#ffffff", w));
+          const shade = (factor) => toHex(cu.interpolate([hex, factor > 0 ? "#000000" : "#ffffff"], "rgb")(Math.abs(factor)));
+          const tint = (hex2, w) => toHex(cu.interpolate([hex2, "#ffffff"], "rgb")(w));
           const dark = a === "dark";
           const vars = dark
             ? {
@@ -21743,126 +21772,7 @@ const Nr = [
             });
         }));
     },
-  }),
-    xa.register({
-      id: "chapter-list",
-      name: "Chapter List Panel",
-      summary: "Show all the video’s chapters as a clickable list.",
-      masterKey: "chapterListOn",
-      keys: ["chapterListOn"],
-      apply(e) {
-        if (!S.chapterListOn) {
-          const e = document.getElementById("ytp-chapter-panel");
-          return void (e && e.remove());
-        }
-        e.addStyle(
-          "#ytp-chapter-panel{display:flex;flex-direction:column;gap:2px;margin:10px 12px;" +
-            "padding:8px 10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);" +
-            "border-radius:10px;font:12px system-ui;color:#ddd}" +
-            "#ytp-chapter-panel .ytp-ch-hdr{display:flex;align-items:center;justify-content:space-between;" +
-            "gap:8px;font-size:12px;font-weight:700;color:#fff}" +
-            "#ytp-chapter-panel .ytp-ch-toggle{background:transparent;border:0;color:#888;cursor:pointer;font-size:11px}" +
-            "#ytp-chapter-panel .ytp-ch-list{display:flex;flex-direction:column;gap:2px;margin-top:6px;" +
-            "max-height:280px;overflow-y:auto}" +
-            "#ytp-chapter-panel .ytp-ch-row{display:flex;align-items:baseline;gap:8px;padding:5px 7px;" +
-            "border-radius:7px;cursor:pointer;transition:background .12s}" +
-            "#ytp-chapter-panel .ytp-ch-row:hover{background:rgba(255,255,255,.07)}" +
-            "#ytp-chapter-panel .ytp-ch-row.current{background:rgba(255,61,127,.14)}" +
-            "#ytp-chapter-panel .ytp-ch-row.current .ytp-ch-title{color:#fff;font-weight:600}" +
-            "#ytp-chapter-panel .ytp-ch-row.current .ytp-ch-t{color:#ff3d7f;font-weight:600}" +
-            "#ytp-chapter-panel .ytp-ch-t{font-family:monospace;font-size:11px;color:#ff3d7f;flex-shrink:0}" +
-            "#ytp-chapter-panel .ytp-ch-title{color:#ccc;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
-        );
-        const t = () =>
-          (function () {
-            const e = document.getElementById("ytp-chapter-panel");
-            if (
-              (e && e.remove(),
-              !S.chapterListOn || "/watch" !== location.pathname)
-            )
-              return;
-            const t = Jr();
-            if (!t.length) return;
-            const a =
-              document.querySelector("#below #title") ||
-              document.querySelector("ytd-watch-metadata") ||
-              document.querySelector("#primary-inner");
-            if (!a) return;
-            const n = document.createElement("div");
-            n.id = "ytp-chapter-panel";
-            const r = document.createElement("div");
-            r.className = "ytp-ch-hdr";
-            const o = document.createElement("span");
-            o.textContent = t.length + " chapter" + (1 === t.length ? "" : "s");
-            const i = document.createElement("button");
-            ((i.type = "button"),
-              (i.className = "ytp-ch-toggle"),
-              (i.textContent = "v"));
-            let d = !1;
-            (i.addEventListener("click", () => {
-              ((d = !d),
-                (c.style.display = d ? "none" : ""),
-                (i.textContent = d ? ">" : "v"));
-            }),
-              r.appendChild(o),
-              r.appendChild(i),
-              n.appendChild(r));
-            const c = document.createElement("div");
-            ((c.className = "ytp-ch-list"),
-              t.forEach((e) => {
-                const t = document.createElement("div");
-                (t.className = "ytp-ch-row"),
-                  (t.dataset.t = String(e.t));
-                const a = document.createElement("span");
-                ((a.className = "ytp-ch-t"), (a.textContent = ce(e.t)));
-                const n = document.createElement("span");
-                ((n.className = "ytp-ch-title"),
-                  (n.textContent = e.title),
-                  t.appendChild(a),
-                  t.appendChild(n),
-                  t.addEventListener("click", () => {
-                    try {
-                      const t = ie.el();
-                      t && !_isLiveStream() && (t.currentTime = e.t);
-                      const a = ie.api();
-                      a && a.playVideo && a.playVideo();
-                    } catch (e) {}
-                  }),
-                  c.appendChild(t));
-              }),
-              n.appendChild(c),
-              a.parentNode.insertBefore(n, a));
-          })();
-        (t(),
-          e.onNav(() => {
-            for (const a of [800, 1800, 3500]) e.addTimeout(t, a);
-          }));
-        for (const a of [800, 1800]) e.addTimeout(t, a);
-        let lastCurrent = -1;
-        e.addInterval(() => {
-          if (!S.chapterListOn) return !1;
-          const p = document.getElementById("ytp-chapter-panel");
-          const v = ie.el && ie.el();
-          if (!p || !v || !isFinite(v.currentTime)) return !1;
-          const rows = p.querySelectorAll(".ytp-ch-row");
-          if (!rows.length) return !1;
-          let idx = -1;
-          for (let i = rows.length - 1; i >= 0; i--) {
-            if (Number(rows[i].dataset.t || 0) <= v.currentTime) {
-              idx = i;
-              break;
-            }
-          }
-          rows.forEach((row, i) => row.classList.toggle("current", i === idx));
-          if (idx >= 0 && idx !== lastCurrent) {
-            rows[idx].scrollIntoView({ block: "nearest" });
-            lastCurrent = idx;
-          }
-          return !0;
-        }, 1e3);
-      },
-      settings() {},
-    }));
+  }));
   let $r = null;
   function eo() {
     if ($r) {
@@ -25047,16 +24957,35 @@ const Nr = [
           (c.placeholder = "Find a setting…"));
         const l = To("div", "ytp-body"),
           p = To("div", "ytp-core");
-        ([
-          ["Private mode", "privacyShieldOn"],
-          ["Safe mode", "safeMode"],
-          ["Quiet on-screen messages", "silentToasts"],
-        ].forEach(([e, t]) => {
-          const a = To("div", "ytp-corecell");
-          (a.appendChild(To("span", "ytp-corelbl", e)),
-            a.appendChild(Bo(t)),
-            p.appendChild(a));
-        }),
+        (p.appendChild(
+          (function () {
+            const a = To("div", "ytp-corecell");
+            (a.appendChild(To("span", "ytp-corelbl", "Experience preset")),
+              a.appendChild(
+                Po("privacyPreset", {
+                  everyday: "Everyday (Recommended)",
+                  stealth: "Stealth (no traffic monitoring)",
+                  maximum: "Maximum privacy (no monitoring, no network calls)",
+                }),
+              ));
+            const note = To("div", "ytp-hist-note");
+            (note.style.cssText = "margin:4px 0 2px;font-size:10.5px;color:#888"),
+              (note.textContent =
+                "Everyday: full experience. Stealth: YT-zen stops watching your traffic. Maximum: additionally blocks all outbound requests."),
+              a.appendChild(note);
+            return a;
+          })(),
+        ),
+          p.appendChild(
+            (function () {
+              const a = To("div", "ytp-corecell");
+              return (
+                a.appendChild(To("span", "ytp-corelbl", "Quiet on-screen messages")),
+                a.appendChild(Bo("silentToasts")),
+                a
+              );
+            })(),
+          ),
           l.appendChild(p));
         const u = Array.from(va.values())
             .filter((e) => !e.hidden)
@@ -27125,13 +27054,22 @@ const Nr = [
     // Prevents sending signals faster than a human reasonably could.
     const RateLimiter = (() => {
       const windows = new Map(); // action → { count, resetAt }
+      let scale = 1; // aggression multiplier applied to every limit
       const LIMITS = {
         feedback: { max: 15, windowMs: 60000 },      // 15 per minute
         like: { max: 10, windowMs: 60000 },           // 10 per minute
         subscribe: { max: 5, windowMs: 60000 },       // 5 per minute
         browse: { max: 20, windowMs: 60000 },         // 20 per minute
         player: { max: 10, windowMs: 60000 },         // 10 per minute
+        search: { max: 12, windowMs: 60000 },         // 12 per minute
         default: { max: 30, windowMs: 60000 },        // 30 per minute
+      };
+
+      const maxFor = (action) => Math.round((LIMITS[action] || LIMITS.default).max * scale);
+
+      const setScale = (factor) => {
+        const f = Math.max(0.25, Math.min(2.5, Number(factor) || 1));
+        if (f !== scale) { scale = f; windows.clear(); }
       };
 
       const canProceed = (action) => {
@@ -27142,20 +27080,19 @@ const Nr = [
           w = { count: 0, resetAt: now + limit.windowMs };
           windows.set(action, w);
         }
-        if (w.count >= limit.max) return false;
+        if (w.count >= maxFor(action)) return false;
         w.count++;
         return true;
       };
 
       const getRemaining = (action) => {
-        const limit = LIMITS[action] || LIMITS.default;
         const w = windows.get(action);
-        if (!w) return limit.max;
-        if (Date.now() >= w.resetAt) return limit.max;
-        return Math.max(0, limit.max - w.count);
+        if (!w) return maxFor(action);
+        if (Date.now() >= w.resetAt) return maxFor(action);
+        return Math.max(0, maxFor(action) - w.count);
       };
 
-      return { canProceed, getRemaining };
+      return { canProceed, getRemaining, setScale, getScale: () => scale };
     })();
 
     // ─── Content Classifier ──────────────────────────────────────────────────
@@ -27175,6 +27112,28 @@ const Nr = [
       travel: ["travel", "trip", "vacation", "destination", "flight", "hotel", "tourism", "explore", "adventure", "backpacking", "road trip", "cruise", "beach", "mountain", "city", "country", "culture", "landmark", "itinerary", "budget travel", "luxury", "solo travel", "family travel"],
       diy: ["diy", "craft", "project", "build", "make", "create", "handmade", "tutorial", "how to", "step by step", "woodworking", "sewing", "knitting", "painting", "drawing", "sculpture", "pottery", "jewelry", "upcycle", "repurpose", "home improvement", "renovation", "repair", "fix"],
       automotive: ["car", "automotive", "vehicle", "driving", "engine", "motor", "transmission", "tire", "brake", "suspension", "exhaust", "turbo", "supercharger", "horsepower", "torque", "mpg", "electric vehicle", "ev", "tesla", "hybrid", "suv", "truck", "sedan", "coupe", "convertible", "review", "test drive"],
+      space: ["space", "astronomy", "rocket", "launch", "orbit", "iss", "spacex", "nasa", "mars", "moon landing", "planet", "galaxy", "universe", "astrophysics", "satellite", "telescope", "astrophotography", "solar system", "interstellar", "gravity", "cosmos", "lunar", "comet", "asteroid", "cosmonaut", "astronaut"],
+      history: ["history", "historical", "ancient", "medieval", "renaissance", "world war", "civil war", "empire", "dynasty", "archaeology", "artifact", "museum", "documentary", "century", "era", "civilization", "timeline", "egypt", "rome", "greece", "viking", "monarchy", "revolution"],
+      art: ["art", "painting", "drawing", "sketch", "digital art", "illustration", "artist", "gallery", "watercolor", "acrylic", "canvas", "portrait", "sculpture", "concept art", "art tutorial", "ink drawing", "painter", "illustrator"],
+      philosophy: ["philosophy", "philosopher", "stoicism", "stoic", "existentialism", "nihilism", "ethics", "morality", "consciousness", "meaning of life", "logic", "reasoning", "plato", "aristotle", "nietzsche", "sartre", "camus", "taoism", "zen buddhism", "mindfulness", "wisdom"],
+      psychology: ["psychology", "mental health", "therapy", "anxiety", "depression", "mindset", "habit", "behavior", "cognitive", "neuroscience", "personality", "trauma", "adhd", "sleep science", "stress", "emotional intelligence", "psychologist", "counseling", "addiction"],
+      business: ["business", "startup", "entrepreneur", "marketing", "sales", "branding", "strategy", "management", "leadership", "product", "growth", "ecommerce", "saas", "fundraising", "venture capital", "pitch", "consulting", "career", "side hustle", "freelance", "business model", "scaling"],
+      design: ["design", "ui design", "ux design", "graphic design", "typography", "logo design", "web design", "product design", "figma", "photoshop", "illustrator", "color theory", "layout", "motion design", "brand design", "user experience", "prototype"],
+      photography: ["photography", "camera", "lens", "photo", "lightroom", "portrait photography", "landscape photography", "street photography", "iso", "aperture", "shutter speed", "photography tips", "camera gear", "photographer", "photo editing", "cinematic shot"],
+      sports: ["sports", "football", "soccer", "basketball", "tennis", "cricket", "olympics", "athlete", "training", "match", "tournament", "championship", "goals", "highlights", "mma", "boxing", "f1", "formula one", "nfl", "nba", "premier league", "sport science"],
+      outdoors: ["outdoors", "hiking", "camping", "backpacking", "fishing", "hunting", "survival", "bushcraft", "climbing", "kayaking", "canoeing", "trail", "wildlife", "national park", "wilderness", "outdoor gear", "nature documentary", "adventure"],
+      gardening: ["gardening", "garden", "plants", "growing", "seeds", "soil", "compost", "vegetables", "herbs", "flowers", "greenhouse", "pruning", "harvest", "permaculture", "urban gardening", "plant care", "houseplants", "farming"],
+      pets: ["pets", "pet", "dog training", "cat", "puppy", "kitten", "aquarium", "fish tank", "reptile", "hamster", "parrot", "pet grooming", "vet", "rescue dog", "adoption", "pet care"],
+      anime: ["anime", "manga", "anime review", "anime list", "shonen", "slice of life anime", "ghibli", "anime music", "cosplay", "otaku", "anime reaction", "manga review"],
+      literature: ["book", "books", "novel", "reading", "author", "writer", "poetry", "fiction", "fantasy book", "sci-fi novel", "mystery novel", "thriller book", "biography", "audiobook", "book review", "booktube", "book summary", "literature"],
+      selfImprovement: ["self improvement", "productivity", "motivation", "discipline", "goals", "habits", "morning routine", "focus", "learning", "growth mindset", "personal development", "journaling", "meditation", "confidence", "procrastination", "success"],
+      productivity: ["productivity", "focus", "time management", "deep work", "pomodoro", "study tips", "note taking", "organization", "workflow", "remote work", "efficiency", "productivity tools", "notion", "obsidian", "getting things done"],
+      economics: ["economics", "economy", "inflation", "recession", "gdp", "interest rate", "macroeconomics", "microeconomics", "supply chain", "trade", "fiscal policy", "monetary policy", "jobs report", "unemployment", "economic crisis", "housing market"],
+      robotics: ["robotics", "robot", "automation", "humanoid", "drone", "bionic", "mechatronics", "iot", "embedded", "machine vision", "agi", "automation tech", "robot arm", "sensor"],
+      trueCrime: ["true crime", "murder case", "unsolved mystery", "cold case", "serial killer", "criminal", "investigation", "forensic", "trial", "crime documentary", "court case", "missing person", "crime story"],
+      vlogs: ["vlog", "daily vlog", "travel vlog", "life update", "day in the life", "lifestyle", "family vlog", "vlogger", "weekly vlog", "routine"],
+      documentaries: ["documentary", "docu-series", "explained", "deep dive", "mini documentary", "documentary film", "storytelling", "investigative", "feature documentary"],
+      language: ["language learning", "learn spanish", "learn french", "learn japanese", "learn korean", "learn german", "english grammar", "polyglot", "foreign language", "vocabulary", "fluent", "language tips", "duolingo", "anki"],
     };
 
     const ContentClassifier = (() => {
@@ -27252,8 +27211,17 @@ const Nr = [
         if (!videoId) return;
         const pct = duration > 0 ? Math.min(100, Math.round((watchTime / duration) * 100)) : 0;
         const topics = ContentClassifier.classifyFromPage();
+        let channelId = "";
+        let channelName = "";
+        try {
+          const vd = e.ytInitialPlayerResponse && e.ytInitialPlayerResponse.videoDetails;
+          if (vd) {
+            channelId = vd.channelId || "";
+            channelName = vd.author || "";
+          }
+        } catch (_) {}
         store.update(d => {
-          d.watchHistory[videoId] = { watchTime, duration, pct, topics, ts: Date.now() };
+          d.watchHistory[videoId] = { watchTime, duration, pct, topics, channelId, channelName, ts: Date.now() };
           // Keep only last 500 entries
           const keys = Object.keys(d.watchHistory);
           if (keys.length > 500) {
@@ -27263,6 +27231,73 @@ const Nr = [
           d.events.push({ type: "watch", videoId, pct, ts: Date.now() });
           if (d.events.length > 1000) d.events = d.events.slice(-1000);
           d.sessionSignals++;
+        });
+      };
+
+      // Recency weight: recent watches shape the profile far more than old ones.
+      const recencyWeight = (ts) => {
+        const age = Math.max(0, Date.now() - (ts || 0));
+        if (age < 24 * 3600e3) return 1;
+        if (age < 7 * 24 * 3600e3) return 0.7;
+        if (age < 30 * 24 * 3600e3) return 0.4;
+        if (age < 90 * 24 * 3600e3) return 0.2;
+        return 0.08;
+      };
+
+      const getProfile = () => {
+        const d = store.get();
+        const topicScores = {};
+        const watched = Object.values(d.watchHistory);
+        for (const entry of watched) {
+          if (!entry.topics) continue;
+          const weight = (entry.pct || 0) / 100 * recencyWeight(entry.ts); // Watch % × recency
+          for (const [topic, score] of Object.entries(entry.topics)) {
+            topicScores[topic] = (topicScores[topic] || 0) + score * weight;
+          }
+        }
+        // Normalize
+        const maxScore = Math.max(1, ...Object.values(topicScores));
+        for (const topic of Object.keys(topicScores)) {
+          topicScores[topic] = Math.round((topicScores[topic] / maxScore) * 100);
+        }
+        return {
+          topics: topicScores,
+          totalWatched: watched.length,
+          totalLikes: Object.values(d.likeHistory).filter(v => v.liked).length,
+          totalDislikes: Object.values(d.likeHistory).filter(v => v.disliked).length,
+          totalFeedback: Object.keys(d.feedbackHistory).length,
+          sessionSignals: d.sessionSignals,
+          avgWatchPct: watched.length > 0 ? Math.round(watched.reduce((s, v) => s + (v.pct || 0), 0) / watched.length) : 0,
+        };
+      };
+
+      // Aggregate channel affinity from watch history.
+      const getChannels = (limit = 10) => {
+        const d = store.get();
+        const map = new Map();
+        for (const entry of Object.values(d.watchHistory)) {
+          if (!entry.channelId) continue;
+          const cur = map.get(entry.channelId) || { name: entry.channelName || entry.channelId, count: 0, totalPct: 0 };
+          cur.count++;
+          cur.totalPct += entry.pct || 0;
+          if (entry.channelName) cur.name = entry.channelName;
+          map.set(entry.channelId, cur);
+        }
+        return Array.from(map.entries())
+          .map(([id, info]) => ({ channelId: id, ...info }))
+          .sort((a, b) => b.totalPct - a.totalPct)
+          .slice(0, limit);
+      };
+
+      const getRecentSignals = (limit = 12) => store.get().events.slice(-limit);
+
+      const clearHistory = () => {
+        store.update(d => {
+          d.events = [];
+          d.watchHistory = {};
+          d.likeHistory = {};
+          d.feedbackHistory = {};
+          d.sessionSignals = 0;
         });
       };
 
@@ -27286,34 +27321,7 @@ const Nr = [
         });
       };
 
-      const getProfile = () => {
-        const d = store.get();
-        const topicScores = {};
-        const watched = Object.values(d.watchHistory);
-        for (const entry of watched) {
-          if (!entry.topics) continue;
-          const weight = (entry.pct || 0) / 100; // Higher watch % = stronger signal
-          for (const [topic, score] of Object.entries(entry.topics)) {
-            topicScores[topic] = (topicScores[topic] || 0) + score * weight;
-          }
-        }
-        // Normalize
-        const maxScore = Math.max(1, ...Object.values(topicScores));
-        for (const topic of Object.keys(topicScores)) {
-          topicScores[topic] = Math.round((topicScores[topic] / maxScore) * 100);
-        }
-        return {
-          topics: topicScores,
-          totalWatched: watched.length,
-          totalLikes: Object.values(d.likeHistory).filter(v => v.liked).length,
-          totalDislikes: Object.values(d.likeHistory).filter(v => v.disliked).length,
-          totalFeedback: Object.keys(d.feedbackHistory).length,
-          sessionSignals: d.sessionSignals,
-          avgWatchPct: watched.length > 0 ? Math.round(watched.reduce((s, v) => s + (v.pct || 0), 0) / watched.length) : 0,
-        };
-      };
-
-      return { trackWatch, trackLike, trackFeedback, getProfile, getStore: () => store };
+      return { trackWatch, trackLike, trackFeedback, getProfile, getChannels, getRecentSignals, clearHistory, getStore: () => store };
     })();
 
     // ─── Signal Injector ─────────────────────────────────────────────────────
@@ -27664,6 +27672,7 @@ const Nr = [
     const WatchOptimizer = (() => {
       let monitoring = false;
       let intervalId = 0;
+      let skipSignals = 0;
 
       const start = () => {
         if (monitoring) return;
@@ -27699,9 +27708,14 @@ const Nr = [
 
           // If unwanted content and we've watched enough to register a skip signal
           if (unwantedScore > wantedScore && currentTime > 5 && currentTime < duration * 0.3) {
-            // The user is watching unwanted content - this is a signal we want to minimize
-            // We don't auto-skip (that would be disruptive) but we log it
+            skipSignals++;
           }
+
+          // Micro-feedback: strong alignment → positive signal; blocked topic
+          // watched partially → negative signal (both rate-limited).
+          const pct = duration > 0 ? Math.round((currentTime / duration) * 100) : 0;
+          MicroFeedback.maybeAutoLike(videoId, topics, pct, profile);
+          MicroFeedback.maybeAutoDislike(videoId, topics, pct, unwantedScore, wantedScore);
         }, 10000); // Check every 10 seconds
       };
 
@@ -27711,7 +27725,231 @@ const Nr = [
         intervalId = 0;
       };
 
-      return { start, stop, isMonitoring: () => monitoring };
+      const getSkipCount = () => skipSignals;
+
+      return { start, stop, isMonitoring: () => monitoring, getSkipCount };
+    })();
+
+    // ─── Channel Affinity ────────────────────────────────────────────────────
+    // Channel-level learning: which creators you actually watch, a channel
+    // blocklist, and the ability to signal interest in favorite channels.
+    const ChannelAffinity = (() => {
+      const blocked = new Set();
+
+      const addBlocked = (c) => { const v = String(c || "").trim().toLowerCase(); if (v) blocked.add(v); };
+      const removeBlocked = (c) => { blocked.delete(String(c || "").trim().toLowerCase()); };
+      const isBlocked = (c) => blocked.has(String(c || "").trim().toLowerCase());
+      const getBlocked = () => [...blocked];
+      const getTopChannels = (limit = 8) => SignalTracker.getChannels(limit);
+
+      // Browse the pages of your most-watched channels (strong interest signal).
+      const boostTopChannels = async (max = 3) => {
+        let done = 0;
+        for (const ch of SignalTracker.getChannels(10)) {
+          if (done >= max || !RateLimiter.canProceed("browse")) break;
+          try {
+            const ok = await SignalInjector.browseChannel(ch.channelId);
+            if (ok) { done++; SignalTracker.trackWatch(ch.channelId, 1, 1); }
+          } catch (_) {}
+          await new Promise(r => setTimeout(r, 900 + Math.random() * 900));
+        }
+        return done;
+      };
+
+      return { addBlocked, removeBlocked, isBlocked, getBlocked, getTopChannels, boostTopChannels };
+    })();
+
+    // ─── Interest Booster ────────────────────────────────────────────────────
+    // Proactive positive signals: periodically re-asserts your profile by
+    // searching top topics, liking aligned recommendations, and browsing
+    // favorite channels — reshaping the algorithm toward your interests.
+    const InterestBooster = (() => {
+      const runBoost = async (maxActions = 6) => {
+        const profile = SignalTracker.getProfile();
+        const topics = Object.entries(profile.topics).sort((a, b) => b[1] - a[1]).slice(0, 3).map(t => t[0]);
+        if (!topics.length) return { searches: 0, likes: 0, browsed: 0, reason: "no profile yet" };
+
+        let searches = 0;
+        let likes = 0;
+        let browsed = 0;
+        let budget = Math.max(2, maxActions);
+
+        // 1. Search the top profile topics (signals interest).
+        for (const topic of topics) {
+          if (budget <= 0) break;
+          const keywords = TOPIC_TAXONOMY[topic] || [];
+          const query = keywords[Math.floor(Math.random() * Math.min(4, keywords.length))] || topic;
+          if (await SignalInjector.searchTopic(query)) {
+            searches++;
+            budget--;
+          }
+          await new Promise(r => setTimeout(r, 1100 + Math.random() * 1200));
+        }
+
+        // 2. Like recommendations that strongly match the profile.
+        if (budget > 0) {
+          try {
+            const home = ProfileAnalyzer.analyzeHomepage();
+            const topTopics = new Set(topics);
+            for (const rec of home.recommendations) {
+              if (budget <= 0) break;
+              const recTopics = Object.entries(rec.topics).filter(([t, s]) => topTopics.has(t) && s >= 20);
+              if (recTopics.length && rec.videoId && (SignalTracker.getProfile().topics[recTopics[0][0]] || 0) >= 35) {
+                if (await SignalInjector.sendLike(rec.videoId, "like")) {
+                  likes++;
+                  budget--;
+                }
+                await new Promise(r => setTimeout(r, 1000 + Math.random() * 1200));
+              }
+            }
+          } catch (_) {}
+        }
+
+        // 3. Browse a favorite channel.
+        if (budget > 0 && RateLimiter.canProceed("browse")) {
+          try {
+            if (await ChannelAffinity.boostTopChannels(1)) browsed++;
+          } catch (_) {}
+        }
+
+        return { searches, likes, browsed };
+      };
+
+      return { runBoost };
+    })();
+
+    // ─── Diversity Manager ───────────────────────────────────────────────────
+    // Detects filter-bubble concentration (one topic dominating the feed) and
+    // widens the recommendation space with exploratory signals from
+    // underrepresented adjacent topics.
+    const DiversityManager = (() => {
+      const analyze = () => {
+        const dist = ProfileAnalyzer.analyzeHomepage().topicDistribution;
+        let total = 0;
+        let dominant = "";
+        let maxShare = 0;
+        for (const [topic, share] of Object.entries(dist)) {
+          total += share;
+          if (share > maxShare) { maxShare = share; dominant = topic; }
+        }
+        return { dist, dominant, maxShare, count: Object.keys(dist).length };
+      };
+
+      const widen = async (max = 4) => {
+        const profile = SignalTracker.getProfile();
+        const known = new Set(Object.keys(profile.topics));
+        const available = Object.keys(TOPIC_TAXONOMY).filter(t => !known.has(t));
+        if (!available.length) return 0;
+        // Shuffle and pick 2 underrepresented topics.
+        for (let i = available.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [available[i], available[j]] = [available[j], available[i]];
+        }
+        let done = 0;
+        for (const topic of available.slice(0, 2)) {
+          if (done >= max) break;
+          const keywords = TOPIC_TAXONOMY[topic] || [];
+          const query = keywords[0] || topic;
+          if (await SignalInjector.searchTopic(query)) done++;
+          await new Promise(r => setTimeout(r, 1200 + Math.random() * 1500));
+        }
+        return done;
+      };
+
+      const maybeWiden = async () => {
+        const a = analyze();
+        const threshold = Math.max(45, Math.min(90, Number(S.algoDiversityMax) || 60));
+        if (a.maxShare >= threshold && a.count >= 3) {
+          const widened = await widen(2);
+          if (widened > 0) {
+            try { pe("Zen Algorithm: feed was too concentrated on '" + a.dominant + "' — widened your bubble.", 2800, "info"); } catch (_) {}
+          }
+          return widened;
+        }
+        return 0;
+      };
+
+      return { analyze, widen, maybeWiden };
+    })();
+
+    // ─── Micro Feedback ──────────────────────────────────────────────────────
+    // Implicit signal inference: converts natural viewing behavior into
+    // deliberate algorithm signals (auto-like aligned watches, auto-dislike
+    // stray unwanted content), all rate-limited.
+    const MicroFeedback = (() => {
+      const maybeAutoLike = (videoId, topics, pct, profile) => {
+        if (!videoId || !S.algoAutoLikeOn) return;
+        if (pct < (Number(S.algoAutoLikePct) || 85)) return;
+        if (SignalTracker.getStore().get().likeHistory[videoId]) return;
+        const topTopic = Object.entries(topics).sort((a, b) => b[1] - a[1])[0];
+        if (!topTopic) return;
+        if ((profile.topics[topTopic[0]] || 0) >= 35) {
+          SignalInjector.sendLike(videoId, "like");
+        }
+      };
+
+      const maybeAutoDislike = (videoId, topics, pct, unwantedScore, wantedScore) => {
+        if (!videoId || !S.algoAutoLikeOn) return;
+        if (pct < 15 || pct > 60) return;
+        if (SignalTracker.getStore().get().likeHistory[videoId]) return;
+        if (unwantedScore > wantedScore && unwantedScore >= 25) {
+          SignalInjector.sendLike(videoId, "dislike");
+        }
+      };
+
+      return { maybeAutoLike, maybeAutoDislike };
+    })();
+
+    // ─── Shorts Signals ──────────────────────────────────────────────────────
+    // Extends interest shaping to the Shorts feed: scans visible shorts and
+    // sends "not interested" for content matching blocked topics/keywords.
+    const ShortsSignals = (() => {
+      const scan = async (max = 5) => {
+        if (!location.pathname.startsWith("/shorts")) return { actions: 0, scanned: 0 };
+        const items = Array.from(document.querySelectorAll("ytd-reel-video-renderer"));
+        let actions = 0;
+        for (const item of items.slice(0, 12)) {
+          if (actions >= max) break;
+          try {
+            const titleEl = item.querySelector("#video-title, .ytLockupViewModelHostTitle, [title]");
+            const title = (titleEl ? (titleEl.getAttribute("title") || titleEl.textContent || "") : "").trim();
+            if (!title) continue;
+            const topics = ContentClassifier.classify({ title, videoId: "" });
+            let shouldBlock = false;
+            let reason = "";
+            for (const [topic, score] of Object.entries(topics)) {
+              if (score >= 25 && NegativeSignalManager.getBlockedTopics().includes(topic)) {
+                shouldBlock = true; reason = "topic: " + topic; break;
+              }
+            }
+            if (!shouldBlock) {
+              const low = title.toLowerCase();
+              for (const kw of NegativeSignalManager.getBlockedKeywords()) {
+                if (low.includes(kw)) { shouldBlock = true; reason = "keyword: " + kw; break; }
+              }
+            }
+            if (!shouldBlock) continue;
+            const token = extractTokenFromItem(item);
+            if (token) {
+              const ok = await SignalInjector.sendFeedback(token, "notInterested:" + reason);
+              if (ok) actions++;
+            }
+            await new Promise(r => setTimeout(r, 1000 + Math.random() * 1000));
+          } catch (_) {}
+        }
+        return { actions, scanned: items.length };
+      };
+
+      // Extract a "not interested" feedback token from a shorts item's data.
+      const extractTokenFromItem = (item) => {
+        try {
+          const dataStr = JSON.stringify(item.__data || "");
+          const m = dataStr.match(/"feedbackToken":"([^"]+)"/);
+          return m ? m[1] : "";
+        } catch (_) { return ""; }
+      };
+
+      return { scan };
     })();
 
     // ─── Public API ──────────────────────────────────────────────────────────
@@ -27725,31 +27963,55 @@ const Nr = [
       TrainingEngine,
       NegativeSignalManager,
       WatchOptimizer,
+      ChannelAffinity,
+      InterestBooster,
+      DiversityManager,
+      MicroFeedback,
+      ShortsSignals,
 
       // Convenience
       getProfile: () => SignalTracker.getProfile(),
+      getChannels: (n) => SignalTracker.getChannels(n),
+      getRecentSignals: (n) => SignalTracker.getRecentSignals(n),
       analyzeHomepage: () => ProfileAnalyzer.analyzeHomepage(),
+      analyzeDiversity: () => DiversityManager.analyze(),
       findMismatches: () => ProfileAnalyzer.findMismatches(),
       train: (topics, opts) => TrainingEngine.startTraining(topics, opts),
       stopTraining: () => TrainingEngine.stopTraining(),
       blockTopic: (topic) => NegativeSignalManager.addBlockedTopic(topic),
       unblockTopic: (topic) => NegativeSignalManager.removeBlockedTopic(topic),
       blockKeyword: (kw) => NegativeSignalManager.addBlockedKeyword(kw),
+      blockChannel: (c) => ChannelAffinity.addBlocked(c),
+      unblockChannel: (c) => ChannelAffinity.removeBlocked(c),
       scanAndBlock: (max) => NegativeSignalManager.scanAndBlock(max),
+      scanShorts: (max) => ShortsSignals.scan(max),
+      boost: (max) => InterestBooster.runBoost(max),
+      widen: (max) => DiversityManager.widen(max),
+      maybeWiden: () => DiversityManager.maybeWiden(),
+      clearSignalHistory: () => SignalTracker.clearHistory(),
       startMonitoring: () => WatchOptimizer.start(),
       stopMonitoring: () => WatchOptimizer.stop(),
+      applyStrength: (level) => {
+        const f = level === "light" ? 0.4 : level === "aggressive" ? 1.6 : 1;
+        RateLimiter.setScale(f);
+      },
       stats: () => ({
         profile: SignalTracker.getProfile(),
+        channels: SignalTracker.getChannels(5),
+        recentSignals: SignalTracker.getRecentSignals(8),
         rateLimits: {
           feedback: RateLimiter.getRemaining("feedback"),
           like: RateLimiter.getRemaining("like"),
           subscribe: RateLimiter.getRemaining("subscribe"),
           browse: RateLimiter.getRemaining("browse"),
+          search: RateLimiter.getRemaining("search"),
         },
         training: TrainingEngine.getProgress(),
         monitoring: WatchOptimizer.isMonitoring(),
+        skipSignals: WatchOptimizer.getSkipCount(),
         blockedTopics: NegativeSignalManager.getBlockedTopics(),
         blockedKeywords: NegativeSignalManager.getBlockedKeywords(),
+        blockedChannels: ChannelAffinity.getBlocked(),
       }),
     };
   })();
@@ -27821,113 +28083,6 @@ const Nr = [
       Yt["momentum"].push(() => api.destroy());
     },
     settings(en) { en.appendChild(Io("Enable Before It Blew Up feed", "momentumOn")); } });
-
-  xa.register({ id: "smart-queue", name: "Smart Watch Queue", summary: "Queue videos, reorder by duration or recency, and play through with total time estimates.", masterKey: "smartQueueOn", keys: ["smartQueueOn"],
-    apply(ctx) {
-      if (!S.smartQueueOn) return;
-      ZenEngine.injectCSS();
-      const panel = document.createElement("div");
-      panel.id = "ytp-zen-queue";
-      panel.className = "zen-card";
-      panel.style.cssText = "margin:8px 0";
-      const header = document.createElement("div");
-      header.className = "zen-row";
-      header.style.cssText = "justify-content:space-between;margin-bottom:6px";
-      const heading = document.createElement("span");
-      heading.style.cssText = "font-size:13px;font-weight:700;color:#fff";
-      heading.textContent = "Watch Queue";
-      const total = document.createElement("span");
-      total.className = "zen-meta";
-      total.id = "ytp-zen-queue-total";
-      header.append(heading, total);
-      const controls = document.createElement("div");
-      controls.className = "zen-row";
-      controls.style.cssText = "flex-wrap:wrap;gap:4px;margin-bottom:6px";
-      const addBtn = document.createElement("button");
-      addBtn.className = "zen-btn";
-      addBtn.textContent = "+ Queue this video";
-      const playBtn = document.createElement("button");
-      playBtn.className = "zen-btn primary";
-      playBtn.textContent = "Play next";
-      const sort = document.createElement("select");
-      sort.className = "zen-btn";
-      sort.style.cssText = "appearance:auto;padding:4px 6px";
-      ["manual", "shortest", "longest", "newest"].forEach(mode => {
-        const option = document.createElement("option");
-        option.value = mode;
-        option.textContent = mode;
-        sort.appendChild(option);
-      });
-      const clearBtn = document.createElement("button");
-      clearBtn.className = "zen-btn";
-      clearBtn.textContent = "Clear";
-      controls.append(addBtn, playBtn, sort, clearBtn);
-      const list = document.createElement("div");
-      list.style.cssText = "display:flex;flex-direction:column";
-      panel.append(header, controls, list);
-
-      const render = () => {
-        list.replaceChildren();
-        const items = ZenQueue.getList();
-        total.textContent = items.length ? items.length + " videos · " + ce(Math.floor(ZenQueue.getTotalTime())) + " total" : "Empty";
-        items.forEach(video => {
-          const row = document.createElement("div");
-          row.className = "q-row";
-          const copy = document.createElement("div");
-          copy.style.cssText = "flex:1;min-width:0";
-          const title = document.createElement("div");
-          title.className = "zen-title";
-          title.style.webkitLineClamp = "1";
-          title.textContent = video.title || video.videoId;
-          const meta = document.createElement("div");
-          meta.className = "zen-meta";
-          meta.textContent = (video.duration ? ce(Math.floor(video.duration)) : "?") + (video.channel ? " · " + video.channel : "");
-          copy.append(title, meta);
-          const remove = document.createElement("button");
-          remove.className = "q-remove";
-          remove.textContent = "×";
-          remove.title = "Remove";
-          remove.addEventListener("click", (ev) => {
-            ev.stopPropagation();
-            ZenQueue.remove(video.videoId);
-            render();
-          });
-          row.append(copy, remove);
-          row.addEventListener("click", () => { e.location.href = "/watch?v=" + video.videoId; });
-          list.appendChild(row);
-        });
-      };
-      addBtn.addEventListener("click", () => {
-        const vid = ie.videoId();
-        if (!vid) { pe("No video loaded.", 1500, "error"); return; }
-        const added = ZenQueue.add({ videoId: vid, title: ie.title() || vid, channel: ie.channel() || "", duration: ie.el() && ie.el().duration });
-        pe(added ? "Queued: " + (ie.title() || vid) : "Already in queue.", 1500, added ? "success" : "info");
-        render();
-      });
-      playBtn.addEventListener("click", () => {
-        const first = ZenQueue.getList()[0];
-        if (!first) { pe("Queue is empty.", 1500, "info"); return; }
-        e.location.href = "/watch?v=" + first.videoId;
-      });
-      sort.addEventListener("change", () => {
-        ZenQueue.reorder(sort.value);
-        render();
-      });
-      clearBtn.addEventListener("click", () => { ZenQueue.clear(); render(); });
-
-      const insert = () => {
-        if (panel.parentNode) return true;
-        const below = document.querySelector("#below") || document.querySelector("#secondary");
-        if (!below) return false;
-        below.prepend(panel);
-        return true;
-      };
-      ZenEngine.scheduleOnReady(ctx, insert, { attempts: 10, delayMs: 500 });
-      ctx.onNav(() => { render(); });
-      render();
-      Yt["smart-queue"].push(() => { if (panel.parentNode) panel.remove(); });
-    },
-    settings(en) { en.appendChild(Io("Enable Smart Watch Queue", "smartQueueOn")); } });
 
   xa.register({ id: "smart-speed", name: "Smart Speed", summary: "Premium-style adaptive speed: audio-driven detection of speech, silence, and slow segments with smooth ramping to reclaim wasted time. Always reverts to normal speed during speech, never fights manual overrides, and stays off live streams.", masterKey: "smartSpeedOn", keys: ["smartSpeedOn", "smartSpeedBase", "smartSpeedFast", "smartSpeedSilence", "smartSpeedRamp"],
     apply(ctx) {
@@ -28002,88 +28157,6 @@ const Nr = [
       en.appendChild(No("Silence speed (gaps)", "smartSpeedSilence", 1.25, 3.5, 0.05, v => v.toFixed(2) + "x"));
       en.appendChild(No("Ramp step per tick", "smartSpeedRamp", 0.05, 0.3, 0.05, v => v.toFixed(2) + "x"));
     } });
-  xa.register({ id: "living-sidebar", name: "Living Sidebar", summary: "Context-aware sidebar that transforms based on page type.", masterKey: "livingSidebarOn", keys: ["livingSidebarOn"],
-    apply(ctx) {
-      if (!S.livingSidebarOn) return;
-      ZenEngine.injectCSS();
-      let panel = null;
-      const build = () => {
-        if (panel && panel.parentNode) return true;
-        const secondary = document.querySelector("#secondary");
-        if (!secondary) return false;
-        if (!panel) {
-          panel = document.createElement("div");
-          panel.id = "ytp-zen-sidebar";
-        }
-        panel.replaceChildren();
-        const heading = document.createElement("div");
-        heading.style.cssText = "font-size:13px;font-weight:700;color:#fff;margin-bottom:6px";
-        heading.textContent = "Zen Sidebar";
-        panel.appendChild(heading);
-        const meta = document.createElement("div");
-        meta.className = "zen-meta";
-        meta.textContent = "Based on your watch genome";
-        meta.style.marginBottom = "8px";
-        panel.appendChild(meta);
-        const topics = ZenSession.genome.getTopTopics(6);
-        if (topics.length) {
-          topics.forEach(topic => {
-            const chip = document.createElement("button");
-            chip.className = "zen-chip";
-            chip.style.margin = "2px";
-            chip.textContent = topic;
-            chip.addEventListener("click", () => { e.location.href = "/results?search_query=" + encodeURIComponent(topic); });
-            panel.appendChild(chip);
-          });
-        } else {
-          const hint = document.createElement("div");
-          hint.className = "zen-meta";
-          hint.textContent = "Watch a few videos to build topic shortcuts here.";
-          panel.appendChild(hint);
-        }
-        const queueLine = document.createElement("div");
-        queueLine.className = "zen-row";
-        queueLine.style.cssText = "margin-top:8px;justify-content:space-between";
-        const queueText = document.createElement("span");
-        queueText.className = "zen-meta";
-        queueText.textContent = "Queue: " + ZenQueue.size() + " videos · " + ce(Math.floor(ZenQueue.getTotalTime()));
-        const queueBtn = document.createElement("button");
-        queueBtn.className = "zen-btn";
-        queueBtn.textContent = "Open queue";
-        queueBtn.style.fontSize = "10px";
-        queueBtn.addEventListener("click", () => {
-          const vid = ie.videoId();
-          if (vid) ZenQueue.add({ videoId: vid, title: ie.title() || vid, channel: ie.channel() || "", duration: ie.el() && ie.el().duration });
-          pe("Queued current video.", 1200, "success");
-        });
-        queueLine.append(queueText, queueBtn);
-        panel.appendChild(queueLine);
-        const small = ZenSession.genome.getSmallChannels(3);
-        if (small.length) {
-          const smallHeading = document.createElement("div");
-          smallHeading.className = "zen-meta";
-          smallHeading.style.cssText = "margin:8px 0 4px";
-          smallHeading.textContent = "Small creators you watch";
-          panel.appendChild(smallHeading);
-          small.forEach(([handle, info]) => {
-            const chip = document.createElement("button");
-            chip.className = "zen-chip";
-            chip.style.margin = "2px";
-            chip.textContent = info.name || handle;
-            chip.addEventListener("click", () => { e.location.href = "/" + handle.replace(/^UC/, "") + "/videos"; });
-            panel.appendChild(chip);
-          });
-        }
-        secondary.prepend(panel);
-        return true;
-      };
-      ZenEngine.scheduleOnReady(ctx, build, { attempts: 8, delayMs: 500 });
-      ctx.onNav(() => ctx.addTimeout(build, 0));
-      Yt["living-sidebar"].push(() => { if (panel && panel.parentNode) panel.remove(); panel = null; });
-    },
-    settings(en) { en.appendChild(Io("Enable Living Sidebar", "livingSidebarOn")); } });
-
-
   xa.register({ id: "credibility-layer", name: "Credibility Layer", summary: "Context signals on results: reach level, age badges. Context, not judgment.", masterKey: "credLayerOn", keys: ["credLayerOn"],
     apply(ctx) {
       if (!S.credLayerOn) return;
@@ -28385,52 +28458,101 @@ const Nr = [
       en.appendChild(info);
     } });
 
-  // ─── Algorithm Intelligence Feature ───────────────────────────────────────
+  // ─── Algorithm Intelligence Feature (V2: full-spectrum) ────────────────────
   xa.register({
     id: "algo-intelligence",
     name: "Algorithm Intelligence",
-    summary: "Autonomous recommendation algorithm manipulation. Monitors your signals, classifies your profile, detects mismatches between what you want and what YouTube shows, and sends corrective signals to reshape your feed.",
+    summary: "Full-spectrum recommendation algorithm manipulation: watch profiling with recency decay, channel affinity, interest boosting, filter-bubble diversity management, micro-feedback (auto like/dislike), Shorts feed shaping, negative-signal scanning, training sessions, and an aggression dial — all using organic, rate-limited signals.",
     masterKey: "algoIntelligenceOn",
-    keys: ["algoIntelligenceOn", "algoAutoTrain", "algoBlockTopics", "algoBlockKeywords", "algoScanInterval"],
+    keys: ["algoIntelligenceOn", "algoAutoTrain", "algoBlockTopics", "algoBlockKeywords", "algoBlockChannels", "algoScanInterval", "algoStrength", "algoBoostOn", "algoBoostInterval", "algoDiversityOn", "algoDiversityMax", "algoAutoLikeOn", "algoAutoLikePct", "algoShortsOn"],
     apply(ctx) {
       if (!S.algoIntelligenceOn) {
         AlgoEngine.stopMonitoring();
         return;
       }
 
+      // Strength dial scales every signal rate limit.
+      AlgoEngine.applyStrength(S.algoStrength || "balanced");
+
       // Start watch optimizer (monitors playback and tracks signals)
       AlgoEngine.startMonitoring();
       Yt["algo-intelligence"].push(() => AlgoEngine.stopMonitoring());
 
-      // Parse blocked topics from settings
-      const blockedTopicsStr = String(S.algoBlockTopics || "");
-      for (const t of blockedTopicsStr.split(/[,;\n]+/)) {
+      // Parse blocked topics / keywords / channels from settings
+      for (const t of String(S.algoBlockTopics || "").split(/[,;\n]+/)) {
         const trimmed = t.trim().toLowerCase();
         if (trimmed) AlgoEngine.blockTopic(trimmed);
       }
-      const blockedKwStr = String(S.algoBlockKeywords || "");
-      for (const kw of blockedKwStr.split(/[,;\n]+/)) {
+      for (const kw of String(S.algoBlockKeywords || "").split(/[,;\n]+/)) {
         const trimmed = kw.trim().toLowerCase();
         if (trimmed) AlgoEngine.blockKeyword(trimmed);
       }
+      for (const c of String(S.algoBlockChannels || "").split(/[,;\n]+/)) {
+        const trimmed = c.trim().toLowerCase();
+        if (trimmed) AlgoEngine.blockChannel(trimmed);
+      }
 
-      // Periodic negative signal scanning
+      const scanInterval = Math.max(30, Number(S.algoScanInterval) || 120) * 1000;
+
+      // Periodic negative-signal scanning (mismatch cleanup)
       if (S.algoAutoTrain) {
-        const scanInterval = Math.max(30, Number(S.algoScanInterval) || 120) * 1000;
         const doScan = async () => {
           if (document.hidden || _a()) return;
-          try {
-            await AlgoEngine.scanAndBlock(10);
-          } catch (_) {}
+          try { await AlgoEngine.scanAndBlock(10); } catch (_) {}
         };
         ctx.addTimeout(doScan, 5000);
         ctx.addInterval(doScan, scanInterval);
       }
+
+      // Interest boosting: re-assert top interests at a configurable cadence.
+      if (S.algoBoostOn) {
+        const boostInterval = Math.max(10, Number(S.algoBoostInterval) || 20) * 60 * 1000;
+        const doBoost = async () => {
+          if (document.hidden || _a()) return;
+          if (!location.pathname.startsWith("/shorts")) {
+            try { await AlgoEngine.boost(6); } catch (_) {}
+          }
+        };
+        ctx.addTimeout(doBoost, 30000);
+        ctx.addInterval(doBoost, boostInterval);
+      }
+
+      // Diversity management: widen a concentrated feed.
+      if (S.algoDiversityOn) {
+        const doDiversity = async () => {
+          if (document.hidden || _a()) return;
+          try { await AlgoEngine.maybeWiden(); } catch (_) {}
+        };
+        ctx.addTimeout(doDiversity, 45000);
+        ctx.addInterval(doDiversity, scanInterval * 2);
+      }
+
+      // Shorts feed shaping.
+      if (S.algoShortsOn) {
+        const doShorts = async () => {
+          if (document.hidden) return;
+          try { await AlgoEngine.scanShorts(5); } catch (_) {}
+        };
+        ctx.addTimeout(doShorts, 8000);
+        ctx.addInterval(doShorts, scanInterval);
+      }
     },
     settings(en) {
       en.appendChild(Io("Enable Algorithm Intelligence", "algoIntelligenceOn"));
+      en.appendChild(Ro("Signal strength", "algoStrength", {
+        light: "Light — gentle, minimal signals",
+        balanced: "Balanced (recommended) — natural pacing",
+        aggressive: "Aggressive — maximum reshaping speed",
+      }));
       en.appendChild(Io("Auto-scan and block mismatched recommendations", "algoAutoTrain"));
       en.appendChild(No("Scan interval (seconds)", "algoScanInterval", 30, 600, 10, v => v + "s"));
+      en.appendChild(Io("Auto-boost your top interests (searches + likes)", "algoBoostOn"));
+      en.appendChild(No("Boost interval (minutes)", "algoBoostInterval", 10, 120, 5, v => v + "m"));
+      en.appendChild(Io("Widen feed when one topic dominates (anti filter-bubble)", "algoDiversityOn"));
+      en.appendChild(No("Diversity trigger (dominant topic %)", "algoDiversityMax", 45, 90, 5, v => v + "%"));
+      en.appendChild(Io("Auto-like strongly-aligned watches", "algoAutoLikeOn"));
+      en.appendChild(No("Auto-like at watch %", "algoAutoLikePct", 50, 100, 5, v => v + "%"));
+      en.appendChild(Io("Shape the Shorts feed too", "algoShortsOn"));
       en.appendChild(Ho(
         "Blocked topics (comma-separated)",
         "algoBlockTopics",
@@ -28441,8 +28563,13 @@ const Nr = [
         "algoBlockKeywords",
         "drama, clickbait, reaction"
       ));
+      en.appendChild(Ho(
+        "Blocked channels (comma-separated)",
+        "algoBlockChannels",
+        ""
+      ));
 
-      // Profile display
+      // Live profile display
       const profileDiv = document.createElement("div");
       profileDiv.className = "ytp-hist-note";
       profileDiv.style.cssText = "margin-top:8px;padding:8px;background:rgba(255,255,255,.03);border-radius:6px";
@@ -28450,13 +28577,18 @@ const Nr = [
         const p = AlgoEngine.getProfile();
         const topicEntries = Object.entries(p.topics || {}).sort((a, b) => b[1] - a[1]).slice(0, 8);
         let html = "<strong>Your Algorithm Profile</strong><br>";
-        html += "Videos tracked: " + p.totalWatched + " | Avg watch: " + p.avgWatchPct + "% | Signals: " + p.sessionSignals + "<br>";
+        html += "Videos: " + p.totalWatched + " | Avg watch: " + p.avgWatchPct + "% | Signals: " + p.sessionSignals;
+        const chans = AlgoEngine.getChannels(3);
+        if (chans.length) html += " | Top channel: " + zenEscapeHtml(chans[0].name || "?") + " (" + chans[0].count + ")";
+        html += "<br>";
         if (topicEntries.length) {
           html += "Top topics: ";
-          html += topicEntries.map(([t, s]) => t + " (" + s + "%)").join(", ");
+          html += topicEntries.map(([t, s]) => zenEscapeHtml(t) + " (" + s + "%)").join(", ");
         } else {
           html += "Watch some videos to build your profile.";
         }
+        const d = AlgoEngine.analyzeDiversity();
+        if (d && d.dominant) html += "<br>Feed focus: " + zenEscapeHtml(d.dominant) + " at " + d.maxShare + "% of recommendations";
         profileDiv.innerHTML = html;
       };
       updateProfile();
@@ -28481,37 +28613,84 @@ const Nr = [
         updateProfile();
       }, "primary");
 
-      const trainBtn = Oo("Train Algorithm", async () => {
-        const topics = prompt("Enter topics to boost (comma-separated):", "tech, science, education");
-        if (!topics) return;
-        const topicList = topics.split(",").map(t => t.trim().toLowerCase()).filter(Boolean);
-        trainBtn.disabled = true;
-        trainBtn.textContent = "Training...";
+      const boostBtn = Oo("Boost Interests", async () => {
+        boostBtn.disabled = true;
+        boostBtn.textContent = "Boosting...";
         try {
-          const result = await AlgoEngine.train(topicList, { maxNegative: 10 });
-          const successes = result.results.filter(r => r.ok).length;
-          pe("Training complete: " + successes + "/" + result.results.length + " signals sent.", 3000, "success");
+          const r = await AlgoEngine.boost(6);
+          pe("Boost sent: " + r.searches + " searches, " + r.likes + " likes, " + r.browsed + " channel visits.", 3000, "success");
         } catch (_) {
-          pe("Training failed.", 2000, "error");
+          pe("Boost failed.", 2000, "error");
         }
-        trainBtn.disabled = false;
-        trainBtn.textContent = "Train Algorithm";
+        boostBtn.disabled = false;
+        boostBtn.textContent = "Boost Interests";
         updateProfile();
+      });
+
+      const widenBtn = Oo("Widen Bubble", async () => {
+        widenBtn.disabled = true;
+        widenBtn.textContent = "Widening...";
+        try {
+          const n = await AlgoEngine.widen(4);
+          pe("Explored " + n + " new topics outside your bubble.", 3000, "success");
+        } catch (_) {
+          pe("Widen failed.", 2000, "error");
+        }
+        widenBtn.disabled = false;
+        widenBtn.textContent = "Widen Bubble";
+        updateProfile();
+      });
+
+      const shortsBtn = Oo("Scan Shorts", async () => {
+        shortsBtn.disabled = true;
+        shortsBtn.textContent = "Scanning shorts...";
+        try {
+          const r = await AlgoEngine.scanShorts(5);
+          pe("Shorts: blocked " + r.actions + " of " + r.scanned + " visible shorts.", 3000, "success");
+        } catch (_) {
+          pe("Shorts scan failed.", 2000, "error");
+        }
+        shortsBtn.disabled = false;
+        shortsBtn.textContent = "Scan Shorts";
       });
 
       const analyzeBtn = Oo("Analyze Feed", () => {
         const analysis = AlgoEngine.analyzeHomepage();
         const mismatches = AlgoEngine.findMismatches();
+        const div = AlgoEngine.analyzeDiversity();
         let msg = "Feed analysis: " + analysis.count + " recommendations. ";
         msg += "Topic distribution: " + Object.entries(analysis.topicDistribution).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([t, s]) => t + " " + s + "%").join(", ");
         msg += ". Mismatches: " + mismatches.length;
-        pe(msg, 5000, "info");
+        if (div && div.dominant) msg += ". Most concentrated topic: " + div.dominant + " (" + div.maxShare + "%)";
+        pe(msg, 6000, "info");
+      });
+
+      const resetBtn = Oo("Reset Signal History", () => {
+        AlgoEngine.clearSignalHistory();
+        pe("Algorithm signal history cleared.", 2000, "success");
+        updateProfile();
       });
 
       actions.appendChild(scanBtn);
-      actions.appendChild(trainBtn);
+      actions.appendChild(boostBtn);
+      actions.appendChild(widenBtn);
+      actions.appendChild(shortsBtn);
       actions.appendChild(analyzeBtn);
+      actions.appendChild(resetBtn);
       en.appendChild(actions);
+
+      // Recent signal activity log
+      const logDiv = document.createElement("div");
+      logDiv.className = "ytp-hist-note";
+      logDiv.style.cssText = "margin-top:6px;padding:6px 8px;background:rgba(255,255,255,.02);border-radius:6px;font-size:10.5px;color:#999";
+      const updateLog = () => {
+        const events = AlgoEngine.getRecentSignals(6);
+        logDiv.textContent = "Recent signals: " + (events.length ? events.map(ev => ev.type + (ev.pct !== undefined ? " " + ev.pct + "%" : "")).join(" · ") : "none yet — watch some videos and scan the feed.");
+      };
+      updateLog();
+      const timer = setInterval(updateLog, 4000);
+      Co.push(() => clearInterval(timer));
+      en.appendChild(logDiv);
     },
   });
 
@@ -28731,73 +28910,6 @@ const Nr = [
     },
     settings(en) { en.appendChild(Io("Enable Watch Insights (Dexie.js)", "insightsOn")); } });
 
-  // -- Local AI Summaries (Transformers.js, on-device, opt-in) --
-  xa.register({ id: "local-ai", name: "Local AI Summaries", summary: "Summarizes video descriptions on-device with Transformers.js. Models download from Hugging Face on first use.", masterKey: "aiSummariesOn", keys: ["aiSummariesOn"],
-    apply(ctx) {
-      if (!S.aiSummariesOn) return;
-      ZenEngine.injectCSS();
-      let tx = null;
-      const load = async () => {
-        if (tx) return tx;
-        const r = await ZenEngine.fetchJson("https://cdn.jsdelivr.net/npm/@huggingface/transformers@2.17.2/dist/transformers.min.js", { timeout: 60000 });
-        if (!r.ok || !r.text) throw new Error("Failed to download Transformers.js");
-        const mod = new Function("self", "window", "globalThis", r.text + "\nreturn typeof transformers !== 'undefined' ? transformers : null;");
-        const m = mod(globalThis, globalThis, globalThis);
-        if (!m) throw new Error("Transformers.js failed to initialize");
-        tx = m;
-        return m;
-      };
-      const mount = () => {
-        if (!location.pathname.startsWith("/watch")) return true;
-        if (document.getElementById("ytp-zen-ai")) return true;
-        const desc = document.querySelector("#description-inline-expander #plain-suggestive-description span, #attributed-description #plain-suggestive-description, ytd-text-inline-expander yt-formatted-string#plain-suggestive-description span, ytd-watch-metadata #description yt-attributed-string, meta[name=\"description\"]");
-        if (!desc) return true;
-        const box = document.createElement("div");
-        box.id = "ytp-zen-ai";
-        const hdr = document.createElement("div");
-        hdr.className = "zen-ai-hdr";
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.textContent = "Summarize on-device";
-        hdr.appendChild(btn);
-        const body = document.createElement("div");
-        body.className = "zen-ai-body";
-        const note = document.createElement("div");
-        note.className = "zen-ai-note";
-        note.textContent = "Runs locally in your browser. First run downloads the model (~250MB) from Hugging Face.";
-        box.append(hdr, body, note);
-        btn.addEventListener("click", async () => {
-          btn.disabled = true;
-          btn.textContent = "Loading model\u2026";
-          try {
-            const m = await load();
-            const text = (desc.textContent || desc.content || "").replace(/\s+/g, " ").trim().slice(0, 1200);
-            if (!text) { body.textContent = "No description text available to summarize."; return; }
-            btn.textContent = "Summarizing\u2026";
-            const pipe = await m.pipeline("summarization", "Xenova/distilbart-cnn-6-6");
-            const out = await pipe(text, { max_length: 80, min_length: 20 });
-            body.textContent = (out && out[0] && out[0].summary_text) || "No summary produced.";
-          } catch (err) {
-            body.textContent = "Local AI failed: " + (err && err.message ? err.message : String(err));
-          } finally {
-            btn.disabled = false;
-            btn.textContent = "Summarize on-device";
-          }
-        });
-        const anchor = desc.closest("ytd-text-inline-expander, ytd-watch-metadata") || desc.parentElement;
-        if (anchor && anchor.parentElement) anchor.parentElement.insertBefore(box, anchor.nextSibling);
-        return true;
-      };
-      ZenEngine.scheduleOnReady(ctx, mount, { attempts: 8, delayMs: 500 });
-      ctx.onNav(() => ctx.addTimeout(mount, 0));
-      Yt["local-ai"].push(() => {
-        const el = document.getElementById("ytp-zen-ai");
-        if (el) el.remove();
-      });
-    },
-    settings(en) { en.appendChild(Io("Enable Local AI Summaries (Transformers.js)", "aiSummariesOn")); } });
-
-
   xa.register({
     id: "perf-mode",
     name: "Performance Mode",
@@ -28826,6 +28938,43 @@ const Nr = [
       };
       const tier = TIERS[LEVEL] || TIERS.balanced;
       const on = (k) => !!S["perf" + k] || !!tier[k];
+
+      // Level ⇄ toggle sync: writing the level writes the granular keys so the
+      // settings checkboxes always reflect exactly what the level enables.
+      const syncLevelToggles = () => {
+        const lvl = S.perfModeLevel || "balanced";
+        const t = TIERS[lvl] || TIERS.balanced;
+        const map = [
+          ["perfContainment", "containment"],
+          ["perfLazyThumbs", "lazyThumbs"],
+          ["perfLazyComments", "lazyComments"],
+          ["perfKillAnim", "killAnim"],
+          ["perfKillBlur", "killBlur"],
+          ["perfThumbQuality", "thumbQuality"],
+          ["perfDisablePreviews", "disablePreviews"],
+          ["perfMemoryTrim", "memory"],
+          ["perfPrefetch", "prefetch"],
+          ["perfPreconnect", "preconnect"],
+          ["perfBgThrottle", "bgThrottle"],
+          ["perfPaintReduction", "paint"],
+          ["perfQualityCap", "qualityCap"],
+        ];
+        for (const [key, tierKey] of map) {
+          const target = !!t[tierKey];
+          if (!!S[key] !== target) {
+            S[key] = target;
+            try { g.emit("cfg.changed", { key, val: target }); } catch (_) {}
+          }
+        }
+      };
+      syncLevelToggles();
+      const levelUnsub = So("cfg.changed", ({ key: k }) => {
+        if (k === "perfModeLevel") {
+          syncLevelToggles();
+          try { xa.apply("perf-mode"); } catch (_) {}
+        }
+      });
+      Yt["perf-mode"].push(() => { try { if (typeof levelUnsub === "function") levelUnsub(); } catch (_) {} });
       let perfStyle = document.getElementById("ytp-perf-style");
       if (!perfStyle) {
         perfStyle = document.createElement("style");
@@ -29055,6 +29204,136 @@ const Nr = [
       info.innerHTML = "<strong>Level presets:</strong> each preset turns on a set of optimizations. Granular switches add individual optimizations on top of the selected level. Maximum disables moving thumbnails, caps video quality, and maximizes paint reduction.";
       en.appendChild(info);
     } });
+  xa.register({
+    id: "overlay-hub",
+    name: "Monolith Overlay Hub",
+    summary: "Groups every floating monitor (Live FPS Counter, Buffer Health Monitor, Dropped Frame Counter, Playback Performance Overlay, Activity Monitor) into one extendable glass widget instead of separate boxes. Monitors join and leave automatically as you toggle them at run time.",
+    masterKey: "overlayHubOn",
+    keys: ["overlayHubOn", "overlayHubPos"],
+    apply(ctx) {
+      const CONTAINER_ID = "ytp-zen-monolith";
+      const STYLE_ID = "ytp-zen-monolith-style";
+      const ADOPT_SELECTOR = "#ytp-fps-box, #ytp-buf-box, #ytp-drop-box, #ytp-stats, #ytp-diag";
+      let container = null;
+      let collapsed = false;
+
+      const position = () => {
+        if (!container) return;
+        const pos = S.overlayHubPos || "bl";
+        container.style.top = "tl" === pos || "tr" === pos ? "8px" : "";
+        container.style.bottom = "bl" === pos || "br" === pos ? "48px" : "";
+        container.style.left = "tl" === pos || "bl" === pos ? "8px" : "";
+        container.style.right = "tr" === pos || "br" === pos ? "8px" : "";
+      };
+
+      const ensureStyle = () => {
+        if (document.getElementById(STYLE_ID)) return;
+        const st = document.createElement("style");
+        st.id = STYLE_ID;
+        st.textContent = [
+          "#ytp-zen-monolith{position:fixed;z-index:2147483635;padding:6px 8px 7px;background:rgba(20,22,28,.82);border:1px solid rgba(255,255,255,.12);border-radius:10px;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);box-shadow:0 6px 20px rgba(0,0,0,.4);font:11px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;color:#ddd;min-width:180px;max-width:250px;pointer-events:none}",
+          "#ytp-zen-monolith .ytp-mon-hdr{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:4px;pointer-events:auto;cursor:move;user-select:none}",
+          "#ytp-zen-monolith .ytp-mon-title{font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#fff}",
+          "#ytp-zen-monolith .ytp-mon-toggle{background:transparent;border:0;color:#8ab;cursor:pointer;font-size:11px;line-height:1;padding:2px 4px;border-radius:4px}",
+          "#ytp-zen-monolith .ytp-mon-toggle:hover{background:rgba(255,255,255,.1)}",
+          "#ytp-zen-monolith #ytp-fps-box,#ytp-zen-monolith #ytp-buf-box,#ytp-zen-monolith #ytp-drop-box,#ytp-zen-monolith #ytp-stats,#ytp-zen-monolith #ytp-diag{position:static!important;top:auto!important;bottom:auto!important;left:auto!important;right:auto!important;width:100%!important;min-width:0!important;box-sizing:border-box!important;margin:0 0 6px!important;padding:4px 6px!important;background:rgba(255,255,255,.05)!important;border:1px solid rgba(255,255,255,.08)!important;border-radius:6px!important;box-shadow:none!important;pointer-events:none!important}",
+          "#ytp-zen-monolith .ytp-mon-empty{color:#667;font-size:10.5px;padding:2px 0}",
+        ].join("\n");
+        (document.head || document.documentElement).appendChild(st);
+      };
+
+      const getHub = () => {
+        ensureStyle();
+        if (container && container.parentNode) return container;
+        container = document.createElement("div");
+        container.id = CONTAINER_ID;
+        const hdr = document.createElement("div");
+        hdr.className = "ytp-mon-hdr";
+        const title = document.createElement("span");
+        title.className = "ytp-mon-title";
+        title.textContent = "Zen Monitors";
+        const toggle = document.createElement("button");
+        toggle.type = "button";
+        toggle.className = "ytp-mon-toggle";
+        toggle.textContent = "–";
+        toggle.title = "Collapse / expand";
+        toggle.addEventListener("click", () => {
+          collapsed = !collapsed;
+          toggle.textContent = collapsed ? "+" : "–";
+          if (container) container.style.display = collapsed ? "none" : "";
+        });
+        hdr.append(title, toggle);
+        container.appendChild(hdr);
+        document.body.appendChild(container);
+        position();
+        return container;
+      };
+
+      const removeContainer = () => {
+        if (container && container.parentNode) { try { container.parentNode.removeChild(container); } catch (_) {} }
+        container = null;
+        const st = document.getElementById(STYLE_ID);
+        if (st) { try { st.remove(); } catch (_) {} }
+      };
+
+      const adopt = () => {
+        try {
+          if (!S.overlayHubOn || !document.body) { removeContainer(); return; }
+          const widgets = document.querySelectorAll(ADOPT_SELECTOR);
+          let count = 0;
+          for (const w of widgets) {
+            if (w.closest("#" + CONTAINER_ID)) { count++; continue; }
+            const hub = getHub();
+            if (!hub) return;
+            hub.appendChild(w);
+            count++;
+          }
+          const hub = document.getElementById(CONTAINER_ID);
+          if (!hub) return;
+          if (count === 0) {
+            if (collapsed) return;
+            if (!hub.querySelector(".ytp-mon-empty")) {
+              const empty = document.createElement("div");
+              empty.className = "ytp-mon-empty";
+              empty.textContent = "Enable a monitor to attach it here.";
+              hub.appendChild(empty);
+            }
+            return;
+          }
+          const emptyEl = hub.querySelector(".ytp-mon-empty");
+          if (emptyEl) emptyEl.remove();
+          position();
+        } catch (_) {}
+      };
+
+      adopt();
+      ctx.addInterval(adopt, 500);
+      ctx.onNav(() => ctx.addTimeout(adopt, 600));
+
+      const unsub = So("cfg.changed", ({ key: k }) => {
+        if (k === "overlayHubOn") adopt();
+        if (k === "overlayHubPos") position();
+      });
+      Yt["overlay-hub"].push(() => {
+        try { if (typeof unsub === "function") unsub(); } catch (_) {}
+        removeContainer();
+      });
+    },
+    settings(en) {
+      en.appendChild(Io("Group all floating monitors into one widget", "overlayHubOn"));
+      en.appendChild(Ro("Widget position", "overlayHubPos", {
+        tl: "Top-left",
+        tr: "Top-right",
+        bl: "Bottom-left",
+        br: "Bottom-right",
+      }));
+      const info = document.createElement("div");
+      info.className = "ytp-hist-note";
+      info.style.marginTop = "8px";
+      info.innerHTML = "<strong>Monolith:</strong> when enabled, every floating monitor (FPS, buffer, dropped frames, playback stats, activity) is gathered into a single widget that grows and shrinks as you toggle monitors on and off.";
+      en.appendChild(info);
+    },
+  });
   (async function () {
     try {
       z();

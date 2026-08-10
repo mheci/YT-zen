@@ -31,7 +31,6 @@
 // @connect      returnyoutubedislikeapi.com
 // @connect      cdn.jsdelivr.net
 // @connect      huggingface.co
-// @require      https://cdn.jsdelivr.net/npm/dexie@4.0.8/dist/dexie.min.js
 // @require      https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js
 // @require      https://cdn.jsdelivr.net/npm/culori@3.2.0/dist/culori.min.js
 // @icon         https://raw.githubusercontent.com/mheci/YT-zen/main/icon.png
@@ -1124,8 +1123,7 @@
         smallCreatorMaxSubs: 10000,
         rabbitHoleOn: !1,
         rabbitHoleDepth: 5,
-        antiRecOn: !1,
-        momentumOn: !1,
+        discoverOn: !1,
         sceneJumperOn: !1,
         smartQueueOn: !1,
         videoDnaOn: !1,
@@ -1136,7 +1134,6 @@
         dearrowOn: !1,
         rydVotesOn: !1,
         screenWakeOn: !1,
-        insightsOn: !1,
         aiSummariesOn: !1,
         themeGenColor: "#ff3d7f",
         inlinePreviewsOn: !1,
@@ -10677,6 +10674,11 @@
   }
   function Wa(e) {
     if (!e || e.dataset.ytpBlockBtn) return;
+    // No block buttons in the navigation sidebar or the watch-page rail.
+    if (e.closest("ytd-guide-renderer,ytd-mini-guide-renderer,#guide,ytd-watch-next-secondary-results-renderer,#secondary,#related")) return;
+    // Avatar/thumbnail links carry no visible text; the adjacent name link
+    // gets the single button (watch-page owner, commenters, feed cards).
+    if (e.querySelector("yt-img-shadow")) return;
     const t = Cb_anchorInfo(e),
       a = t.handle || t.name;
     if (!a) return;
@@ -10731,6 +10733,7 @@
         '.ytp-channel-blocked,.ytp-ublock-hidden{display:none!important;visibility:hidden!important;pointer-events:none!important}' +
         '.ytp-channel-block-btn{margin-left:6px;border:0;border-radius:999px;background:rgba(204,0,0,.12);color:#ff7777;padding:2px 7px;font:700 10px system-ui;cursor:pointer;vertical-align:middle}' +
         '.ytp-channel-block-btn:hover{background:rgba(204,0,0,.25);color:#fff}' +
+        'ytd-comment-renderer #header-author{display:flex;flex-direction:row;flex-wrap:wrap;align-items:center;column-gap:8px}' +
         '.ytp-channel-path-blocked ytd-browse[page-subtype="channels"]{display:none!important}'
       );
 
@@ -27203,8 +27206,8 @@ const Nr = [
   //    ZenSession    - Watch genome, collections, time budget
   //    ZenQueue      - Intelligent queue management
   //
-  //  Features (18):
-  //    Discovery:  Time Machine, Small Creator, Rabbit Hole, Anti-Rec, Momentum
+  //  Features (21):
+  //    Discovery:  Discover (unified), Time Machine, Small Creator, Rabbit Hole
   //    Playback:   Scene Jumper, Smart Speed, Video DNA
   //    Layout:     Living Sidebar, Inline Previews
   //    Search:     Vibe Search, Credibility Layer, Search Remix, Outdated Detection
@@ -27320,9 +27323,6 @@ const Nr = [
 .zen-ryd-like{background:#3ea6ff;height:100%}
 .zen-ryd-dislike{background:#ff5252;height:100%}
 .zen-ryd-label{font:600 10.5px system-ui;color:#aaa;display:flex;gap:8px;align-items:center;justify-content:space-between}
-#ytp-zen-insights{font-size:11.5px;color:#ddd;margin:8px 12px}
-#ytp-zen-insights .ins-row{display:flex;justify-content:space-between;gap:8px;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.05)}
-#ytp-zen-insights .ins-total{font-weight:700;color:#fff}
 #ytp-zen-ai{max-width:640px;margin:12px 0}
 #ytp-zen-ai .zen-ai-hdr{display:flex;align-items:center;gap:8px;font:600 11.5px system-ui;color:#fff;margin-bottom:6px}
 #ytp-zen-ai button{background:rgba(255,61,127,.14);border:1px solid rgba(255,61,127,.4);color:#ff8aa5;
@@ -27504,8 +27504,8 @@ const Nr = [
     };
     // Shared compact discovery widget: one slim card in the right sidebar on
     // watch pages (and right-aligned at the top of the feed elsewhere). Every
-    // feature that opts in gets a tab inside the same host, so enabling
-    // Anti-Rec + Momentum yields one widget, not two stacked feeds.
+    // feature that opts in gets a tab inside the same host, so enabling the
+    // unified Discover toggle yields one widget, not stacked feeds.
     let sharedHost = null;
     const createDiscoveryHostCore = (ctx) => {
       const root = document.createElement("div");
@@ -27643,6 +27643,8 @@ const Nr = [
         };
         api.refresh = (force) => { activate(id, !!force); };
         api.destroy = () => removeSection(id);
+        api.list = list;
+        api.body = body;
         if (!activeId) activate(id);
         ensureMount();
         return api;
@@ -28705,7 +28707,7 @@ const Nr = [
 
 
   // ═══════════════════════════════════════════════════════════════════════════
-  //  FEATURE REGISTRATIONS (22 features)
+  //  FEATURE REGISTRATIONS (21 features)
   // ═══════════════════════════════════════════════════════════════════════════
 
   xa.register({
@@ -28836,68 +28838,201 @@ const Nr = [
       en.appendChild(No("Max subscribers", "smallCreatorMaxSubs", 1000, 100000, 1000, v => v.toLocaleString()));
     } });
 
-  const AR_CANDIDATES = ["cooking", "science", "diy", "travel", "finance", "fitness", "history", "photography", "space", "art"];
-  xa.register({ id: "anti-rec", name: "Anti-Recommendation Engine", summary: "Break filter bubbles by surfacing content from adjacent interest spaces.", masterKey: "antiRecOn", keys: ["antiRecOn"],
+  const DISCOVER_CATEGORIES = {
+    tech: { label: "Technology", query: "technology" },
+    gaming: { label: "Gaming", query: "gaming" },
+    science: { label: "Science", query: "science" },
+    education: { label: "Education", query: "education" },
+    music: { label: "Music", query: "music" },
+    news: { label: "News", query: "news" },
+    entertainment: { label: "Movies & TV", query: "movies and tv" },
+    fitness: { label: "Fitness", query: "fitness workout" },
+    finance: { label: "Finance", query: "personal finance" },
+    cooking: { label: "Cooking", query: "cooking recipes" },
+    travel: { label: "Travel", query: "travel" },
+    diy: { label: "DIY & Crafts", query: "diy projects" },
+    automotive: { label: "Automotive", query: "cars" },
+  };
+  const DISCOVER_DEFAULT_NICHE = ["tech", "gaming", "science"];
+  // Relevance, then this week / this month / this year — enough variants to
+  // always surface at least 10 never-watched picks per topic.
+  const DISCOVER_SEARCH_SP = [null, "EgIIAw%3D%3D", "EgIIBA%3D%3D", "EgIIBQ%3D%3D"];
+  const DISCOVER_MIN_TOPICS = 8;
+  const DISCOVER_MIN_VIDEOS = 10;
+  const DISCOVER_MAX_VIDEOS = 20;
+  xa.register({
+    id: "discover",
+    name: "Discover",
+    summary: "One unified discovery toggle: pick a niche (or step outside it) and browse fresh videos from 8+ categories. Every pick is filtered against your watch history, so nothing you have already seen is ever shown again.",
+    masterKey: "discoverOn",
+    keys: ["discoverOn"],
     apply(ctx) {
-      if (!S.antiRecOn) return;
+      if (!S.discoverOn) return;
       ZenEngine.injectCSS();
+      ctx.addStyle(
+        ".zen-disco-mode{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px}" +
+        ".zen-disco-mode .zen-mode-btn{padding:4px 10px;border-radius:999px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);color:#ccc;font:600 10.5px system-ui;cursor:pointer;transition:all .12s}" +
+        ".zen-disco-mode .zen-mode-btn:hover{background:rgba(255,255,255,.09)}" +
+        ".zen-disco-mode .zen-mode-btn.active{background:rgba(255,61,127,.16);border-color:rgba(255,61,127,.35);color:#ff8aa5}" +
+        ".zen-disco-grid{display:flex;gap:4px;flex-wrap:wrap;margin:2px 0 6px}" +
+        ".zen-disco-grid .zen-topic-btn{padding:3px 9px;border-radius:999px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);color:#ccc;font:600 10px system-ui;cursor:pointer;transition:all .12s}" +
+        ".zen-disco-grid .zen-topic-btn:hover{background:rgba(255,255,255,.09);border-color:rgba(255,255,255,.16)}" +
+        ".zen-disco-grid .zen-topic-btn.active{background:rgba(255,61,127,.16);border-color:rgba(255,61,127,.35);color:#ff8aa5}"
+      );
       const host = ZenDiscovery.discoveryHost(ctx);
-      const api = host.addSection("anti-rec", "Anti-bubble", () => {
-        const owned = ZenSession.genome.getTopTopics(3);
-        const pool = AR_CANDIDATES.filter(t => !owned.includes(t));
-        const topic = pool.length ? pool[Math.floor(Math.random() * pool.length)] : AR_CANDIDATES[Math.floor(Math.random() * AR_CANDIDATES.length)];
-        api.clear();
-        api.status("Sampling: " + topic + " (outside your usual topics)…");
-        ZenSearch.search(topic).then(videos => {
-          api.clear();
-          if (!videos.length) { api.status("Nothing surfaced for " + topic + ". Surprise me again."); return; }
-          videos.slice(0, 20).forEach(v => api.row(v));
-          api.status("Showing " + videos.slice(0, 20).length + " picks from " + topic);
-        }).catch(() => { api.status("Search failed. Try again."); });
-      });
-      api.button("Surprise me", "primary", () => api.refresh(true));
-      ctx.onNav(() => host.refresh("anti-rec"));
-      Yt["anti-rec"].push(() => api.destroy());
-    },
-    settings(en) { en.appendChild(Io("Enable Anti-Recommendation Engine", "antiRecOn")); } });
-
-  xa.register({ id: "momentum", name: "Before It Blew Up", summary: "Finds videos gaining momentum: this month's uploads ranked by view velocity.", masterKey: "momentumOn", keys: ["momentumOn"],
-    apply(ctx) {
-      if (!S.momentumOn) return;
-      ZenEngine.injectCSS();
-      const host = ZenDiscovery.discoveryHost(ctx);
-      const api = host.addSection("momentum", "Momentum", () => {
-        const topic = ZenSession.genome.getTopTopics(1)[0] || "tech";
-        api.clear();
-        api.status("Ranking this month's " + topic + " uploads by views/hour…");
-        ZenSearch.search(topic, "EgIIBA%3D%3D").then(videos => {
-          api.clear();
-          const ranked = videos
-            .filter(v => v.publishedAt > 0 && v.viewCount > 0)
-            .map(v => Object.assign({}, v, {
-              velocity: v.viewCount / Math.max(1, (Date.now() - v.publishedAt) / 3600000),
-            }))
-            .sort((a, b) => b.velocity - a.velocity)
-            .slice(0, 20);
-          api.status(ranked.length
-            ? "Top " + ranked.length + " rising videos (views/hour)"
-            : "Not enough data this month. Try again later.");
-          ranked.forEach(video => {
-            const label = video.velocity >= 1000
-              ? Math.round(video.velocity / 1000) + "K views/hr"
-              : Math.round(video.velocity) + " views/hr";
-            const row = api.row(video);
-            const meta = row.querySelector(".zen-meta");
-            const velocity = api.badge(label);
-            if (meta) meta.appendChild(velocity);
+      let api = null;
+      let mode = "niche";
+      let activeTopic = null;
+      let grid = null;
+      const sessionShown = new Set();
+      // Categories shown for the current mode. "My niche" ranks your watch
+      // genome, pads to at least 8, and "Outside my niche" is everything else
+      // (13 minus your top 3 = 10). The set is dynamic: it follows your genome.
+      const topicsForMode = () => {
+        let ranked = [];
+        try {
+          const words = ZenSession.genome.getTopTopics(12);
+          if (words.length) {
+            const scores = AlgoEngine.ContentClassifier.classify({ title: words.join(" ") });
+            ranked = Object.entries(scores || {}).sort((a, b) => b[1] - a[1]).map(e => e[0]);
+          }
+        } catch (_) {}
+        const top = ranked.slice(0, 3).length ? ranked.slice(0, 3) : DISCOVER_DEFAULT_NICHE.slice();
+        const all = Object.keys(DISCOVER_CATEGORIES);
+        if (mode === "outside") return all.filter(k => !top.includes(k));
+        const niche = top.slice();
+        for (const k of all) {
+          if (niche.length >= DISCOVER_MIN_TOPICS) break;
+          if (!niche.includes(k)) niche.push(k);
+        }
+        return niche.slice(0, DISCOVER_MIN_TOPICS);
+      };
+      // A video counts as watched when a row exists in the always-on local
+      // history store, so picks never repeat anything you have already seen.
+      const isWatched = async (videoId) => {
+        try { return !!(await v("history", videoId)); } catch (_) { return false; }
+      };
+      const fetchFresh = async (category) => {
+        const spec = DISCOVER_CATEGORIES[category];
+        if (!spec) return [];
+        const fresh = [];
+        const seen = new Set();
+        for (const sp of DISCOVER_SEARCH_SP) {
+          if (fresh.length >= DISCOVER_MIN_VIDEOS) break;
+          let list = [];
+          try { list = await ZenSearch.search(spec.query, sp); } catch (_) {}
+          for (const video of list) {
+            if (!video || !video.videoId || seen.has(video.videoId) || sessionShown.has(video.videoId)) continue;
+            if (await isWatched(video.videoId)) continue;
+            seen.add(video.videoId);
+            fresh.push(video);
+          }
+        }
+        return fresh.slice(0, DISCOVER_MAX_VIDEOS);
+      };
+      const renderGrid = () => {
+        if (!grid) return;
+        grid.replaceChildren();
+        for (const key of topicsForMode()) {
+          const spec = DISCOVER_CATEGORIES[key];
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "zen-topic-btn" + (activeTopic === key ? " active" : "");
+          btn.textContent = spec.label;
+          btn.addEventListener("click", () => {
+            if (activeTopic === key) { api.refresh(true); return; }
+            activeTopic = key;
+            load();
           });
-        }).catch(() => { api.status("Search failed. Try again."); });
+          grid.appendChild(btn);
+        }
+      };
+      function load() {
+        if (!api) return;
+        const key = activeTopic;
+        if (!key) {
+          api.status("Pick a topic above to browse fresh videos you haven't watched.");
+          api.clear();
+          return;
+        }
+        const spec = DISCOVER_CATEGORIES[key];
+        renderGrid();
+        api.clear();
+        api.status("Loading " + spec.label + "…");
+        fetchFresh(key).then(videos => {
+          if (activeTopic !== key) return;
+          api.clear();
+          if (!videos.length) {
+            api.status("Nothing fresh found for " + spec.label + ". Try another topic.");
+            return;
+          }
+          videos.forEach(video => {
+            sessionShown.add(video.videoId);
+            api.list.appendChild(ZenDiscovery.createVideoRow(
+              video.videoId,
+              video.title,
+              video.channel,
+              () => { e.location.href = "/watch?v=" + video.videoId; },
+              null,
+              true,
+            ));
+          });
+          api.status("Showing " + videos.length + " never-watched picks from " + spec.label);
+        }).catch(() => {
+          if (activeTopic === key) { api.clear(); api.status("Search failed. Try again."); }
+        });
+      }
+      api = host.addSection("discover", "Discover", load);
+      api.button("Surprise me", "primary", () => {
+        const candidates = Object.keys(DISCOVER_CATEGORIES).filter(k => k !== activeTopic);
+        if (!candidates.length) return;
+        activeTopic = candidates[Math.floor(Math.random() * candidates.length)];
+        load();
       });
-      api.button("Scan for rising", "primary", () => api.refresh(true));
-      ctx.onNav(() => host.refresh("momentum"));
-      Yt["momentum"].push(() => api.destroy());
+      // Mode toggle + topic grid sit above the status line inside the section.
+      const ensureUi = () => {
+        if (grid || !api.body) return;
+        const modeRow = document.createElement("div");
+        modeRow.className = "zen-disco-mode";
+        const nicheBtn = document.createElement("button");
+        nicheBtn.type = "button";
+        nicheBtn.className = "zen-mode-btn active";
+        nicheBtn.textContent = "My niche";
+        const outsideBtn = document.createElement("button");
+        outsideBtn.type = "button";
+        outsideBtn.className = "zen-mode-btn";
+        outsideBtn.textContent = "Outside my niche";
+        const setMode = (next) => {
+          mode = next;
+          nicheBtn.classList.toggle("active", next === "niche");
+          outsideBtn.classList.toggle("active", next === "outside");
+          activeTopic = null;
+          renderGrid();
+          load();
+        };
+        nicheBtn.addEventListener("click", () => setMode("niche"));
+        outsideBtn.addEventListener("click", () => setMode("outside"));
+        modeRow.append(nicheBtn, outsideBtn);
+        grid = document.createElement("div");
+        grid.className = "zen-disco-grid";
+        api.body.prepend(grid);
+        api.body.prepend(modeRow);
+        renderGrid();
+      };
+      // Freshness is enforced against the always-on local history store, so
+      // picks never repeat anything already seen, even before this toggle.
+      ctx.onNav(() => { ensureUi(); host.refresh("discover"); });
+      ctx.addTimeout(() => {
+        ensureUi();
+        load();
+      }, 0);
+      Yt["discover"].push(() => api.destroy());
     },
-    settings(en) { en.appendChild(Io("Enable Before It Blew Up feed", "momentumOn")); } });
+    settings(en) {
+      en.appendChild(Io("Enable Discover", "discoverOn"));
+      en.appendChild(To("div", "ytp-discover-note",
+        "One toggle for discovery. Browse 8+ categories inside or outside your niche; every pick is filtered against your watch history and never repeats a video you have already seen."));
+    } });
 
   xa.register({ id: "scene-jumper", name: "Scene Jumper", summary: "Auto-detect scene transitions using audio silence analysis. Click markers to jump.", masterKey: "sceneJumperOn", keys: ["sceneJumperOn"],
     apply(ctx) {
@@ -29900,84 +30035,6 @@ const Nr = [
     },
     settings(en) { en.appendChild(Io("Keep the screen awake while playing", "screenWakeOn")); } });
 
-  // -- Watch Insights (Dexie.js) --
-  xa.register({ id: "watch-insights", name: "Watch Insights", summary: "Tracks watch sessions with Dexie.js and shows today's watch time and top channels.", masterKey: "insightsOn", keys: ["insightsOn"],
-    apply(ctx) {
-      if (!S.insightsOn) return;
-      if (typeof Dexie === "undefined") return;
-      ZenEngine.injectCSS();
-      const db = new Dexie("ytzen-insights");
-      db.version(1).stores({ sessions: "++id, videoId, channel, ts, [channel+ts]" });
-      const fmtMin = (ms) => {
-        const m = Math.round(ms / 60000);
-        return m >= 60 ? Math.floor(m / 60) + "h " + (m % 60) + "m" : m + "m";
-      };
-      let session = null;
-      const start = () => {
-        const vid = ie.el();
-        if (!vid || !location.pathname.startsWith("/watch")) return;
-        const v = ie.videoId();
-        if (session && session.videoId === v) return;
-        if (session) finalize();
-        session = { videoId: v, channel: "", ts: Date.now(), watchedMs: 0 };
-        try {
-          const meta = document.querySelector("#owner yt-formatted-string a, #owner-channel-name a");
-          if (meta) session.channel = meta.textContent.trim();
-        } catch (_) {}
-      };
-      const finalize = () => {
-        if (!session) return;
-        const s = session;
-        session = null;
-        if (s.watchedMs < 5000) return;
-        try {
-          db.sessions.add({ videoId: s.videoId, channel: s.channel || "", ts: s.ts, watchedMs: s.watchedMs }).catch(() => {});
-        } catch (_) {}
-      };
-      ctx.addInterval(() => {
-        if (!S.insightsOn) return false;
-        const vid = ie.el();
-        if (location.pathname.startsWith("/watch") && vid && !vid.paused && !vid.ended) {
-          if (!session) start();
-          if (session) session.watchedMs += 5000;
-        } else if (session) {
-          finalize();
-        }
-        return true;
-      }, 5000);
-      ctx.onNav(() => { finalize(); ctx.addTimeout(start, 800); });
-      ctx.addListener(document, "visibilitychange", () => { if (document.visibilityState === "hidden") finalize(); });
-      const panel = () => {
-        if (!S.insightsOn) return true;
-        if (!location.pathname.startsWith("/watch")) return true;
-        if (document.getElementById("ytp-zen-insights")) return true;
-        const host = document.querySelector("#secondary-inner") || document.querySelector("#secondary");
-        if (!host) return false;
-        const box = document.createElement("div");
-        box.id = "ytp-zen-insights";
-        const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0);
-        db.sessions.where("ts").aboveOrEqual(dayStart.getTime()).toArray().then((rows) => {
-          const total = rows.reduce((a, r) => a + (r.watchedMs || 0), 0);
-          const byChannel = {};
-          rows.forEach((r) => { const c = r.channel || "Unknown"; byChannel[c] = (byChannel[c] || 0) + (r.watchedMs || 0); });
-          const top = Object.entries(byChannel).sort((a, b) => b[1] - a[1]).slice(0, 3);
-          box.innerHTML = "<div style=\"font-weight:700;color:#fff;margin-bottom:4px\">Today\u2019s watch time</div>" +
-            "<div class=\"ins-row\"><span>Total</span><span class=\"ins-total\">" + fmtMin(total) + "</span></div>" +
-            top.map(([c, m]) => "<div class=\"ins-row\"><span>" + String(c).slice(0, 28) + "</span><span>" + fmtMin(m) + "</span></div>").join("");
-        }).catch(() => {});
-        host.prepend(box);
-        return true;
-      };
-      ZenEngine.scheduleOnReady(ctx, panel, { attempts: 8, delayMs: 500 });
-      ctx.onNav(() => ctx.addTimeout(panel, 0));
-      Yt["watch-insights"].push(() => {
-        finalize();
-        const el = document.getElementById("ytp-zen-insights");
-        if (el) el.remove();
-        try { db.close(); } catch (_) {}
-      });
-    },
-    settings(en) { en.appendChild(Io("Enable Watch Insights (Dexie.js)", "insightsOn")); } });
 
   // -- Local AI Summaries (Transformers.js, on-device, opt-in) --
   xa.register({ id: "local-ai", name: "Local AI Summaries", summary: "Summarizes video descriptions on-device with Transformers.js. Models download from Hugging Face on first use.", masterKey: "aiSummariesOn", keys: ["aiSummariesOn"],

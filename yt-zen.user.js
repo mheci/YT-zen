@@ -8181,25 +8181,30 @@ algoBlockChannels: "",
     apply(e) {
       const t = Math.max(0.0625, Math.min(16, Number(S.speedDefault) || 1)),
         a = () => {
-          const e = ie.el();
+          const el = ie.el();
           // Don't force speed on live streams (they need to stay at 1x)
-          if (e && _isLiveStream()) return;
-          if (e && _isLiveStream()) return;
-          // Don't fight with Smart Speed: if Smart Speed is active, let it control rate
+          if (el && _isLiveStream()) return;
+          el && Math.abs(el.playbackRate - t) > 0.01 && (el.playbackRate = t);
+        },
+        // When Smart Speed is active it owns continuous rate control; this
+        // listener-based path is skipped so the two never fight. An explicit
+        // change (settings dropdown / hotkey re-apply) still goes through a()
+        // above, and Smart Speed yields to manual overrides on its own.
+        ag = () => {
           if (S.smartSpeedOn) return;
-          e && Math.abs(e.playbackRate - t) > 0.01 && (e.playbackRate = t);
+          a();
         };
       if ((a(), !S.speedRemember && 1 === S.speedDefault)) return;
       const n = () => {
         const t = ie.el();
         t &&
-          (e.addListener(t, "ratechange", a),
-          e.addListener(t, "loadedmetadata", a),
-          e.addListener(t, "play", a));
+          (e.addListener(t, "ratechange", ag),
+          e.addListener(t, "loadedmetadata", ag),
+          e.addListener(t, "play", ag));
       };
       (n(),
         e.onNav(() => {
-          (e.addTimeout(a, 800), e.addTimeout(n, 1200));
+          (e.addTimeout(ag, 800), e.addTimeout(n, 1200));
         }));
     },
     settings(e) {
@@ -8280,6 +8285,8 @@ algoBlockChannels: "",
                 Math.abs((t.playbackRate || 1) - rec.r) > 0.01
               ) {
                 if (_isLiveStream()) return;
+                // Yield to Smart Speed: it owns continuous rate control.
+                if (S.smartSpeedOn) return;
                 t.playbackRate = rec.r;
                 pe(
                   "Speed restored to " + rec.r + "x for this channel",
@@ -26762,13 +26769,36 @@ const Nr = [
       const ctx = getAudioCtx();
       if (!ctx) return null;
       try {
-        const source = ctx.createMediaElementSource(video);
+        let source = null;
+        let stream = null;
+        let rerouted = false;
+        // YouTube plays via MSE; createMediaElementSource throws on
+        // MSE-backed elements, so captureStream() is the supported audio
+        // tap — it reads the element's output without rerouting its path.
+        if (typeof video.captureStream === "function") {
+          const s = video.captureStream();
+          if (s && s.getAudioTracks && s.getAudioTracks().length) {
+            stream = s;
+            source = ctx.createMediaStreamSource(s);
+          }
+        }
+        // Fallback for non-MSE playback (progressive streams): reroute the
+        // element through the graph.
+        if (!source && typeof ctx.createMediaElementSource === "function") {
+          source = ctx.createMediaElementSource(video);
+          rerouted = true;
+        }
+        if (!source) return null;
         const analyser = ctx.createAnalyser();
         analyser.fftSize = 2048;
         analyser.smoothingTimeConstant = 0.75;
         source.connect(analyser);
-        analyser.connect(ctx.destination);
-        const entry = { ctx, source, analyser };
+        if (rerouted) {
+          // createMediaElementSource takes over the element's audio output;
+          // reconnect to the destination or the video goes silent.
+          analyser.connect(ctx.destination);
+        }
+        const entry = { ctx, source, analyser, stream, rerouted };
         perVideo.set(video, entry);
         if (typeof video.addEventListener === "function") {
           try {
@@ -26803,13 +26833,21 @@ const Nr = [
     const release = (video) => {
       const entry = perVideo.get(video);
       if (!entry) return;
-      // Keep the perVideo entry: createMediaElementSource throws if called
-      // twice on the same element, so analyserFor must keep returning this one.
-      // Sever the analyser path, then re-route the source straight to the
-      // destination so audio is never left muted.
+      if (entry.rerouted) {
+        // createMediaElementSource throws if called twice on the same
+        // element, so keep the entry and re-route the source straight to
+        // the destination — audio is never left muted.
+        try { entry.source.disconnect(); } catch (_) {}
+        try { entry.source.connect(entry.ctx.destination); } catch (_) {}
+        try { entry.analyser.disconnect(); } catch (_) {}
+        return;
+      }
       try { entry.source.disconnect(); } catch (_) {}
-      try { entry.source.connect(entry.ctx.destination); } catch (_) {}
-      try { entry.analyser.disconnect(); } catch (_) {}
+      // Stop captureStream tracks so the tap releases the element.
+      if (entry.stream) {
+        try { entry.stream.getTracks().forEach((t) => { try { t.stop(); } catch (_) {} }); } catch (_) {}
+      }
+      perVideo.delete(video);
     };
     return {
       readEnergy,
@@ -28232,6 +28270,8 @@ const Nr = [
         if (!vid || vid.paused || vid.ended || document.hidden) return;
         if (_isLiveStream()) { if (Math.abs(vid.playbackRate - baseRate) > 0.05) applyRate(vid, baseRate); return; }
         if (state === "manual") return;
+        // Manual override: if the rate deviates from the last one Smart
+        // Speed applied (or seeded at start), the user took control — yield.
         if (lastTarget && Math.abs(vid.playbackRate - lastTarget) > 0.12) { state = "manual"; return; }
         const a = ZenPlayback.readEnergy(vid);
         if (!a.active) return;
@@ -28265,12 +28305,24 @@ const Nr = [
         const vid = ie.el();
         if (vid) {
           ctx.addInterval(() => tick(), 700);
-          ctx.onNav(() => { lastTarget = 0; state = "idle"; catchup = 0; });
+          ctx.onNav(() => {
+            lastTarget = (ie.el() && ie.el().playbackRate) || 0;
+            state = "idle";
+            catchup = 0;
+          });
           if (!ctx._zenSpeedStarted) {
             ctx._zenSpeedStarted = true;
             ctx.addListener(vid, "play", () => ctx.addTimeout(() => tick(), 250));
-            ctx.addListener(vid, "ratechange", () => { if (lastTarget && Math.abs(vid.playbackRate - lastTarget) > 0.12) state = "manual"; });
+            ctx.addListener(vid, "ratechange", () => {
+              // Any rate the user sets manually (hotkey, menu, memory)
+              // permanently switches Smart Speed to manual — it never
+              // fights an explicit override. Our own applyRate sets
+              // lastTarget synchronously, so self-ramps never trip this.
+              if (state === "manual") return;
+              if (lastTarget && Math.abs(vid.playbackRate - lastTarget) > 0.12) state = "manual";
+            });
           }
+          lastTarget = vid.playbackRate || 0;
         }
       };
       ZenEngine.scheduleOnReady(ctx, start, { attempts: 8, delayMs: 400 });

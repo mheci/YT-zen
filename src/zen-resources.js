@@ -159,6 +159,7 @@
         this._storage = options.storage || null;
         this._bus = options.bus || null;
         this._loaded = false;
+        this._mutated = false;
         this._loadPromise = null;
         this._listeners = null;
         this._flushes = 0;
@@ -190,7 +191,7 @@
           if (!this._storage) { this._loaded = true; return this._data; }
           try {
             const value = await this._storage.get(this._key);
-            if (value !== undefined && value !== null) this._data = value;
+            if (!this._mutated && value !== undefined && value !== null) this._data = value;
           } catch (_) {}
           this._loaded = true;
           return this._data;
@@ -201,6 +202,7 @@
       get() { return this._data; }
 
       set(value) {
+        this._mutated = true;
         this._data = value;
         this._scheduleFlush();
         this._emitChange(null, value);
@@ -209,7 +211,13 @@
       update(updater) {
         if (typeof updater !== "function") return;
         const key = null;
-        updater(this._data);
+        try {
+          updater(this._data);
+        } catch (error) {
+          try { console.error("[StateStore:" + this._key + "] update failed:", error); } catch (_) {}
+          throw new Error("[StateStore:" + this._key + "] update failed: " + (error instanceof Error ? error.message : String(error)));
+        }
+        this._mutated = true;
         this._scheduleFlush();
         this._emitChange(key, this._data);
       }

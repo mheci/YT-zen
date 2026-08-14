@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YT-zen
 // @namespace    https://github.com/mheci/YT-zen
-// @version      3.12.5
+// @version      3.12.6
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      Unlicense
@@ -7504,22 +7504,6 @@ algoBlockChannels: "",
     try {
       t && t.playVideo && t.playVideo();
     } catch (e) {}
-    !(function (e) {
-      try {
-        const t = document.createElement("script");
-        ((t.textContent =
-          "(function(){try{" +
-          e +
-          "}catch(e){}})();document.currentScript&&document.currentScript.remove();"),
-          (document.head || document.documentElement).appendChild(t));
-      } catch (e) {}
-    })(
-      "var p=document.querySelector('#movie_player');var v=document.querySelector('video.html5-main-video');if(v){try{v.currentTime=" +
-        p.toFixed(3) +
-        ";}catch(e){}try{v.playbackRate=16;}catch(e){}try{v.play&&v.play().catch(function(){});}catch(e){}}if(p){try{p.playVideo&&p.playVideo();}catch(e){}try{p.setPlaybackRate&&p.setPlaybackRate(16);}catch(e){}try{p.seekTo&&p.seekTo(" +
-        p.toFixed(3) +
-        ",true);}catch(e){}}",
-    );
     try {
       e.dispatchEvent(new Event("timeupdate", { bubbles: !0 }));
     } catch (e) {}
@@ -9423,13 +9407,6 @@ algoBlockChannels: "",
       keys: ["sessionRestoreOn", "sessionResumeMode", "sessionResumeDesign"],
       apply(e) {
         if (!S.sessionRestoreOn) return void Ue();
-        (e.onNav(() => {
-          (Ke(), e.addTimeout(Ke, 1200), e.addTimeout(u, 1200));
-        }),
-          Ke(),
-          u());
-        for (const t of [400, 1500, 3e3]) e.addTimeout(Ke, t);
-        Yt["session-restore"].push(Ue);
         const t = () => {
             const e = ie.videoId();
             e && Xe(e, { duration: ie.el() ? ie.el().duration : 0 });
@@ -9447,6 +9424,13 @@ algoBlockChannels: "",
                 });
             } catch (e) {}
           };
+        (e.onNav(() => {
+          (Ke(), e.addTimeout(Ke, 1200), e.addTimeout(u, 1200));
+        }),
+          Ke(),
+          u());
+        for (const t of [400, 1500, 3e3]) e.addTimeout(Ke, t);
+        Yt["session-restore"].push(Ue);
         u();
       },
       settings(e) {
@@ -10648,6 +10632,11 @@ algoBlockChannels: "",
       : e + (e.indexOf("?") >= 0 ? "&" : "?") + t + "=" + encodeURIComponent(a);
   }
   function Qa(e) {
+    try {
+      if (!/^https?:/i.test(String(e || ""))) return;
+    } catch (e) {
+      return;
+    }
     try {
       navigator.sendBeacon && navigator.sendBeacon(e);
     } catch (e) {}

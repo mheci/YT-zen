@@ -832,7 +832,7 @@
       const e = {};
       return (
         i.forEach((t) => {
-          const defEn = !0;
+          const defEn = !1;
           const defAct = "skip";
           e["sb_" + t.id + "_en"] = defEn;
           e["sb_" + t.id + "_act"] = defAct;
@@ -849,14 +849,14 @@
         hotkeyOptIn: !1,
         silentToasts: !1,
 privacyPreset: "everyday",
-overlayHubOn: !0,
+overlayHubOn: !1,
 overlayHubPos: "bl",
 algoStrength: "balanced",
-algoBoostOn: !0,
+algoBoostOn: !1,
 algoBoostInterval: 20,
-algoDiversityOn: !0,
+algoDiversityOn: !1,
 algoDiversityMax: 60,
-algoAutoLikeOn: !0,
+algoAutoLikeOn: !1,
 algoAutoLikePct: 85,
 algoShortsOn: !1,
 algoBlockChannels: "",
@@ -929,12 +929,12 @@ algoBlockChannels: "",
         adMute: !1,
         adSpeed: !1,
         hideBannerAds: !1,
-        sponsorblockOn: !0,
+        sponsorblockOn: !1,
         sbPrivacy: !1,
         sbToast: !1,
         sbToastDur: 2200,
-        sbSeekbar: !0,
-        sbHud: !0,
+        sbSeekbar: !1,
+        sbHud: !1,
         sessionRestoreOn: !1,
         sessionResumeMode: "silent",
         sessionResumeDesign: "default",
@@ -946,7 +946,7 @@ algoBlockChannels: "",
         droppedFrameOn: !1,
         droppedFramePos: "tr",
         droppedFrameShowRate: !1,
-        droppedFrameResetOnNav: !0,
+        droppedFrameResetOnNav: !1,
         videoStatsOn: !1,
         videoStatsPos: "bl",
         blockNumberSeekOn: !1,
@@ -977,10 +977,10 @@ algoBlockChannels: "",
         screenshotClipboard: !1,
         sleepTimerOn: !1,
         sleepTimerMin: 30,
-        forceWatchedOn: !0,
+        forceWatchedOn: !1,
 
-        forceWatchedAccountHistory: !0,
-        forceWatchedLocalHistory: !0,
+        forceWatchedAccountHistory: !1,
+        forceWatchedLocalHistory: !1,
         debugVerbose: !1,
         theaterDefault: !1,
         wideTheater: !1,
@@ -1007,7 +1007,7 @@ algoBlockChannels: "",
         hideShortsApiFilter: !1,
 
         hideAutoDubbedOn: !1,
-        hideAutoDubbedPreferOriginal: !0,
+        hideAutoDubbedPreferOriginal: !1,
         hideRecs: !1,
         hideComments: !1,
         hideEndscreen: !1,
@@ -1017,9 +1017,9 @@ algoBlockChannels: "",
         hideMasthead: !1,
         channelBlockerOn: !1,
         channelBlockerList: "",
-        channelBlockerHideWatch: !0,
-        channelBlockerHideBrowse: !0,
-        channelBlockerHideComments: !0,
+        channelBlockerHideWatch: !1,
+        channelBlockerHideBrowse: !1,
+        channelBlockerHideComments: !1,
         channelBlockerMatchTitleText: !1,
         keywordFilterOn: !1,
         keywordFilterList: "",
@@ -1058,7 +1058,7 @@ algoBlockChannels: "",
         redirectShortsOn: !1,
         autoExpandDescOn: !1,
         disableAutoplayOn: !1,
-        playerDashButtonOn: !0,
+        playerDashButtonOn: !1,
         autoPauseHiddenOn: !1,
         autoPauseBlurOn: !1,
         autoResumeAutoPausedOn: !1,
@@ -1119,9 +1119,9 @@ algoBlockChannels: "",
         netMonitorOn: !1,
         netMonitorRange: "day",
         netMonitorBadge: !1,
-        netMonitorPatchFetch: !0,
-        netMonitorPatchXHR: !0,
-        netMonitorPatchBeacon: !0,
+        netMonitorPatchFetch: !1,
+        netMonitorPatchXHR: !1,
+        netMonitorPatchBeacon: !1,
         netBudgetOn: !1,
         netBudgetGB: 50,
         netBudgetAlerted: {},
@@ -8158,8 +8158,7 @@ algoBlockChannels: "",
   (xa.register({
     id: "speed-controller",
     name: "Playback Speed",
-    summary:
-      "Pick a default playback speed, or have YT-zen remember the speed you chose for each video.",
+    summary: "Select a default playback speed or remember individual custom speeds per video, with customizable step increments.",
     masterKey: "speedRemember",
     keys: ["speedDefault", "speedRemember", "speedStep"],
     apply(e) {
@@ -8218,8 +8217,7 @@ algoBlockChannels: "",
     xa.register({
       id: "speed-per-channel",
       name: "Per-Channel Speed Memory",
-      summary:
-        "Remembers the playback speed you last used on each channel and restores it automatically on their videos.",
+      summary: "Automatically remembers and restores your preferred playback speed independently for every YouTube channel.",
       masterKey: "speedPerChannelOn",
       keys: ["speedPerChannelOn"],
       apply(e) {
@@ -8308,7 +8306,7 @@ algoBlockChannels: "",
     xa.register({
       id: "loop-video",
       name: "Loop Video",
-      summary: "Repeat the video when it ends.",
+      summary: "Automatically replays the current video from the beginning once playback completes.",
       masterKey: "loopVideo",
       keys: ["loopVideo"],
       apply(e) {
@@ -8335,8 +8333,7 @@ algoBlockChannels: "",
     xa.register({
       id: "ab-repeat",
       name: "Loop a Segment",
-      summary:
-        "Pick a start point and an end point, and the video will loop between them.",
+      summary: "Set custom start (A) and end (B) timestamp markers to continuously loop a specific segment of the video.",
       masterKey: "abLoopOn",
       keys: ["abLoopOn", "abA", "abB"],
       apply(e) {
@@ -8380,7 +8377,7 @@ algoBlockChannels: "",
     xa.register({
       id: "auto-hd",
       name: "Always Use My Preferred Quality",
-      summary: "Sets every video to the quality you picked, every time.",
+      summary: "Forces playback to always use your chosen resolution (e.g., 4K, 1440p, 1080p) across all videos.",
       masterKey: "autoHD",
       keys: ["autoHD", "qualityPref"],
       apply(e) {
@@ -8757,8 +8754,7 @@ algoBlockChannels: "",
   (xa.register({
     id: "force-cc",
     name: "Always Turn On Captions",
-    summary:
-      "Turn captions on for every video, with a language picker, fallbacks, and full control over how they look.",
+    summary: "Automatically enables closed captions for every video, with language preference fallbacks and custom styling.",
     masterKey: "forceCC",
     keys: [
       "forceCC",
@@ -9220,7 +9216,7 @@ algoBlockChannels: "",
     xa.register({
       id: "autoskip-ad-btn",
       name: "Skip Ads Automatically",
-      summary: "Clicks the Skip Ad button as soon as it shows up.",
+      summary: "Instantly clicks the YouTube 'Skip Ad' button as soon as it becomes available in the player.",
       masterKey: "autoSkipAdBtn",
       keys: ["autoSkipAdBtn"],
       apply(e) {
@@ -9252,8 +9248,7 @@ algoBlockChannels: "",
     xa.register({
       id: "sponsorblock",
       name: "SponsorBlock",
-      summary:
-        "Automatically processes every SponsorBlock category with per-category playback actions, timeline marks, manual submission, and recovery-safe navigation handling.",
+      summary: "Automatically skips or highlights sponsored segments, intros, self-promotions, and interaction reminders.",
       masterKey: "sponsorblockOn",
       keys: [
         "sponsorblockOn",
@@ -9401,8 +9396,7 @@ algoBlockChannels: "",
     xa.register({
       id: "session-restore",
       name: "Session History",
-      summary:
-        "Remembers every video you watch and how far through it you got, so you can pick up where you left off.",
+      summary: "Tracks your watch progress locally and lets you resume playback exactly where you left off across sessions.",
       masterKey: "sessionRestoreOn",
       keys: ["sessionRestoreOn", "sessionResumeMode", "sessionResumeDesign"],
       apply(e) {
@@ -9606,8 +9600,7 @@ algoBlockChannels: "",
     xa.register({
       id: "pip-button",
       name: "Floating Pop-out Window",
-      summary:
-        "Pop the video out into a small floating window that stays on top while you browse other tabs.",
+      summary: "Adds a dedicated button to pop the video out into a floating Picture-in-Picture window.",
       masterKey: "pipOn",
       keys: ["pipOn"],
       apply() {},
@@ -9618,8 +9611,7 @@ algoBlockChannels: "",
     xa.register({
       id: "screenshot",
       name: "Screenshot",
-      summary:
-        "Save the current frame as an image. Press X to grab one instantly.",
+      summary: "Captures full-resolution, lossless video frames instantly as PNG or JPG images with hotkey support.",
       masterKey: "screenshotOn",
       keys: ["screenshotOn", "screenshotFmt", "screenshotScale", "screenshotClipboard"],
       apply(e) {
@@ -9664,8 +9656,7 @@ algoBlockChannels: "",
     xa.register({
       id: "sleep-timer",
       name: "Sleep Timer",
-      summary:
-        "Pause the video after a set number of minutes - perfect for falling asleep.",
+      summary: "Automatically pauses playback after a specified time or at the end of the current video.",
       masterKey: "sleepTimerOn",
       keys: ["sleepTimerOn", "sleepTimerMin"],
       apply(e) {
@@ -9690,8 +9681,7 @@ algoBlockChannels: "",
     xa.register({
       id: "force-watched",
       name: "Force Watched (Shift+W)",
-      summary:
-        "Mark the current video as watched without playing it. Press Shift+W and YouTube records the view straight away. The player won’t restart or rewind.",
+      summary: "Instantly marks the current video as fully watched in your YouTube and local history using Shift+W.",
       masterKey: "forceWatchedOn",
       keys: [
         "forceWatchedOn",
@@ -9731,7 +9721,7 @@ algoBlockChannels: "",
     xa.register({
       id: "theater-default",
       name: "Theater Mode Default",
-      summary: "Open every video in theater mode so the player fills the page.",
+      summary: "Always opens videos in Theater mode by default, expanding the player to fit the full browser width.",
       masterKey: "theaterDefault",
       keys: ["theaterDefault"],
       apply(e) {
@@ -9749,8 +9739,7 @@ algoBlockChannels: "",
     xa.register({
       id: "wide-theater",
       name: "Theater Mode on Wide Screens",
-      summary:
-        "Switch to theater mode when your window is wider than 1600 pixels.",
+      summary: "Automatically switches to Theater mode on ultra-wide screens or windows wider than 1600 pixels.",
       masterKey: "wideTheater",
       keys: ["wideTheater"],
       apply(t) {
@@ -9769,8 +9758,7 @@ algoBlockChannels: "",
     xa.register({
       id: "cinema-mode",
       name: "Cinema Mode",
-      summary:
-        "Dims everything around the player so the video stands out, like a movie theater.",
+      summary: "Dims the surrounding webpage elements to focus lighting and attention purely on the video player.",
       masterKey: "cinemaMode",
       keys: ["cinemaMode", "cinemaOp"],
       apply(e) {
@@ -9819,8 +9807,7 @@ algoBlockChannels: "",
     xa.register({
       id: "ambient-mode",
       name: "Ambient Glow",
-      summary:
-        "Add a soft colored glow behind the player that matches what’s on screen.",
+      summary: "Generates a dynamic, real-time ambient lighting glow around the video player matching video colors.",
       hidden: !0,
       masterKey: "ambientMode",
       keys: ["ambientMode", "ambientBlur", "ambientOp"],
@@ -10194,17 +10181,16 @@ algoBlockChannels: "",
     };
   }
   (Ha(
-    "compact-ui",
-    "Compact UI",
-    "Reduce font sizes and padding.",
+      "compact-ui",
+      "Compact UI",
+      "Reduces watch page margins, metadata font sizes, and layout padding for a tighter, higher-density UI.",
     "compactUI",
     "ytd-watch-metadata{font-size:13px!important}#title h1{font-size:18px!important}#secondary{font-size:12px!important}",
   ),
     xa.register({
       id: "video-filters",
       name: "Video Filters",
-      summary:
-        "Adjust how the video looks: brightness, contrast, color, mirror, zoom in or out.",
+      summary: "Real-time shader controls for brightness, contrast, saturation, sharpness, zoom, and orientation flipping.",
       masterKey: "videoFiltersOn",
       keys: [
         "videoFiltersOn",
@@ -10272,56 +10258,56 @@ algoBlockChannels: "",
     Ha(
       "hide-recs",
       "Hide Recommendations",
-      "Hide the watch-page right sidebar.",
+      "Hides the right-side related videos recommendation sidebar on watch pages.",
       "hideRecs",
       "#secondary,#related,ytd-watch-next-secondary-results-renderer{display:none!important}#primary{max-width:100%!important}",
     ),
     Ha(
       "hide-comments",
       "Hide Comments",
-      "Hide the comments section.",
+      "Completely removes the comments section below videos.",
       "hideComments",
       "#comments,ytd-comments{display:none!important}",
     ),
     Ha(
       "hide-endscreen",
       "Hide End-screen Cards",
-      "Remove overlay cards at end of videos.",
+      "Blocks floating thumbnail recommendation cards and creator teasers from appearing at the end of videos.",
       "hideEndscreen",
       ".ytp-ce-element,.ytp-cards-teaser{display:none!important}",
     ),
     Ha(
       "hide-livechat",
       "Hide Live Chat",
-      "Collapse the live chat panel.",
+      "Collapses and completely hides the live chat stream panel on live broadcasts.",
       "hideLivechat",
       "ytd-live-chat-frame{display:none!important}",
     ),
     Ha(
       "hide-watermark",
       "Hide Channel Watermark",
-      "Hide the channel watermark overlay.",
+      "Hides the floating channel subscribe watermark icon in the bottom-right corner of the video player.",
       "hideWatermark",
       ".ytp-watermark{display:none!important}",
     ),
     Ha(
       "hide-cards",
       "Hide Info Cards",
-      "Hide the (i) info-card teaser.",
+      "Hides interactive info-card (i) teaser popups during video playback.",
       "hideCards",
       ".ytp-cards-button,.ytp-cards-teaser-text{display:none!important}",
     ),
     Ha(
       "hide-masthead",
       "Hide Top Bar",
-      "Hide the YouTube top navigation bar.",
+      "Hides the top navigation masthead bar across YouTube for an immersive distraction-free view.",
       "hideMasthead",
       "ytd-masthead,#masthead,#masthead-container,ytd-topbar,#topbar,#topbar-container,ytd-masthead-container{display:none!important}ytd-page-manager,#page-manager,ytd-app.guide-collapsed{--ytd-masthead-height:0px;margin-top:0!important}",
     ),
     Ha(
       "hide-banner-ads",
       "Hide Banner Ads",
-      "Remove banner & overlay ads.",
+      "Removes display banners, sponsored shelf cards, and promotional ad overlays.",
       "hideBannerAds",
       "ytd-ad-slot-renderer,ytd-banner-promo-renderer,ytd-promoted-sparkles-web-renderer,#masthead-ad,#player-ads,.ytp-ad-overlay-container,.ytp-ad-text-overlay,ytd-in-feed-ad-layout-renderer{display:none!important}",
     ));
@@ -10413,8 +10399,7 @@ algoBlockChannels: "",
   xa.register({
     id: "channel-blocker",
     name: "Channel Blocker",
-    summary:
-      "Hide channels you don’t want to see. Add a channel and you won’t see its videos in your feed, in search, in recommendations, or in comments. You can also hide the channel’s own page entirely.",
+    summary: "Comprehensively hides blocked channels, handles, and uBlock cosmetic rules across feeds, search, and comments.",
     masterKey: "channelBlockerOn",
     keys: [
       "channelBlockerOn",
@@ -10662,8 +10647,7 @@ algoBlockChannels: "",
   (xa.register({
       id: "feed-card-filters-bundle",
       name: "Feed Card Filters",
-      summary:
-        "Clean up your feed: hide live streams, hide upcoming premieres, or number each video card.",
+      summary: "Cleans up home, subscription, and search feeds by hiding live streams, upcoming premieres, or numbering cards.",
       masterKey: "_bundleFeedCardFilters",
       keys: ["hideLiveContentOn", "hidePremieresOn", "numberSearchResultsOn"],
       isOn: () =>
@@ -10680,8 +10664,7 @@ algoBlockChannels: "",
     xa.register({
       id: "playlist-tweaks-bundle",
       name: "Playlist Tweaks",
-      summary:
-        "Make the playlist panel easier to use: auto-scroll to the current video, or shrink the rows to fit more on screen.",
+      summary: "Improves playlist navigation with automatic scrolling to the active video and compact list spacing.",
       masterKey: "_bundlePlaylistTweaks",
       keys: ["playlistAutoscrollOn", "compactPlaylistOn"],
       isOn: () => on(["playlistAutoscrollOn", "compactPlaylistOn"]),
@@ -10696,8 +10679,7 @@ algoBlockChannels: "",
     xa.register({
       id: "comment-tweaks-bundle",
       name: "Comment Tweaks",
-      summary:
-        "Tidy up comments: shorten very long ones with a click-to-expand, highlight the creator’s replies, and make timestamp links easier to spot.",
+      summary: "Enhances the comment section by clamping long comments, highlighting creator replies, and enhancing timestamps.",
       masterKey: "_bundleCommentTweaks",
       keys: [
         "collapseLongCommentsOn",
@@ -10750,8 +10732,7 @@ algoBlockChannels: "",
     xa.register({
       id: "keyword-filter",
       name: "Keyword Filter",
-      summary:
-        "Hide any video whose title contains words you don’t want to see.",
+      summary: "Hides videos across feeds and search results whose titles contain specified blacklisted keywords or phrases.",
       masterKey: "keywordFilterOn",
       keys: ["keywordFilterOn", "keywordFilterList"],
       apply(e) {
@@ -11805,8 +11786,7 @@ algoBlockChannels: "",
     xa.register({
       id: "stats-overlay",
       name: "Playback Performance Overlay",
-      summary:
-        "Show live frames per second, streaming health, and playback speed directly over the video player.",
+      summary: "Displays real-time FPS, streaming bitrate, video resolution, buffer status, and playback speed.",
       masterKey: "statsOverlay",
       keys: ["statsOverlay"],
       apply(e) {
@@ -11844,8 +11824,7 @@ algoBlockChannels: "",
     xa.register({
       id: "diag-console",
       name: "Activity Monitor",
-      summary:
-        "A small floating window that shows what background actions are happening in real time. Helpful for spotting issues.",
+      summary: "Floating diagnostic console displaying real-time script operations, event logs, and DOM observer triggers.",
       hidden: !0,
       masterKey: "diagConsole",
       keys: ["diagConsole"],
@@ -11879,8 +11858,7 @@ algoBlockChannels: "",
     xa.register({
       id: "perf-profiler",
       name: "Feature Performance Tracker",
-      summary:
-        "See how much computer processing each feature is using, so you can turn off heavy ones on older devices.",
+      summary: "Monitors execution time and CPU overhead of active script features to ensure optimal browser performance.",
       masterKey: "perfProfilerOn",
       keys: ["perfProfilerOn"],
       apply(e) {
@@ -11898,8 +11876,7 @@ algoBlockChannels: "",
     xa.register({
       id: "fps-counter",
       name: "Live FPS Counter",
-      summary:
-        "Show the current playback frame rate in a small floating overlay so you can spot stutters or low-FPS videos.",
+      summary: "Displays a lightweight, real-time frames-per-second indicator to detect playback drops and stutter.",
       masterKey: "fpsCounterOn",
       keys: ["fpsCounterOn", "fpsCounterPos"],
       apply(e) {
@@ -12000,8 +11977,7 @@ algoBlockChannels: "",
     xa.register({
       id: "buffer-health",
       name: "Buffer Health Monitor",
-      summary:
-        "Watch the player's video buffer in real time. Shows buffered seconds, rebuffer events, and a small live health bar.",
+      summary: "Monitors streaming buffer length in seconds, rebuffer frequencies, and network bandwidth in real time.",
       masterKey: "bufferHealthOn",
       keys: ["bufferHealthOn"],
       apply(e) {
@@ -12138,8 +12114,7 @@ algoBlockChannels: "",
     xa.register({
       id: "long-task-warner",
       name: "Long Task Warner",
-      summary:
-        "Log any browser main-thread task that blocks the page for more than the threshold (default 50ms). Helpful for finding what causes stuttering while watching.",
+      summary: "Detects and logs browser main-thread blocking tasks exceeding 50ms that could cause video lag.",
       masterKey: "longTaskWarnerOn",
       keys: ["longTaskWarnerOn", "longTaskWarnerThreshold"],
       apply(e) {
@@ -12210,8 +12185,7 @@ algoBlockChannels: "",
     xa.register({
       id: "dropped-frame-counter",
       name: "Dropped Frame Counter",
-      summary:
-        "Show how many frames the player is dropping. High drop counts mean the video can't keep up with your connection or device.",
+      summary: "Tracks dropped video frames during playback to help diagnose hardware decoding and rendering bottlenecks.",
       masterKey: "droppedFrameOn",
       keys: ["droppedFrameOn", "droppedFramePos", "droppedFrameResetOnNav", "droppedFrameShowRate"],
       apply(e) {
@@ -12336,8 +12310,7 @@ algoBlockChannels: "",
     xa.register({
       id: "default-audio-track",
       name: "Default to Original Audio Track",
-      summary:
-        "Always switch the audio track to the original language, even if YouTube picked a different track by default.",
+      summary: "Automatically switches multi-language audio videos to the original recorded language instead of auto-dubs.",
       masterKey: "defaultOriginalAudioOn",
       keys: ["defaultOriginalAudioOn"],
       apply(e) {
@@ -12367,8 +12340,7 @@ algoBlockChannels: "",
     xa.register({
       id: "restore-fullscreen-scrolling",
       name: "Allow Scrolling in Fullscreen",
-      summary:
-        "Re-enables mouse-wheel scrolling while the player is in fullscreen mode. YouTube normally locks the page scroll when the player is fullscreen.",
+      summary: "Restores mouse-wheel scrolling while in fullscreen mode, allowing access to descriptions and comments.",
       masterKey: "restoreFsScrollOn",
       keys: ["restoreFsScrollOn"],
       apply(e) {
@@ -12391,8 +12363,7 @@ algoBlockChannels: "",
     xa.register({
       id: "remove-redirect-urls",
       name: "Skip YouTube /redirect URLs",
-      summary:
-        "Replaces YouTube's /redirect URLs (used in description links and annotations) with the real destination, so you don't have to click through the warning interstitial.",
+      summary: "Bypasses Google's outgoing link redirect wrapper (google.com/url or youtube.com/redirect) for direct navigation.",
       masterKey: "removeRedirectUrlsOn",
       keys: ["removeRedirectUrlsOn"],
       apply(e) {
@@ -12437,8 +12408,7 @@ algoBlockChannels: "",
     xa.register({
       id: "shorten-share-url",
       name: "Shorten Share URLs",
-      summary:
-        "Strips tracking parameters (si, feature) from youtu.be share links, producing a clean URL that's easier to copy and forward.",
+      summary: "Strips tracking parameters (?si=, ?feature=, etc.) when copying share links to produce clean URLs.",
       masterKey: "shortenShareUrlOn",
       keys: ["shortenShareUrlOn"],
       apply(e) {
@@ -12485,8 +12455,7 @@ algoBlockChannels: "",
     xa.register({
       id: "skip-paused-continue",
       name: "Auto-Continue Paused Video",
-      summary:
-        "Auto-dismisses the 'Video paused. Continue watching?' dialog that appears when you switch tabs and come back.",
+      summary: "Automatically confirms the 'Video paused. Continue watching?' dialog prompt to prevent unwanted interruptions.",
       masterKey: "skipPausedContinueOn",
       keys: ["skipPausedContinueOn"],
       apply(e) {
@@ -12514,8 +12483,7 @@ algoBlockChannels: "",
     xa.register({
       id: "click-logo-to-subs",
       name: "Click Logo to Subscriptions",
-      summary:
-        "Click the YouTube logo in the top-left to go to your Subscriptions feed instead of Home.",
+      summary: "Redirects clicks on the top-left YouTube logo to your Subscriptions feed instead of the algorithmic Home feed.",
       masterKey: "logoToSubsOn",
       keys: ["logoToSubsOn"],
       apply(e) {
@@ -12539,8 +12507,7 @@ algoBlockChannels: "",
     xa.register({
       id: "default-channel-tab",
       name: "Default Channel Tab",
-      summary:
-        "When opening a channel page, jump to the tab you choose (Videos, Shorts, Live, Playlists, Community, About) instead of the default Featured tab.",
+      summary: "Automatically opens channel pages on your preferred tab (Videos, Live, Playlists) instead of the Home tab.",
       masterKey: "defaultChannelTab",
       keys: ["defaultChannelTab"],
       apply(e) {
@@ -12571,8 +12538,7 @@ algoBlockChannels: "",
     xa.register({
       id: "hide-top-live-games",
       name: "Hide Top Live Games",
-      summary:
-        "Hides the 'Top live games' shelf that YouTube sometimes shows on the Home feed.",
+      summary: "Removes the 'Top Live Games' gaming carousel and live stream shelves from browse and home feeds.",
       masterKey: "hideTopLiveGamesOn",
       keys: ["hideTopLiveGamesOn"],
       apply(e) {
@@ -12607,8 +12573,7 @@ algoBlockChannels: "",
     xa.register({
       id: "hfr-allow",
       name: "Allow High Frame Rate",
-      summary:
-        "Sets the VISITOR_INFO1_LIVE cookie that unlocks 60fps streams. Reload the video after enabling to see HFR options in the quality menu.",
+      summary: "Forces high frame rate (HFR) stream availability by configuring the client playback flags.",
       masterKey: "hfrAllowOn",
       keys: ["hfrAllowOn"],
       apply(e) {
@@ -12642,8 +12607,7 @@ algoBlockChannels: "",
     xa.register({
       id: "auto-recover-video",
       name: "Auto-Recover Video on Reconnect",
-      summary:
-        "If the video pauses because your internet dropped, automatically resume playback once the connection is restored.",
+      summary: "Automatically re-establishes playback and resumes streaming when your network connection drops and returns.",
       masterKey: "autoRecoverOn",
       keys: ["autoRecoverOn"],
       apply(e) {
@@ -12667,8 +12631,7 @@ algoBlockChannels: "",
     xa.register({
       id: "background-players-pause",
       name: "Pause Background Players",
-      summary:
-        "Pauses YouTube videos in background tabs whenever you switch to another tab. Saves bandwidth and CPU.",
+      summary: "Pauses video playback in background tabs when switching tabs to conserve system memory and bandwidth.",
       masterKey: "bgPlayersPauseOn",
       keys: ["bgPlayersPauseOn"],
       apply(e) {
@@ -12696,8 +12659,7 @@ algoBlockChannels: "",
     xa.register({
       id: "forward-rewind-buttons",
       name: "Forward / Rewind Buttons",
-      summary:
-        "Adds forward and rewind buttons to the player. Configurable step (default 10 seconds).",
+      summary: "Adds customizable skip forward and rewind buttons to the player control bar with configurable step intervals.",
       masterKey: "forwardRewindOn",
       keys: ["forwardRewindOn", "forwardRewindSec"],
       apply(e) {
@@ -12771,8 +12733,7 @@ algoBlockChannels: "",
     xa.register({
       id: "reverse-playlist",
       name: "Reverse Playlist Order",
-      summary:
-        "Adds a button to reverse the order of videos in a playlist. Useful for rewatching or undoing an unintended sort.",
+      summary: "Adds a button to reverse the playback order of playlist items from newest-first to oldest-first.",
       masterKey: "reversePlaylistOn",
       keys: ["reversePlaylistOn"],
       apply(e) {
@@ -12824,8 +12785,7 @@ algoBlockChannels: "",
     xa.register({
       id: "flip-video",
       name: "Flip Video",
-      summary:
-        "Mirror the video horizontally or vertically. Useful for tutorials, screen recordings, or just for fun.",
+      summary: "Mirrors the video canvas horizontally or vertically, ideal for tutorials, dance practices, and screen recordings.",
       masterKey: "flipVideoOn",
       keys: ["flipVideoOn", "flipVideoH", "flipVideoV"],
       apply(e) {
@@ -12915,8 +12875,7 @@ algoBlockChannels: "",
   (xa.register({
       id: "session-replay",
       name: "Click & Navigation Recorder",
-      summary:
-        "Keep a local record of where you click and navigate during your session, stored securely on your own computer.",
+      summary: "Securely logs local timestamp and navigation history during your session for offline inspection.",
       masterKey: "sessionReplay",
       keys: ["sessionReplay"],
       apply(e) {
@@ -12943,8 +12902,7 @@ algoBlockChannels: "",
     xa.register({
       id: "api-explorer",
       name: "Developer Player Control",
-      summary:
-        "Allow external tools and browser developer consoles to directly interact with the YouTube video player.",
+      summary: "Exposes internal player instances and controls to browser developer tools for debugging and script development.",
       hidden: !0,
       masterKey: "apiExplorer",
       keys: ["apiExplorer", "apiExplorerMutations"],
@@ -13459,8 +13417,7 @@ algoBlockChannels: "",
   (xa.register({
     id: "net-monitor",
     name: "Data Usage Tracker",
-    summary:
-      "See how much data YouTube uses on your connection. Tracks downloads in cyan and uploads in orange, broken down by hour, day, week, month, year, or all time. Stays saved until you choose to clear it.",
+    summary: "Tracks and graphs real-time video download and upload bandwidth usage across sessions, days, and months.",
     masterKey: "netMonitorOn",
     keys: [
       "netMonitorOn",
@@ -13846,8 +13803,7 @@ algoBlockChannels: "",
     xa.register({
       id: "adaptive-throttle",
       name: "Adaptive Throttle",
-      summary:
-        "Pause the video when the tab is hidden and your battery is low, to save power.",
+      summary: "Reduces background video processing and throttles playback resolution when on low battery or hidden tabs.",
       hidden: !0,
       masterKey: "adaptiveThrottleOn",
       keys: ["adaptiveThrottleOn"],
@@ -13882,7 +13838,7 @@ algoBlockChannels: "",
     xa.register({
       id: "cookie-control",
       name: "Cookie Control",
-      summary: "Definitive cookie manager: every YouTube cookie, full metadata, live updates, search, filters, edit/delete/backup/restore, and per-PREF toggles.",
+      summary: "Inspects, edits, backs up, and manages YouTube cookies and local storage tokens with live metadata inspection.",
       masterKey: "cookieControlOn",
       keys: ["cookieControlOn", "cookieControlLive", "cookieControlNotify", "cookieControlAutoBackup", "cookieControlFavorites", "cookieControlCategories"],
       apply(e) {
@@ -14154,8 +14110,7 @@ algoBlockChannels: "",
     xa.register({
       id: "player-dashboard-button",
       name: "YT-zen Button on the Player",
-      summary:
-        "Adds a small YT-zen button next to the player settings, for quick access to the dashboard.",
+      summary: "Adds an integrated YT-zen quick-access launcher button directly onto the bottom player control bar.",
       masterKey: "playerDashButtonOn",
       keys: ["playerDashButtonOn"],
       apply(e) {
@@ -14205,8 +14160,7 @@ algoBlockChannels: "",
       id: "stop-button",
       hidden: !0,
       name: "Stop Button",
-      summary:
-        "Adds a Stop button next to Play/Pause. Stops the video, rewinds to the start, and frees up system memory. Press Shift+S to use it from the keyboard.",
+      summary: "Adds a Stop button to completely halt playback, reset video time to zero, and purge buffered video memory.",
       masterKey: "stopButtonOn",
       keys: ["stopButtonOn"],
       apply(e) {
@@ -14262,8 +14216,7 @@ algoBlockChannels: "",
     xa.register({
       id: "disable-video-previews",
       name: "No Preview on Hover",
-      summary:
-        "Stop videos from auto-playing in their thumbnail when you hover over them.",
+      summary: "Disables animated inline video previews when hovering over thumbnails on home, subscription, and search feeds.",
       masterKey: "disableVideoPreviewsOn",
       keys: ["disableVideoPreviewsOn"],
       apply(e) {
@@ -14277,39 +14230,11 @@ algoBlockChannels: "",
       },
       settings() {},
     }),
-    xa.register({
-      id: "auto-dismiss-pause",
-      name: 'Skip "Continue Watching?" Prompts',
-      summary:
-        'Automatically clicks "Yes" on the "Video paused. Continue watching?" dialog.',
-      masterKey: "autoDismissPauseOn",
-      keys: ["autoDismissPauseOn"],
-      apply(e) {
-
-        if (!S.autoDismissPauseOn) return;
-        const host =
-          document.querySelector("ytd-popup-container") ||
-          document.body ||
-          document.documentElement;
-        e.addObserver(
-          host,
-          ee(() => {
-            const btn = _ytpPausedDialogConfirmBtn();
-            if (btn) {
-              try {
-                btn.click();
-              } catch (err) {}
-            }
-          }, 250),
-          { childList: !0, subtree: !0 },
-        );
-      },
-      settings() {},
-    }),
+    
     Ha(
       "always-progress-bar",
       "Always-Visible Progress Bar",
-      "Keep the seek/progress bar visible at all times, even in fullscreen.",
+      "Keeps the bottom seekbar and progress line permanently visible even when player controls fade.",
       "alwaysShowProgressBar",
       ".ytp-autohide .ytp-chrome-bottom{opacity:1!important;visibility:visible!important;pointer-events:auto!important;bottom:0!important;padding-bottom:0!important;margin-bottom:0!important}.ytp-autohide .ytp-chrome-controls{opacity:0!important;visibility:hidden!important;pointer-events:none!important;height:0!important;min-height:0!important;padding:0!important;margin:0!important;overflow:hidden!important;position:absolute!important}.ytp-autohide .ytp-progress-bar-container{opacity:1!important;visibility:visible!important;bottom:0!important}",
     ),
@@ -14317,8 +14242,7 @@ algoBlockChannels: "",
       id: "redirect-shorts",
       hidden: !0,
       name: "Redirect Shorts to Player",
-      summary:
-        "Open Shorts in the regular video player instead of the Shorts page.",
+      summary: "Automatically redirects Shorts video URLs into the standard, full-featured desktop video player.",
       masterKey: "redirectShortsOn",
       keys: ["redirectShortsOn"],
       apply(e) {
@@ -14338,8 +14262,7 @@ algoBlockChannels: "",
     xa.register({
       id: "auto-expand-desc",
       name: "Auto-Expand Description",
-      summary:
-        "Automatically expand the description box below videos so you don\'t have to click \'...more\'.",
+      summary: "Automatically expands the video description box on watch pages so the entire text is visible without clicking.",
       masterKey: "autoExpandDescOn",
       keys: ["autoExpandDescOn"],
       apply(e) {
@@ -14364,7 +14287,7 @@ algoBlockChannels: "",
     xa.register({
       id: "disable-autoplay",
       name: "Disable Autoplay",
-      summary: "Stop the next video from playing on its own when one ends.",
+      summary: "Prevents YouTube from automatically advancing to the next recommended video when the current video finishes.",
       masterKey: "disableAutoplayOn",
       keys: ["disableAutoplayOn"],
       apply(e) {
@@ -14702,8 +14625,7 @@ algoBlockChannels: "",
   (xa.register({
     id: "auto-pause",
     name: "Auto Pause",
-    summary:
-      "Pause the video when you switch tabs, click out of the window, or both.",
+    summary: "Automatically pauses video playback when switching tabs or unfocusing the browser, and resumes on return.",
     masterKey: "autoPauseMode",
     keys: ["autoPauseMode", "autoPauseHiddenOn", "autoPauseBlurOn"],
     isOn: () => S.autoPauseMode && "off" !== S.autoPauseMode,
@@ -14739,7 +14661,7 @@ algoBlockChannels: "",
       id: "auto-resume-autopaused",
       hidden: !0,
       name: "Auto Resume Auto-Paused",
-      summary: "Resume only videos paused by YT-zen auto-pause features.",
+      summary: "Automatically resumes playback when switching back to a tab that was paused by YT-zen auto-pause.",
       masterKey: "autoResumeAutoPausedOn",
       keys: ["autoResumeAutoPausedOn"],
       apply(e) {
@@ -14761,7 +14683,7 @@ algoBlockChannels: "",
     xa.register({
       id: "top-progress-bar",
       name: "Top Playback Progress Bar",
-      summary: "Show a thin progress bar pinned to the very top of the page.",
+      summary: "Pins a slender, high-visibility playback progress bar along the very top edge of the browser window.",
       masterKey: "topProgressBarOn",
       keys: ["topProgressBarOn"],
       apply(e) {
@@ -14804,7 +14726,7 @@ algoBlockChannels: "",
     xa.register({
       id: "local-clock-badge",
       name: "Local Clock Badge",
-      summary: "Show the current time next to the player.",
+      summary: "Displays the current local real-world time in a clean badge next to the player time indicator.",
       masterKey: "localClockBadgeOn",
       keys: ["localClockBadgeOn"],
       apply(e) {
@@ -14836,7 +14758,7 @@ algoBlockChannels: "",
       id: "copy-timestamp-button",
       hidden: !0,
       name: "Copy Timestamp Button",
-      summary: "Add a player button that copies the current timestamp URL.",
+      summary: "Adds a one-click player button to copy the exact URL with current playback timestamp attached.",
       masterKey: "copyTimestampButtonOn",
       keys: ["copyTimestampButtonOn"],
       apply(e) {
@@ -14863,7 +14785,7 @@ algoBlockChannels: "",
       id: "copy-video-info-button",
       hidden: !0,
       name: "Copy Video Info Button",
-      summary: "Copy title, channel, and URL from a player button.",
+      summary: "Adds a button to copy formatted video title, channel name, and clean URL to your clipboard in one click.",
       masterKey: "copyVideoInfoButtonOn",
       keys: ["copyVideoInfoButtonOn"],
       apply(e) {
@@ -14891,8 +14813,7 @@ algoBlockChannels: "",
       id: "open-transcript-button",
       hidden: !0,
       name: "Open Transcript Button",
-      summary:
-        "Add a player button that opens YouTube's transcript panel when available.",
+      summary: "Adds a dedicated player button that instantly opens the video transcript panel alongside the player.",
       masterKey: "openTranscriptButtonOn",
       keys: ["openTranscriptButtonOn"],
       apply(e) {
@@ -14926,7 +14847,7 @@ algoBlockChannels: "",
       id: "video-notes",
       hidden: !0,
       name: "Video Notes",
-      summary: "Store private local notes for the current video.",
+      summary: "Enables private, timestamped notes attached to individual videos stored entirely on your local machine.",
       masterKey: "videoNotesOn",
       keys: ["videoNotesOn"],
       apply(e) {
@@ -14947,7 +14868,7 @@ algoBlockChannels: "",
       id: "channel-notes",
       hidden: !0,
       name: "Channel Notes",
-      summary: "Store private local notes for the current channel.",
+      summary: "Allows writing private local notes for specific YouTube channels that display whenever visiting their pages.",
       masterKey: "channelNotesOn",
       keys: ["channelNotesOn"],
       apply(e) {
@@ -14968,8 +14889,7 @@ algoBlockChannels: "",
       id: "chapter-hotkeys",
       hidden: !0,
       name: "Chapter Hotkeys",
-      summary:
-        "Use - and = to jump to previous/next chapter.",
+      summary: "Enables keyboard shortcuts (- and =) to quickly skip backwards and forwards between video chapters.",
       masterKey: "chapterHotkeysOn",
       keys: ["chapterHotkeysOn"],
       apply() {},
@@ -14979,7 +14899,7 @@ algoBlockChannels: "",
       id: "chapter-buttons",
       hidden: !0,
       name: "Chapter Buttons",
-      summary: "Add previous/next chapter buttons to the player controls.",
+      summary: "Adds dedicated previous and next chapter buttons directly onto the video player controls.",
       masterKey: "chapterButtonsOn",
       keys: ["chapterButtonsOn"],
       apply(e) {
@@ -15006,8 +14926,7 @@ algoBlockChannels: "",
     xa.register({
       id: "feed-watched",
       name: "Watched Feed Videos",
-      summary:
-        "Dim or hide videos in your feed once you’ve finished watching them.",
+      summary: "Visually dims or completely removes videos from your feeds that you have already watched.",
       masterKey: "feedWatchedMode",
       keys: ["feedWatchedMode", "feedDimWatchedOn", "feedHideWatchedOn"],
       isOn: () => S.feedWatchedMode && "off" !== S.feedWatchedMode,
@@ -15030,7 +14949,7 @@ algoBlockChannels: "",
       id: "number-search-results",
       hidden: !0,
       name: "Number Feed Results",
-      summary: "Add ordinal numbers to visible video cards.",
+      summary: "Adds index numbers (1, 2, 3...) to video items on search results and browse grids.",
       masterKey: "numberSearchResultsOn",
       keys: ["numberSearchResultsOn"],
       apply(e) {
@@ -15043,8 +14962,7 @@ algoBlockChannels: "",
     xa.register({
       id: "dense-video-grid",
       name: "Dense Video Grid",
-      summary:
-        "Fit more videos on your screen at once on the home and search pages.",
+      summary: "Increases the number of thumbnail columns on home and search feeds to fit more content on large displays.",
       masterKey: "denseVideoGridOn",
       keys: ["denseVideoGridOn"],
       apply(e) {
@@ -15058,8 +14976,7 @@ algoBlockChannels: "",
     xa.register({
       id: "highlight-video-length",
       name: "Highlight Videos by Length",
-      summary:
-        "Mark videos in your feed that are unusually long, unusually short, or both - so you can spot them at a glance.",
+      summary: "Color-codes video badges in feeds to easily identify short clips, standard videos, or long-form content.",
       masterKey: "highlightVideoLengthMode",
       keys: [
         "highlightVideoLengthMode",
@@ -15110,7 +15027,7 @@ algoBlockChannels: "",
       id: "hide-live-content",
       hidden: !0,
       name: "Hide Live Content",
-      summary: "Hide video cards that appear to be live streams.",
+      summary: "Filters out live streams and ongoing broadcast cards from search, subscription, and recommendations feeds.",
       masterKey: "hideLiveContentOn",
       keys: ["hideLiveContentOn"],
       apply(e) {
@@ -15122,7 +15039,7 @@ algoBlockChannels: "",
       id: "hide-premieres",
       hidden: !0,
       name: "Hide Premieres",
-      summary: "Hide premiere cards from feeds and sidebars.",
+      summary: "Hides scheduled upcoming premiere cards and waiting rooms from feeds and sidebars.",
       masterKey: "hidePremieresOn",
       keys: ["hidePremieresOn"],
       apply(e) {
@@ -15134,7 +15051,7 @@ algoBlockChannels: "",
       id: "playlist-autoscroll",
       hidden: !0,
       name: "Playlist Autoscroll Current",
-      summary: "Keep the current playlist entry in view.",
+      summary: "Automatically scrolls the playlist panel to keep the currently playing video centered in view.",
       masterKey: "playlistAutoscrollOn",
       keys: ["playlistAutoscrollOn"],
       apply(e) {
@@ -15153,7 +15070,7 @@ algoBlockChannels: "",
       id: "compact-playlist",
       hidden: !0,
       name: "Compact Playlist",
-      summary: "Reduce playlist panel row spacing.",
+      summary: "Reduces thumbnail padding and item height in the playlist drawer to show more queue items at once.",
       masterKey: "compactPlaylistOn",
       keys: ["compactPlaylistOn"],
       apply(e) {
@@ -15168,7 +15085,7 @@ algoBlockChannels: "",
       id: "shorts-auto-mute",
       hidden: !0,
       name: "Shorts Auto Mute",
-      summary: "Mute videos while on Shorts pages.",
+      summary: "Ensures audio is muted automatically whenever navigating to Shorts video pages.",
       masterKey: "shortsAutoMuteOn",
       keys: ["shortsAutoMuteOn"],
       apply(e) {
@@ -15195,7 +15112,7 @@ algoBlockChannels: "",
       id: "shorts-hide-comments",
       hidden: !0,
       name: "Shorts Hide Comments Panel",
-      summary: "Hide Shorts comment engagement panels.",
+      summary: "Permanently blocks the right-side comments engagement drawer on YouTube Shorts.",
       masterKey: "shortsHideCommentsOn",
       keys: ["shortsHideCommentsOn"],
       apply(e) {
@@ -15210,7 +15127,7 @@ algoBlockChannels: "",
       id: "collapse-long-comments",
       hidden: !0,
       name: "Collapse Long Comments",
-      summary: "Clamp very long comments with a local expand button.",
+      summary: "Clamps excessively long comment posts with an inline expand toggle to maintain a clean comments section.",
       masterKey: "collapseLongCommentsOn",
       keys: ["collapseLongCommentsOn", "collapseLongCommentChars"],
       apply(e) {
@@ -15261,7 +15178,7 @@ algoBlockChannels: "",
       id: "highlight-creator-comments",
       hidden: !0,
       name: "Highlight Creator Comments",
-      summary: "Highlight comments marked as creator/uploader comments.",
+      summary: "Applies a subtle highlight border around comments posted by the video uploader or channel creator.",
       masterKey: "highlightCreatorCommentsOn",
       keys: ["highlightCreatorCommentsOn"],
       apply(e) {
@@ -15276,8 +15193,7 @@ algoBlockChannels: "",
       id: "highlight-timestamp-links",
       hidden: !0,
       name: "Highlight Timestamp Links",
-      summary:
-        "Make timestamp links in descriptions and comments easier to spot.",
+      summary: "Emphasizes clickable timestamp references in descriptions and comments for faster seeking.",
       masterKey: "highlightTimestampLinksOn",
       keys: ["highlightTimestampLinksOn"],
       apply(e) {
@@ -15291,7 +15207,7 @@ algoBlockChannels: "",
     xa.register({
       id: "end-soon-warning",
       name: "End Soon Warning",
-      summary: "Show a gentle warning when the video is about to end.",
+      summary: "Displays a non-intrusive notification when a video is nearing completion.",
       masterKey: "endSoonWarningOn",
       keys: ["endSoonWarningOn", "endSoonSec"],
       apply(e) {
@@ -20364,8 +20280,7 @@ const Nr = [
   (xa.register({
     id: "theme-engine",
     name: "Theme Engine",
-    summary:
-      "Pick from 200 dark and light themes for YouTube, with optional accent color, focus ring, and active sidebar highlight. Built to stay light on resources.",
+    summary: "Full CSS engine with 200+ dark, OLED, pastel, and light themes, custom accent colors, and focus rings.",
     masterKey: "themeEngineOn",
     keys: [
       "themeEngineOn",
@@ -21788,7 +21703,7 @@ const Nr = [
     (xa.register({
     id: "comment-search",
     name: "Comment Search",
-    summary: "Add a search bar above the comments so you can filter them.",
+    summary: "Adds an instant live search and keyword filter bar directly above the video comment thread.",
     masterKey: "commentSearchOn",
     keys: ["commentSearchOn"],
     apply(e) {
@@ -21851,8 +21766,7 @@ const Nr = [
   xa.register({
       id: "block-yt-ai",
       name: "Hide YouTube AI Features",
-      summary:
-        "Remove YouTube\'s artificial intelligence summaries, AI search buttons, and chatbot panels.",
+      summary: "Hides AI-generated video summaries, live-chat AI recaps, Ask AI dialogs, and conversational AI buttons.",
       masterKey: "blockYTAIOn",
       keys: ["blockYTAIOn"],
       apply(e) {
@@ -24085,8 +23999,7 @@ const Nr = [
   (xa.register({
     id: "elements-control",
     name: "Hide Page Elements",
-    summary:
-      "Hide unwanted buttons, banners, or sections across YouTube. Choose from quick presets or pick individual items to hide with a live preview.",
+    summary: "Granular visibility toggles to hide buttons, banners, headers, sidebars, and promotional UI elements.",
     masterKey: "elementsControlOn",
     keys: ["elementsControlOn", "elementsControlHidden"],
     apply(e) {
@@ -26211,8 +26124,7 @@ const Nr = [
     xa.register({
       id: "hide-shorts",
       name: "Remove Shorts Everywhere",
-      summary:
-        "Aggressively removes every Shorts surface across YouTube — shelves, carousels, sidebar and mobile entries, search results, channel tabs, subscriptions, history, recommendations and the Shorts player. Shorts links are redirected to the normal player so a Short can never open. Uses layered API + DOM filtering for resilience against UI changes.",
+      summary: "Aggressively purges every Shorts surface across YouTube: shelves, carousels, tabs, search, and navigation.",
       masterKey: "hideShorts",
       keys: ["hideShorts", "hideShortsRedirect", "hideShortsDomClean", "hideShortsApiFilter"],
       apply(ctx) {
@@ -26248,8 +26160,7 @@ const Nr = [
     xa.register({
       id: "hide-auto-dubbed",
       name: "Hide Auto-Dubbed Videos",
-      summary:
-        "Keeps automatically machine-dubbed videos out of your feeds, search and recommendations using multi-signal detection, and restores the original audio track when you open one. Independent from Shorts filtering.",
+      summary: "Detects and removes machine-dubbed videos from feeds, and restores original audio tracks automatically.",
       masterKey: "hideAutoDubbedOn",
       keys: ["hideAutoDubbedOn", "hideAutoDubbedPreferOriginal"],
       apply(ctx) {
@@ -28070,7 +27981,7 @@ const Nr = [
   xa.register({
     id: "discover",
     name: "Discover",
-    summary: "One unified discovery toggle: pick a niche (or step outside it) and browse fresh videos from 8+ categories. Every pick is filtered against your watch history, so nothing you have already seen is ever shown again.",
+    summary: "Replaces algorithmic traps with a clean, topic-filtered video discovery engine cross-checked against your history.",
     masterKey: "discoverOn",
     keys: ["discoverOn"],
     apply(ctx) {
@@ -28241,7 +28152,7 @@ const Nr = [
         "One toggle for discovery. Browse 8+ categories inside or outside your niche; every pick is filtered against your watch history and never repeats a video you have already seen."));
     } });
 
-  xa.register({ id: "smart-speed", name: "Smart Speed", summary: "Premium-style adaptive speed: audio-driven detection of speech, silence, and slow segments with smooth ramping to reclaim wasted time. Always reverts to normal speed during speech, never fights manual overrides, and stays off live streams.", masterKey: "smartSpeedOn", keys: ["smartSpeedOn", "smartSpeedBase", "smartSpeedFast", "smartSpeedSilence", "smartSpeedRamp"],
+  xa.register({ id: "smart-speed", name: "Smart Speed", summary: "Dynamically speeds up silences and non-dialogue pauses while smoothly returning to normal speed for speech.", masterKey: "smartSpeedOn", keys: ["smartSpeedOn", "smartSpeedBase", "smartSpeedFast", "smartSpeedSilence", "smartSpeedRamp"],
     apply(ctx) {
       if (!S.smartSpeedOn) return;
       const baseRate = Math.min(1.5, Math.max(0.5, Number(S.smartSpeedBase) || 1));
@@ -28328,7 +28239,7 @@ const Nr = [
       en.appendChild(No("Silence speed (gaps)", "smartSpeedSilence", 1.25, 3.5, 0.05, v => v.toFixed(2) + "x"));
       en.appendChild(No("Ramp step per tick", "smartSpeedRamp", 0.05, 0.3, 0.05, v => v.toFixed(2) + "x"));
     } });
-  xa.register({ id: "credibility-layer", name: "Credibility Layer", summary: "Context signals on results: reach level, age badges. Context, not judgment.", masterKey: "credLayerOn", keys: ["credLayerOn"],
+  xa.register({ id: "credibility-layer", name: "Credibility Layer", summary: "Adds informational metadata badges including upload age, reach tiers, and historical consistency to video cards.", masterKey: "credLayerOn", keys: ["credLayerOn"],
     apply(ctx) {
       if (!S.credLayerOn) return;
       ZenEngine.injectCSS();
@@ -28370,7 +28281,7 @@ const Nr = [
     },
     settings(en) { en.appendChild(Io("Enable Credibility Layer", "credLayerOn")); } });
 
-  xa.register({ id: "search-remix", name: "Search Remix", summary: "One-click search filters: duration, date, quality, format.", masterKey: "searchRemixOn", keys: ["searchRemixOn"],
+  xa.register({ id: "search-remix", name: "Search Remix", summary: "Adds one-click pill filters to search results for rapid filtering by duration, upload date, quality, and format.", masterKey: "searchRemixOn", keys: ["searchRemixOn"],
     apply(ctx) {
       if (!S.searchRemixOn || !location.pathname.startsWith("/results")) return;
       ZenEngine.injectCSS();
@@ -28403,7 +28314,7 @@ const Nr = [
     },
     settings(en) { en.appendChild(Io("Enable Search Remix", "searchRemixOn")); } });
 
-  xa.register({ id: "dead-link-detector", name: "Outdated Content Detector", summary: "Adds age badges to old videos so you can spot potentially outdated content.", masterKey: "deadLinkOn", keys: ["deadLinkOn"],
+  xa.register({ id: "dead-link-detector", name: "Outdated Content Detector", summary: "Flags outdated videos and stale technical tutorials with visible age warning indicators on search thumbnails.", masterKey: "deadLinkOn", keys: ["deadLinkOn"],
     apply(ctx) {
       if (!S.deadLinkOn) return;
       ZenEngine.injectCSS();
@@ -28428,7 +28339,7 @@ const Nr = [
     },
     settings(en) { en.appendChild(Io("Enable Outdated Content Detector", "deadLinkOn")); } });
 
-  xa.register({ id: "watch-genome", name: "Watch Genome", summary: "Transparent preference model. Shows compatibility scores on thumbnails.", masterKey: "watchGenomeOn", keys: ["watchGenomeOn"],
+  xa.register({ id: "watch-genome", name: "Watch Genome", summary: "Transparent recommendation profiling displaying topic compatibility scores and interest vectors on thumbnails.", masterKey: "watchGenomeOn", keys: ["watchGenomeOn"],
     apply(ctx) {
       if (!S.watchGenomeOn) return;
       ZenEngine.injectCSS();
@@ -28516,7 +28427,7 @@ const Nr = [
       en.appendChild(Oo("Reset genome", () => { ZenSession.genome.reset(); pe("Watch genome reset.", 1500, "success"); }, "ytp-danger"));
     } });
 
-  xa.register({ id: "curated-collections", name: "Curated Collections", summary: "Themed video collections with descriptions and progress tracking.", masterKey: "collectionsOn", keys: ["collectionsOn"],
+  xa.register({ id: "curated-collections", name: "Curated Collections", summary: "Organize your saved videos into custom-themed collections with progress tracking and exportable playlists.", masterKey: "collectionsOn", keys: ["collectionsOn"],
     apply(ctx) {
       if (!S.collectionsOn) return;
       ZenEngine.injectCSS();
@@ -28575,7 +28486,7 @@ const Nr = [
       }
     } });
 
-  xa.register({ id: "time-budget", name: "Time Budget Manager", summary: "Set a session time budget. Tracks usage and suggests wrapping up.", masterKey: "timeBudgetOn", keys: ["timeBudgetOn", "timeBudgetMinutes"],
+  xa.register({ id: "time-budget", name: "Time Budget Manager", summary: "Set session watch budgets with subtle milestone alerts to prevent doom-scrolling and track viewing time.", masterKey: "timeBudgetOn", keys: ["timeBudgetOn", "timeBudgetMinutes"],
     apply(ctx) {
       if (!S.timeBudgetOn) return;
       ZenEngine.injectCSS();
@@ -28633,7 +28544,7 @@ const Nr = [
   xa.register({
     id: "algo-intelligence",
     name: "Algorithm Intelligence",
-    summary: "Full-spectrum recommendation algorithm manipulation: watch profiling with recency decay, channel affinity, interest boosting, filter-bubble diversity management, micro-feedback (auto like/dislike), Shorts feed shaping, negative-signal scanning, training sessions, and an aggression dial — all using organic, rate-limited signals.",
+    summary: "Advanced algorithmic feed shaping: organic interest boosting, recency decay control, and diversity enforcement.",
     masterKey: "algoIntelligenceOn",
     keys: ["algoIntelligenceOn", "algoAutoTrain", "algoBlockTopics", "algoBlockKeywords", "algoBlockChannels", "algoScanInterval", "algoStrength", "algoBoostOn", "algoBoostInterval", "algoDiversityOn", "algoDiversityMax", "algoAutoLikeOn", "algoAutoLikePct", "algoShortsOn"],
     apply(ctx) {
@@ -28866,7 +28777,7 @@ const Nr = [
   });
 
   // -- DeArrow: clickbait-free titles & thumbnails (community-sourced) --
-  xa.register({ id: "dearrow", name: "DeArrow Titles & Thumbnails", summary: "Show crowdsourced clickbait-free titles and thumbnails from the DeArrow community.", masterKey: "dearrowOn", keys: ["dearrowOn", "dearrowSwapThumb"],
+  xa.register({ id: "dearrow", name: "DeArrow Titles & Thumbnails", summary: "Replaces clickbait video titles and hyperbolic thumbnails with community-sourced, factual alternatives.", masterKey: "dearrowOn", keys: ["dearrowOn", "dearrowSwapThumb"],
     apply(ctx) {
       if (!S.dearrowOn) return;
       ZenEngine.injectCSS();
@@ -28921,7 +28832,7 @@ const Nr = [
     } });
 
   // -- Return YouTube Dislike: like/dislike ratio + rating --
-  xa.register({ id: "ryd-votes", name: "Dislike Meter", summary: "Estimated like/dislike ratio via Return YouTube Dislike.", masterKey: "rydVotesOn", keys: ["rydVotesOn"],
+  xa.register({ id: "ryd-votes", name: "Dislike Meter", summary: "Restores public dislike counts and like/dislike ratio bars using the Return YouTube Dislike API.", masterKey: "rydVotesOn", keys: ["rydVotesOn"],
     apply(ctx) {
       if (!S.rydVotesOn) return;
       ZenEngine.injectCSS();
@@ -28970,7 +28881,7 @@ const Nr = [
     } });
 
   // -- Keep Screen Awake (Wake Lock API) --
-  xa.register({ id: "screen-wake", name: "Keep Screen Awake", summary: "Prevents the screen from sleeping while a video plays (Wake Lock API).", masterKey: "screenWakeOn", keys: ["screenWakeOn"],
+  xa.register({ id: "screen-wake", name: "Keep Screen Awake", summary: "Prevents system sleep, screensavers, and display timeouts during active video playback via the Wake Lock API.", masterKey: "screenWakeOn", keys: ["screenWakeOn"],
     apply(ctx) {
       if (!S.screenWakeOn) return;
       if (!navigator.wakeLock || typeof navigator.wakeLock.request !== "function") return;
@@ -29005,7 +28916,7 @@ const Nr = [
   xa.register({
     id: "perf-mode",
     name: "Performance Mode",
-    summary: "Performance engine with five presets (light, balanced, aggressive, extreme, maximum) plus granular switches: CSS containment, content-visibility virtualization, lazy thumbnails, comment virtualization, paint reduction, memory trimming, prefetching, animation/effects killing, thumbnail downgrade, moving-thumbnail disabling, and player quality caps.",
+    summary: "Five comprehensive optimization presets (light to maximum) with DOM containment and lazy-loading virtualization.",
     masterKey: "perfModeOn",
     keys: ["perfModeOn", "perfModeLevel", "perfModeAuto", "perfContainment", "perfLazyThumbs", "perfLazyComments", "perfKillAnim", "perfKillBlur", "perfThumbQuality", "perfDisablePreviews", "perfMemoryTrim", "perfPrefetch", "perfPreconnect", "perfBgThrottle", "perfPaintReduction", "perfQualityCap"],
     apply(ctx) {
@@ -29299,7 +29210,7 @@ const Nr = [
   xa.register({
     id: "overlay-hub",
     name: "Monolith Overlay Hub",
-    summary: "Groups every floating monitor (Live FPS Counter, Buffer Health Monitor, Dropped Frame Counter, Playback Performance Overlay, Activity Monitor) into one extendable glass widget instead of separate boxes. Monitors join and leave automatically as you toggle them at run time.",
+    summary: "Consolidates all floating performance monitors, counters, and diagnostic tools into a single docked glass HUD.",
     masterKey: "overlayHubOn",
     keys: ["overlayHubOn", "overlayHubPos"],
     apply(ctx) {

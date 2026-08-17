@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YT-zen
 // @namespace    https://github.com/mheci/YT-zen
-// @version      3.12.6
+// @version      3.13.0
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      Unlicense
@@ -784,7 +784,7 @@
       ("undefined" != typeof GM_info &&
         GM_info.script &&
         GM_info.script.version) ||
-      "3.9.1",
+      "3.13.0",
     o = (() => {
       try {
         return CSS.supports("selector(:has(*))");
@@ -9653,31 +9653,7 @@ algoBlockChannels: "",
           e.appendChild(Eo([Oo("Capture now", Ia, "primary")])));
       },
     }),
-    xa.register({
-      id: "sleep-timer",
-      name: "Sleep Timer",
-      summary: "Automatically pauses playback after a specified time or at the end of the current video.",
-      masterKey: "sleepTimerOn",
-      keys: ["sleepTimerOn", "sleepTimerMin"],
-      apply(e) {
-        if (!S.sleepTimerOn) return;
-        const t = Math.max(1, Number(S.sleepTimerMin) || 30);
-        e.addTimeout(() => {
-          const vid = ie.el();
-          if (vid && !vid.paused && !vid.ended) {
-            ie.pause();
-            pe("Sleep timer - pausing.", 2e3, "info");
-          }
-          Ta("sleepTimerOn", !1);
-        }, 6e4 * t);
-        e.onNav(() => { Ta("sleepTimerOn", !1); });
-      },
-      settings(e) {
-        e.appendChild(
-          No("Minutes", "sleepTimerMin", 1, 240, 1, (e) => e + " min"),
-        );
-      },
-    }),
+    
     xa.register({
       id: "force-watched",
       name: "Force Watched (Shift+W)",
@@ -9736,74 +9712,97 @@ algoBlockChannels: "",
       },
       settings() {},
     }),
-    xa.register({
-      id: "wide-theater",
-      name: "Theater Mode on Wide Screens",
-      summary: "Automatically switches to Theater mode on ultra-wide screens or windows wider than 1600 pixels.",
-      masterKey: "wideTheater",
-      keys: ["wideTheater"],
-      apply(t) {
-        if (!S.wideTheater) return;
-        const a = () => {
-          if (e.innerWidth > 1600) {
-            const e = document.querySelector("ytd-watch-flexy"),
-              t = document.querySelector(".ytp-size-button");
-            e && !e.hasAttribute("theater") && t && t.click();
-          }
-        };
-        (a(), t.addListener(e, "resize", $(a, 200)), t.addTimeout(a, 1500));
-      },
-      settings() {},
-    }),
+    
     xa.register({
       id: "cinema-mode",
       name: "Cinema Mode",
-      summary: "Dims the surrounding webpage elements to focus lighting and attention purely on the video player.",
+      summary: "Dims the surrounding webpage elements with a hardware-accelerated, zero-delay backdrop to focus purely on the video player.",
       masterKey: "cinemaMode",
       keys: ["cinemaMode", "cinemaOp"],
       apply(e) {
-        if (!S.cinemaMode) return;
-        if (!location.pathname.startsWith("/watch")) return;
-        const p = document.createElement("div");
-        p.id = "ytp-zen-cinema-spot";
-        p.style.cssText =
-          "position:fixed;z-index:1300;pointer-events:none;display:none";
-        document.body && document.body.appendChild(p);
-        const upd = () => {
-          if (!location.pathname.startsWith("/watch")) {
-            p.style.display = "none";
+        if (!S.cinemaMode) {
+          document.documentElement.classList.remove("ytp-cinema-mode");
+          const old = document.getElementById("ytp-zen-cinema-backdrop");
+          if (old) old.remove();
+          return;
+        }
+
+        const CINEMA_STYLE = [
+          "#ytp-zen-cinema-backdrop {",
+          "  position: fixed !important;",
+          "  inset: 0 !important;",
+          "  width: 100vw !important;",
+          "  height: 100vh !important;",
+          "  background-color: #000000 !important;",
+          "  opacity: var(--ytp-cinema-opacity, 0.85) !important;",
+          "  z-index: 1000 !important;",
+          "  pointer-events: none !important;",
+          "  transition: opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;",
+          "}",
+          "html.ytp-cinema-mode ytd-watch-flexy #player-full-bleed-container,",
+          "html.ytp-cinema-mode ytd-watch-flexy #player-container,",
+          "html.ytp-cinema-mode ytd-watch-flexy #player-container-outer,",
+          "html.ytp-cinema-mode ytd-watch-flexy #player,",
+          "html.ytp-cinema-mode #movie_player,",
+          "html.ytp-cinema-mode .html5-video-player {",
+          "  z-index: 1001 !important;",
+          "  position: relative !important;",
+          "}",
+          "html.ytp-cinema-mode .ytp-popup,",
+          "html.ytp-cinema-mode .ytp-settings-menu,",
+          "html.ytp-cinema-mode .ytp-panel-menu,",
+          "html.ytp-cinema-mode ytd-popup-container,",
+          "html.ytp-cinema-mode tp-yt-paper-dialog {",
+          "  z-index: 2200 !important;",
+          "}"
+        ].join("\n");
+
+        e.addStyle(CINEMA_STYLE);
+
+        const syncCinema = () => {
+          const isWatch = location.pathname.startsWith("/watch");
+          if (!S.cinemaMode || !isWatch) {
+            document.documentElement.classList.remove("ytp-cinema-mode");
+            const bd = document.getElementById("ytp-zen-cinema-backdrop");
+            if (bd) bd.style.display = "none";
             return;
           }
-          const player = document.querySelector("#movie_player");
-          if (!player) return;
-          const r = player.getBoundingClientRect();
-          if (!r.width || !r.height) return;
-          const op = Math.max(0.05, Math.min(0.95, Number(S.cinemaOp) || 0.85));
-          p.style.display = "block";
-          p.style.left = r.left + "px";
-          p.style.top = r.top + "px";
-          p.style.width = r.width + "px";
-          p.style.height = r.height + "px";
-          p.style.boxShadow =
-            "0 0 0 9999px rgba(0,0,0," + op + ")";
+
+          const op = Math.max(0.05, Math.min(0.98, Number(S.cinemaOp) || 0.85));
+          document.documentElement.style.setProperty("--ytp-cinema-opacity", String(op));
+          document.documentElement.classList.add("ytp-cinema-mode");
+
+          let bd = document.getElementById("ytp-zen-cinema-backdrop");
+          if (!bd) {
+            bd = document.createElement("div");
+            bd.id = "ytp-zen-cinema-backdrop";
+            (document.body || document.documentElement).appendChild(bd);
+          }
+          bd.style.display = "block";
         };
-        upd();
-        e.addInterval(upd, 250);
-        Yt["cinema-mode"].push(() => p.remove());
+
+        syncCinema();
+        e.onNav(() => setTimeout(syncCinema, 50));
+        Yt["cinema-mode"].push(() => {
+          document.documentElement.classList.remove("ytp-cinema-mode");
+          const bd = document.getElementById("ytp-zen-cinema-backdrop");
+          if (bd) bd.remove();
+        });
       },
       settings(e) {
         e.appendChild(
           No(
-            "Opacity",
+            "Dimming Level",
             "cinemaOp",
             0.1,
             0.95,
             0.05,
-            (e) => Math.round(100 * e) + "%",
+            (v) => Math.round(100 * v) + "%",
           ),
         );
       },
     }),
+
     xa.register({
       id: "ambient-mode",
       name: "Ambient Glow",
@@ -9894,6 +9893,7 @@ algoBlockChannels: "",
       name: t,
       summary: a,
       masterKey: n,
+      hidden: !0,
       keys: [n],
       apply(e) {
         S[n] && e.addStyle(r);
@@ -11784,6 +11784,7 @@ algoBlockChannels: "",
     },
   }),
     xa.register({
+      hidden: !0,
       id: "stats-overlay",
       name: "Playback Performance Overlay",
       summary: "Displays real-time FPS, streaming bitrate, video resolution, buffer status, and playback speed.",
@@ -11856,6 +11857,7 @@ algoBlockChannels: "",
       settings() {},
     }),
     xa.register({
+      hidden: !0,
       id: "perf-profiler",
       name: "Feature Performance Tracker",
       summary: "Monitors execution time and CPU overhead of active script features to ensure optimal browser performance.",
@@ -11874,6 +11876,7 @@ algoBlockChannels: "",
       },
     }),
     xa.register({
+      hidden: !0,
       id: "fps-counter",
       name: "Live FPS Counter",
       summary: "Displays a lightweight, real-time frames-per-second indicator to detect playback drops and stutter.",
@@ -11975,6 +11978,7 @@ algoBlockChannels: "",
       },
     }),
     xa.register({
+      hidden: !0,
       id: "buffer-health",
       name: "Buffer Health Monitor",
       summary: "Monitors streaming buffer length in seconds, rebuffer frequencies, and network bandwidth in real time.",
@@ -12111,78 +12115,9 @@ algoBlockChannels: "",
         e.appendChild(Io("Show buffer health overlay", "bufferHealthOn"));
       },
     }),
+    
     xa.register({
-      id: "long-task-warner",
-      name: "Long Task Warner",
-      summary: "Detects and logs browser main-thread blocking tasks exceeding 50ms that could cause video lag.",
-      masterKey: "longTaskWarnerOn",
-      keys: ["longTaskWarnerOn", "longTaskWarnerThreshold"],
-      apply(e) {
-        if (typeof PerformanceObserver === "undefined") return;
-        let a = null;
-        let r = 0;
-        let o = 0;
-        const start = () => {
-          if (a) return;
-          try {
-            a = new PerformanceObserver((n) => {
-              try {
-                const threshold = Math.max(
-                  20,
-                  Math.min(1000, Number(S.longTaskWarnerThreshold) || 50),
-                );
-                const entries = Array.from(
-                  n.getEntries ? n.getEntries() : [],
-                );
-                for (const ev of entries) {
-                  const dur = ev.duration || 0;
-                  if (dur < threshold) continue;
-                  let name = "task";
-                  try {
-                    name = (ev.name || "task").slice(0, 60);
-                  } catch (e) {}
-                  (r += 1),
-                    h(
-                      "long task " + dur.toFixed(1) + "ms (" + name + ")",
-                      ev,
-                    ),
-                    dur > threshold * 2 &&
-                      (o >= r - 1 && (o = r - 1),
-                      pe(
-                        "Long task: " + dur.toFixed(0) + "ms (" + name + ")",
-                        1800,
-                        "info",
-                      ),
-                      (o = r));
-                }
-              } catch (e) {}
-            });
-            a.observe({ entryTypes: ["longtask"] });
-          } catch (e) {
-            a = null;
-          }
-        };
-        const stop = () => {
-          try {
-            a && a.disconnect();
-          } catch (e) {}
-          a = null;
-        };
-        S.longTaskWarnerOn && start();
-        So("cfg.changed", ({ key: k }) => {
-          "longTaskWarnerOn" === k &&
-            (S.longTaskWarnerOn ? start() : stop());
-        });
-        Yt["long-task-warner"].push(stop);
-      },
-      settings(e) {
-        (e.appendChild(Io("Warn on long main-thread tasks", "longTaskWarnerOn")),
-          e.appendChild(
-            No("Threshold (ms)", "longTaskWarnerThreshold", 20, 200, 10, (e) => e + " ms"),
-          ));
-      },
-    }),
-    xa.register({
+      hidden: !0,
       id: "dropped-frame-counter",
       name: "Dropped Frame Counter",
       summary: "Tracks dropped video frames during playback to help diagnose hardware decoding and rendering bottlenecks.",
@@ -12536,6 +12471,7 @@ algoBlockChannels: "",
     }),
 
     xa.register({
+      hidden: !0,
       id: "hide-top-live-games",
       name: "Hide Top Live Games",
       summary: "Removes the 'Top Live Games' gaming carousel and live stream shelves from browse and home feeds.",
@@ -14214,6 +14150,7 @@ algoBlockChannels: "",
       },
     }),
     xa.register({
+      hidden: !0,
       id: "disable-video-previews",
       name: "No Preview on Hover",
       summary: "Disables animated inline video previews when hovering over thumbnails on home, subscription, and search feeds.",
@@ -14723,37 +14660,7 @@ algoBlockChannels: "",
       settings() {},
     }),
     (0),
-    xa.register({
-      id: "local-clock-badge",
-      name: "Local Clock Badge",
-      summary: "Displays the current local real-world time in a clean badge next to the player time indicator.",
-      masterKey: "localClockBadgeOn",
-      keys: ["localClockBadgeOn"],
-      apply(e) {
-        if (!S.localClockBadgeOn) return void Lr("#ytp-extra-clock");
-        const t = document.createElement("div");
-        ((t.id = "ytp-extra-clock"), document.body.appendChild(t));
-        let a = -1;
-        const n = () => {
-          const e = new Date().getMinutes();
-          return (
-            e !== a &&
-            ((a = e),
-            pa(() => {
-              t.textContent = new Date().toLocaleTimeString([], {
-                hour: "2-digit",
-                minute: "2-digit",
-              });
-            }),
-            !0)
-          );
-        };
-        (n(),
-          e.addInterval(n, 15e3),
-          Yt["local-clock-badge"].push(() => t.remove()));
-      },
-      settings() {},
-    }),
+    
     xa.register({
       id: "copy-timestamp-button",
       hidden: !0,
@@ -14923,28 +14830,7 @@ algoBlockChannels: "",
       },
       settings() {},
     }),
-    xa.register({
-      id: "feed-watched",
-      name: "Watched Feed Videos",
-      summary: "Visually dims or completely removes videos from your feeds that you have already watched.",
-      masterKey: "feedWatchedMode",
-      keys: ["feedWatchedMode", "feedDimWatchedOn", "feedHideWatchedOn"],
-      isOn: () => S.feedWatchedMode && "off" !== S.feedWatchedMode,
-      apply(e) {
-        S.feedWatchedMode &&
-          "off" !== S.feedWatchedMode &&
-          (Rr(), e.addInterval(Rr, 3e3));
-      },
-      settings(e) {
-        e.appendChild(
-          Ro("Mode", "feedWatchedMode", {
-            off: "Off",
-            dim: "Dim watched videos",
-            hide: "Hide watched videos",
-          }),
-        );
-      },
-    }),
+    
     xa.register({
       id: "number-search-results",
       hidden: !0,
@@ -23998,7 +23884,7 @@ const Nr = [
   }
   (xa.register({
     id: "elements-control",
-    name: "Hide Page Elements",
+    name: "Hide Page Elements & Declutter",
     summary: "Granular visibility toggles to hide buttons, banners, headers, sidebars, and promotional UI elements.",
     masterKey: "elementsControlOn",
     keys: ["elementsControlOn", "elementsControlHidden"],
@@ -28152,93 +28038,6 @@ const Nr = [
         "One toggle for discovery. Browse 8+ categories inside or outside your niche; every pick is filtered against your watch history and never repeats a video you have already seen."));
     } });
 
-  xa.register({ id: "smart-speed", name: "Smart Speed", summary: "Dynamically speeds up silences and non-dialogue pauses while smoothly returning to normal speed for speech.", masterKey: "smartSpeedOn", keys: ["smartSpeedOn", "smartSpeedBase", "smartSpeedFast", "smartSpeedSilence", "smartSpeedRamp"],
-    apply(ctx) {
-      if (!S.smartSpeedOn) return;
-      const baseRate = Math.min(1.5, Math.max(0.5, Number(S.smartSpeedBase) || 1));
-      const fastRate = Math.min(3, Math.max(baseRate, Number(S.smartSpeedFast) || 1.5));
-      const silenceRate = Math.min(3.5, Math.max(fastRate, Number(S.smartSpeedSilence) || 1.75));
-      const rampStep = Math.max(0.05, Math.min(0.3, Number(S.smartSpeedRamp) || 0.1));
-      let lastTarget = 0;
-      let state = "idle";
-      let stateSince = 0;
-      let catchup = 0;
-      const clampRate = (r) => Math.max(0.25, Math.min(4, r));
-      const applyRate = (vid, target) => { if (Math.abs(vid.playbackRate - target) > 0.05) { vid.playbackRate = target; lastTarget = target; } };
-      const tick = (now) => {
-        const vid = ie.el();
-        if (!vid || vid.paused || vid.ended || document.hidden) return;
-        if (_isLiveStream()) { if (Math.abs(vid.playbackRate - baseRate) > 0.05) applyRate(vid, baseRate); return; }
-        if (state === "manual") return;
-        // Manual override: if the rate deviates from the last one Smart
-        // Speed applied (or seeded at start), the user took control — yield.
-        if (lastTarget && Math.abs(vid.playbackRate - lastTarget) > 0.12) { state = "manual"; return; }
-        const a = ZenPlayback.readEnergy(vid);
-        if (!a.active) return;
-        const t = now || Date.now();
-        if (state === "idle") { state = "listening"; stateSince = t; }
-        const inState = (t - stateSince) / 1000;
-        let desired = baseRate;
-        if (a.isSpeech) {
-          desired = baseRate;
-          if (inState > 4 && catchup > 0.75) desired = Math.min(fastRate, baseRate + Math.min(0.15, catchup * 0.05));
-        } else if (a.isQuiet) {
-          desired = silenceRate;
-        } else {
-          desired = fastRate;
-        }
-        const nextState = desired === baseRate ? "speech" : desired === silenceRate ? "silence" : "fast";
-        if (nextState !== state) {
-          if (inState < 1.2) return;
-          state = nextState;
-          stateSince = t;
-        }
-        catchup = Math.min(20, catchup + Math.max(0, vid.playbackRate - baseRate) * 0.5);
-        const next = clampRate(desired);
-        const cur = vid.playbackRate;
-        if (Math.abs(cur - next) > 0.05) {
-          const step = cur < next ? rampStep : rampStep * 1.5;
-          applyRate(vid, cur < next ? Math.min(next, cur + step) : Math.max(next, cur - step));
-        }
-      };
-      const start = () => {
-        const vid = ie.el();
-        if (vid) {
-          ctx.addInterval(() => tick(), 700);
-          ctx.onNav(() => {
-            lastTarget = (ie.el() && ie.el().playbackRate) || 0;
-            state = "idle";
-            catchup = 0;
-          });
-          if (!ctx._zenSpeedStarted) {
-            ctx._zenSpeedStarted = true;
-            ctx.addListener(vid, "play", () => ctx.addTimeout(() => tick(), 250));
-            ctx.addListener(vid, "ratechange", () => {
-              // Any rate the user sets manually (hotkey, menu, memory)
-              // permanently switches Smart Speed to manual — it never
-              // fights an explicit override. Our own applyRate sets
-              // lastTarget synchronously, so self-ramps never trip this.
-              if (state === "manual") return;
-              if (lastTarget && Math.abs(vid.playbackRate - lastTarget) > 0.12) state = "manual";
-            });
-          }
-          lastTarget = vid.playbackRate || 0;
-        }
-      };
-      ZenEngine.scheduleOnReady(ctx, start, { attempts: 8, delayMs: 400 });
-      Yt["smart-speed"].push(() => {
-        const vid = ie.el();
-        if (vid && lastTarget) { vid.playbackRate = S.speedDefault || 1; lastTarget = 0; }
-        ZenPlayback.release(vid);
-      });
-    },
-    settings(en) {
-      en.appendChild(Io("Enable Smart Speed", "smartSpeedOn"));
-      en.appendChild(No("Normal speed (speech)", "smartSpeedBase", 0.5, 1.5, 0.05, v => v.toFixed(2) + "x"));
-      en.appendChild(No("Boost speed (ambient)", "smartSpeedFast", 1.25, 3, 0.05, v => v.toFixed(2) + "x"));
-      en.appendChild(No("Silence speed (gaps)", "smartSpeedSilence", 1.25, 3.5, 0.05, v => v.toFixed(2) + "x"));
-      en.appendChild(No("Ramp step per tick", "smartSpeedRamp", 0.05, 0.3, 0.05, v => v.toFixed(2) + "x"));
-    } });
   xa.register({ id: "credibility-layer", name: "Credibility Layer", summary: "Adds informational metadata badges including upload age, reach tiers, and historical consistency to video cards.", masterKey: "credLayerOn", keys: ["credLayerOn"],
     apply(ctx) {
       if (!S.credLayerOn) return;
@@ -28281,39 +28080,6 @@ const Nr = [
     },
     settings(en) { en.appendChild(Io("Enable Credibility Layer", "credLayerOn")); } });
 
-  xa.register({ id: "search-remix", name: "Search Remix", summary: "Adds one-click pill filters to search results for rapid filtering by duration, upload date, quality, and format.", masterKey: "searchRemixOn", keys: ["searchRemixOn"],
-    apply(ctx) {
-      if (!S.searchRemixOn || !location.pathname.startsWith("/results")) return;
-      ZenEngine.injectCSS();
-      const bar = document.createElement("div");
-      bar.id = "ytp-zen-bar";
-      bar.style.cssText = "display:flex;gap:4px;flex-wrap:wrap;padding:6px 16px";
-      const query = new URLSearchParams(location.search).get("search_query") || "";
-      ZenSearch.REMIX_TEMPLATES.forEach(r => {
-        const chip = document.createElement("button");
-        chip.className = "zen-chip";
-        chip.textContent = r.label;
-        chip.title = r.desc;
-        chip.addEventListener("click", () => {
-          const url = new URL("/results", location.origin);
-          url.searchParams.set("search_query", query);
-          url.searchParams.set("sp", r.sp);
-          e.location.href = url.toString();
-        });
-        bar.appendChild(chip);
-      });
-      const insert = () => {
-        if (bar.parentNode) return true;
-        const target = document.querySelector("ytd-section-list-renderer");
-        if (!target) return false;
-        target.parentNode.insertBefore(bar, target);
-        return true;
-      };
-      ZenEngine.scheduleOnReady(ctx, insert, { attempts: 8, delayMs: 400 });
-      Yt["search-remix"].push(() => { if (bar.parentNode) bar.remove(); });
-    },
-    settings(en) { en.appendChild(Io("Enable Search Remix", "searchRemixOn")); } });
-
   xa.register({ id: "dead-link-detector", name: "Outdated Content Detector", summary: "Flags outdated videos and stale technical tutorials with visible age warning indicators on search thumbnails.", masterKey: "deadLinkOn", keys: ["deadLinkOn"],
     apply(ctx) {
       if (!S.deadLinkOn) return;
@@ -28338,94 +28104,6 @@ const Nr = [
       Yt["dead-link-detector"].push(() => {});
     },
     settings(en) { en.appendChild(Io("Enable Outdated Content Detector", "deadLinkOn")); } });
-
-  xa.register({ id: "watch-genome", name: "Watch Genome", summary: "Transparent recommendation profiling displaying topic compatibility scores and interest vectors on thumbnails.", masterKey: "watchGenomeOn", keys: ["watchGenomeOn"],
-    apply(ctx) {
-      if (!S.watchGenomeOn) return;
-      ZenEngine.injectCSS();
-      const channelInfo = () => {
-        let channelId = "", handle = "", channelName = "";
-        try {
-          const link = document.querySelector("ytd-watch-metadata #channel-name a, #owner ytd-channel-name a, ytd-video-secondary-info-renderer a[href*=\"/channel/\"]");
-          if (link) {
-            const href = link.getAttribute("href") || "";
-            const idMatch = href.match(/\/channel\/(UC[\w-]+)/);
-            const handleMatch = href.match(/\/@([^/?#]+)/);
-            if (idMatch) channelId = idMatch[1];
-            if (handleMatch) handle = handleMatch[1];
-          }
-          const nameEl = document.querySelector("ytd-watch-metadata #channel-name, #owner ytd-channel-name");
-          channelName = nameEl ? (nameEl.textContent || "").trim() : "";
-          const subsEl = document.querySelector("#owner-sub-count, ytd-video-secondary-info-renderer #owner-sub-count");
-          const subsMatch = subsEl && (subsEl.textContent || "").match(/([\d,.]+[KMB]?)/);
-          if (subsMatch) {
-            ZenSession.genome.recordSubscribers(handle, channelName, ZenSearch.parseCount(subsMatch[1]));
-          }
-        } catch (_) {}
-        return { channelId, handle, channelName };
-      };
-      const recordCurrent = () => {
-        const vid = ie.videoId();
-        if (!vid) return;
-        const info = channelInfo();
-        ZenSession.genome.record({
-          videoId: vid,
-          topic: ie.title(),
-          channelId: info.channelId || undefined,
-          handle: info.handle || undefined,
-          channelName: info.channelName || undefined,
-          duration: ie.el() && ie.el().duration,
-        });
-        return true;
-      };
-      ZenEngine.scheduleOnReady(ctx, recordCurrent, { attempts: 6, delayMs: 800 });
-      ctx.onNav(() => ctx.addTimeout(() => { try { recordCurrent(); } catch (e) {} }, 1200));
-      const showScores = () => {
-        document.querySelectorAll("ytd-rich-item-renderer, ytd-compact-video-renderer, ytd-video-renderer").forEach(card => {
-          if (card.dataset.zenGenome) return;
-          const link = card.querySelector("a[href*=\"/watch?v=\"]");
-          const channelLink = card.querySelector("a[href*=\"/channel/\"], a[href*=\"/@\"]");
-          if (!link) return;
-          const href = link.getAttribute("href") || "";
-          const idMatch = href.match(/[?&]v=([A-Za-z0-9_-]{11})/);
-          if (!idMatch) return;
-          const chHref = channelLink ? (channelLink.getAttribute("href") || "") : "";
-          const cid = (chHref.match(/\/channel\/(UC[\w-]+)/) || [])[1] || "";
-          const chandle = (chHref.match(/\/@([^/?#]+)/) || [])[1] || "";
-          const title = (card.querySelector("#video-title, a#video-title") || {}).textContent || "";
-          const score = ZenSession.genome.score({
-            channelId: cid || undefined,
-            handle: chandle || undefined,
-            title,
-            duration: ZenSearch.parseDurationSec((card.querySelector("ytd-thumbnail-overlay-time-status-renderer span") || {}).textContent),
-          });
-          card.dataset.zenGenome = "1";
-          const badge = document.createElement("span");
-          badge.className = "zen-pill";
-          badge.style.cssText = "position:absolute;top:4px;right:4px;z-index:5;" + (score > 70 ? "background:rgba(76,175,80,.2);color:#81c784" : score > 40 ? "background:rgba(255,193,7,.15);color:#ffd54f" : "background:rgba(158,158,158,.15);color:#bdbdbd");
-          badge.textContent = score + "% match";
-          badge.title = "Estimated from your watch history";
-          const thumb = card.querySelector("ytd-thumbnail");
-          if (thumb) {
-            thumb.style.position = "relative";
-            thumb.appendChild(badge);
-          }
-        });
-      };
-      ctx.addTimeout(showScores, 0);
-      ctx.onNav(() => ctx.addTimeout(showScores, 0));
-      Yt["watch-genome"].push(() => {});
-    },
-    settings(en) {
-      en.appendChild(Io("Enable Watch Genome", "watchGenomeOn"));
-      const snap = ZenSession.genome.snapshot();
-      const info = document.createElement("div");
-      info.className = "zen-meta";
-      info.style.cssText = "margin-top:6px;padding:8px;background:rgba(255,255,255,.03);border-radius:6px";
-      info.textContent = "Sessions: " + (snap.sessions || 0) + " | Topics: " + (ZenSession.genome.getTopTopics(3).join(", ") || "none") + " | Length: " + ZenSession.genome.getLengthPref();
-      en.appendChild(info);
-      en.appendChild(Oo("Reset genome", () => { ZenSession.genome.reset(); pe("Watch genome reset.", 1500, "success"); }, "ytp-danger"));
-    } });
 
   xa.register({ id: "curated-collections", name: "Curated Collections", summary: "Organize your saved videos into custom-themed collections with progress tracking and exportable playlists.", masterKey: "collectionsOn", keys: ["collectionsOn"],
     apply(ctx) {
@@ -28484,60 +28162,6 @@ const Nr = [
         });
         en.appendChild(list);
       }
-    } });
-
-  xa.register({ id: "time-budget", name: "Time Budget Manager", summary: "Set session watch budgets with subtle milestone alerts to prevent doom-scrolling and track viewing time.", masterKey: "timeBudgetOn", keys: ["timeBudgetOn", "timeBudgetMinutes"],
-    apply(ctx) {
-      if (!S.timeBudgetOn) return;
-      ZenEngine.injectCSS();
-      ZenSession.budget.setBudget(S.timeBudgetMinutes || 60);
-      let barEl = null;
-      const updateBar = () => {
-        if (!barEl) return;
-        const budgetSec = ZenSession.budget.getBudget() * 60;
-        const used = ZenSession.budget.getUsed();
-        const pct = budgetSec > 0 ? Math.min(100, (used / budgetSec) * 100) : 0;
-        const remain = ZenSession.budget.getRemaining();
-        const fill = barEl.querySelector(".zen-budget-fill");
-        const label = barEl.querySelector(".zen-budget-label");
-        if (fill) { fill.style.width = pct + "%"; fill.style.background = pct < 60 ? "#4caf50" : pct < 85 ? "#ffc107" : "#ff5722"; }
-        if (label) label.textContent = ce(Math.floor(remain)) + " remaining of " + ZenSession.budget.getBudget() + " min";
-      };
-      const tick = () => {
-        const vid = ie.el();
-        if (vid && !vid.paused && !vid.ended && !document.hidden) ZenSession.budget.tick(2);
-        updateBar();
-      };
-      const renderBar = () => {
-        if (barEl) barEl.remove();
-        barEl = document.createElement("div");
-        barEl.id = "ytp-zen-budget";
-        barEl.innerHTML = '<span class="zen-budget-label">--</span><div class="zen-budget-track"><div class="zen-budget-fill"></div></div><button class="zen-btn" id="ytp-zen-budget-close">End session</button>';
-        document.body.appendChild(barEl);
-        barEl.querySelector("#ytp-zen-budget-close").addEventListener("click", () => {
-          Ta("timeBudgetOn", false);
-          xa.apply("time-budget");
-        });
-        updateBar();
-      };
-      const insert = () => {
-        if (barEl && barEl.parentNode) return true;
-        if (!document.body) return false;
-        renderBar();
-        return true;
-      };
-      ZenEngine.scheduleOnReady(ctx, insert, { attempts: 6, delayMs: 300 });
-      ctx.addInterval(tick, 2000);
-      Yt["time-budget"].push(() => { if (barEl) { barEl.remove(); barEl = null; } });
-    },
-    settings(en) {
-      en.appendChild(Io("Enable Time Budget Manager", "timeBudgetOn"));
-      en.appendChild(No("Session budget", "timeBudgetMinutes", 15, 240, 5, v => v + " minutes"));
-      const info = document.createElement("div");
-      info.className = "zen-meta";
-      info.style.marginTop = "6px";
-      info.textContent = "Used today: " + ce(Math.floor(ZenSession.budget.getUsed()));
-      en.appendChild(info);
     } });
 
   // ─── Algorithm Intelligence Feature (V2: full-spectrum) ────────────────────
@@ -28777,109 +28401,7 @@ const Nr = [
   });
 
   // -- DeArrow: clickbait-free titles & thumbnails (community-sourced) --
-  xa.register({ id: "dearrow", name: "DeArrow Titles & Thumbnails", summary: "Replaces clickbait video titles and hyperbolic thumbnails with community-sourced, factual alternatives.", masterKey: "dearrowOn", keys: ["dearrowOn", "dearrowSwapThumb"],
-    apply(ctx) {
-      if (!S.dearrowOn) return;
-      ZenEngine.injectCSS();
-      const cache = new Map();
-      const api = (vid, kind) => {
-        const key = vid + ":" + kind;
-        if (cache.has(key)) return cache.get(key);
-        const p = ZenEngine.fetchJson("https://sponsor.ajay.app/api/branded" + (kind === "title" ? "Title" : "Thumbnail") + "?videoID=" + encodeURIComponent(vid))
-          .then((r) => (r.ok && r.json && r.json.title ? r.json : null))
-          .catch(() => null);
-        cache.set(key, p);
-        return p;
-      };
-      // Watch page: toggle chip next to the title.
-      const watchMount = () => {
-        if (!location.pathname.startsWith("/watch")) return true;
-        const vid = ie.videoId();
-        if (!vid || document.querySelector("[data-zen-dearrow-watch]")) return true;
-        const titleEl = document.querySelector("#title h1 yt-formatted-string") ||
-          document.querySelector("#title h1") ||
-          document.querySelector("h1.title");
-        if (!titleEl) return false;
-        api(vid, "title").then((alt) => {
-          if (!alt || !alt.title) return;
-          const original = titleEl.textContent;
-          if (String(alt.title).trim() === String(original).trim()) return;
-          const chip = document.createElement("button");
-          chip.type = "button";
-          chip.className = "zen-dearrow-chip";
-          chip.dataset.zenDearrowWatch = "1";
-          chip.textContent = "DeArrow title";
-          let swapped = false;
-          chip.addEventListener("click", () => {
-            swapped = !swapped;
-            titleEl.textContent = swapped ? alt.title : original;
-            chip.classList.toggle("swapped", swapped);
-            chip.textContent = swapped ? "Original title" : "DeArrow title";
-          });
-          const row = titleEl.closest("#title") || titleEl.parentElement;
-          if (row) row.appendChild(chip);
-        });
-        return true;
-      };
-      ZenEngine.scheduleOnReady(ctx, watchMount, { attempts: 8, delayMs: 400 });
-      ctx.onNav(() => ctx.addTimeout(watchMount, 0));
-      Yt["dearrow"].push(() => {
-        document.querySelectorAll("[data-zen-dearrow-watch]").forEach((e) => e.remove());
-      });
-    },
-    settings(en) {
-      en.appendChild(Io("Enable DeArrow Titles & Thumbnails", "dearrowOn"));
-    } });
-
   // -- Return YouTube Dislike: like/dislike ratio + rating --
-  xa.register({ id: "ryd-votes", name: "Dislike Meter", summary: "Restores public dislike counts and like/dislike ratio bars using the Return YouTube Dislike API.", masterKey: "rydVotesOn", keys: ["rydVotesOn"],
-    apply(ctx) {
-      if (!S.rydVotesOn) return;
-      ZenEngine.injectCSS();
-      const mount = () => {
-        if (!location.pathname.startsWith("/watch")) return true;
-        const vid = ie.videoId();
-        if (!vid || document.querySelector(".zen-ryd-bar")) return true;
-        const seg = document.querySelector("ytd-segmented-like-dislike-button-renderer");
-        if (!seg) return false;
-        ZenEngine.fetchJson("https://returnyoutubedislikeapi.com/votes?videoId=" + encodeURIComponent(vid))
-          .then((r) => {
-            const d = r.ok && r.json ? r.json : null;
-            if (!d || typeof d.likes !== "number" || typeof d.dislikes !== "number") return;
-            const total = d.likes + d.dislikes;
-            if (!total) return;
-            const pct = Math.round((d.likes / total) * 100);
-            const fmt = (n) => n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? (n / 1e3).toFixed(1) + "K" : String(n);
-            const bar = document.createElement("div");
-            bar.className = "zen-ryd-bar";
-            bar.title = "Estimated from Return YouTube Dislike";
-            const track = document.createElement("div");
-            track.className = "zen-ryd-track";
-            const like = document.createElement("div");
-            like.className = "zen-ryd-like";
-            like.style.width = pct + "%";
-            const dislike = document.createElement("div");
-            dislike.className = "zen-ryd-dislike";
-            dislike.style.width = (100 - pct) + "%";
-            track.append(like, dislike);
-            const label = document.createElement("div");
-            label.className = "zen-ryd-label";
-            label.innerHTML = "<span style=\"color:#3ea6ff\">" + pct + "% like</span><span>" + fmt(d.likes) + " vs " + fmt(d.dislikes) + "</span>";
-            bar.append(track, label);
-            seg.parentElement.insertBefore(bar, seg.nextSibling);
-          });
-        return true;
-      };
-      ZenEngine.scheduleOnReady(ctx, mount, { attempts: 8, delayMs: 400 });
-      ctx.onNav(() => ctx.addTimeout(mount, 0));
-      Yt["ryd-votes"].push(() => {
-        document.querySelectorAll(".zen-ryd-bar").forEach((e) => e.remove());
-      });
-    },
-    settings(en) {
-      en.appendChild(Io("Enable Dislike Meter (Return YouTube Dislike)", "rydVotesOn"));
-    } });
-
   // -- Keep Screen Awake (Wake Lock API) --
   xa.register({ id: "screen-wake", name: "Keep Screen Awake", summary: "Prevents system sleep, screensavers, and display timeouts during active video playback via the Wake Lock API.", masterKey: "screenWakeOn", keys: ["screenWakeOn"],
     apply(ctx) {
@@ -29323,17 +28845,24 @@ const Nr = [
       });
     },
     settings(en) {
-      en.appendChild(Io("Group all floating monitors into one widget", "overlayHubOn"));
-      en.appendChild(Ro("Widget position", "overlayHubPos", {
+      en.appendChild(Io("Enable Monolith Overlay Hub", "overlayHubOn"));
+      en.appendChild(Ro("Hub Position", "overlayHubPos", {
         tl: "Top-left",
         tr: "Top-right",
         bl: "Bottom-left",
         br: "Bottom-right",
       }));
+      en.appendChild(To("div", "ytp-elem-sec-title", "Monitors & Overlays"));
+      en.appendChild(Io("Live FPS Counter", "fpsCounterOn"));
+      en.appendChild(Io("Buffer Health Monitor", "bufferHealthOn"));
+      en.appendChild(Io("Dropped Frame Counter", "droppedFrameOn"));
+      en.appendChild(Io("Playback Performance Overlay", "statsOverlay"));
+      en.appendChild(Io("Activity Diagnostic Monitor", "diagConsole"));
+      en.appendChild(Io("Feature Performance Tracker", "perfProfilerOn"));
       const info = document.createElement("div");
       info.className = "ytp-hist-note";
       info.style.marginTop = "8px";
-      info.innerHTML = "<strong>Monolith:</strong> when enabled, every floating monitor (FPS, buffer, dropped frames, playback stats, activity) is gathered into a single widget that grows and shrinks as you toggle monitors on and off.";
+      info.innerHTML = "<strong>Monolith Overlay Hub:</strong> Consolidates all active floating performance meters and diagnostic tools into a single, unified docked glass HUD.";
       en.appendChild(info);
     },
   });

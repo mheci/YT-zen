@@ -1,0 +1,139 @@
+name: Channel health
+
+# Weekly audit of the userscript update channel:
+#   - releases/latest must serve the newest git tag, package.json, and both
+#     artifact headers at the same version;
+#   - rebuilding the artifact at the tagged commit must reproduce the released
+#     yt-zen.user.js byte-for-byte (deterministic pipeline);
+#   - both /releases/latest/download URLs must answer HTTP 200.
+# Any failure opens or updates one tracking issue (label: channel-drift);
+# a healthy run closes it again. This workflow never pushes commits.
+
+on:
+  schedule:
+    - cron: "37 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: channel-health
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    name: Audit update channel
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Resolve latest release tag
+        id: rel
+        run: |
+          tag="$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq .tag_name)"
+          echo "Latest published release: ${tag}"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+
+      - name: Check out tagged tree
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.rel.outputs.tag }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Audit channel
+        run: |
+          set -u
+          : > diagnostics.txt
+          fail=0
+          note() { printf '%s\n' "$1" >> diagnostics.txt; }
+          check() { if [ "$2" = "$3" ]; then note "PASS: $1 ($2)"; else note "FAIL: $1 (expected $3, got $2)"; fail=1; fi; }
+
+          tag="${{ steps.rel.outputs.tag }}"
+          expected="${tag#v}"
+
+          pkg_version="$(node -p 'require("./package.json").version')"
+          check "package.json version matches latest release tag" "$pkg_version" "$expected"
+
+          base="https://github.com/${GITHUB_REPOSITORY}/releases/latest/download"
+
+          code_meta="$(curl -sS -L -o meta.released.js -w '%{http_code}' "${base}/yt-zen.meta.js")"
+          check "GET ${base}/yt-zen.meta.js" "$code_meta" "200"
+          code_user="$(curl -sS -L -o user.released.js -w '%{http_code}' "${base}/yt-zen.user.js")"
+          check "GET ${base}/yt-zen.user.js" "$code_user" "200"
+
+          if [ "$code_meta" = "200" ]; then
+            meta_version="$(grep -oP '// @version\s+\K[0-9.]+' meta.released.js | head -n1)"
+            check "released meta.js @version matches latest release tag" "$meta_version" "$expected"
+          fi
+
+          npm ci --no-audit --no-fund >/dev/null 2>&1 || npm install --no-audit --no-fund >/dev/null 2>&1
+          node scripts/build-userscript.js
+
+          if [ "$code_user" = "200" ]; then
+            sha_built="$(sha256sum yt-zen.user.js | cut -d' ' -f1)"
+            sha_rel="$(sha256sum user.released.js | cut -d' ' -f1)"
+            if [ "$sha_built" = "$sha_rel" ]; then
+              note "PASS: rebuilt artifact SHA256 matches released asset (${sha_built})"
+            else
+              note "FAIL: rebuilt artifact SHA256 ${sha_built} != released ${sha_rel}"
+              fail=1
+            fi
+            sha_meta_built="$(sha256sum yt-zen.meta.js | cut -d' ' -f1)"
+            sha_meta_rel="$(sha256sum meta.released.js | cut -d' ' -f1)"
+            if [ "$sha_meta_built" = "$sha_meta_rel" ]; then
+              note "PASS: rebuilt meta.js SHA256 matches released asset"
+            else
+              note "FAIL: rebuilt meta.js SHA256 ${sha_meta_built} != released ${sha_meta_rel}"
+              fail=1
+            fi
+          else
+            note "SKIP: artifact comparison (release assets unreachable)"
+          fi
+
+          if [ "$fail" -eq 0 ]; then
+            note "RESULT: channel healthy at $(date -u '+%Y-%m-%dT%H:%M:%SZ') for release ${tag}"
+          else
+            note "RESULT: channel drift detected at $(date -u '+%Y-%m-%dT%H:%M:%SZ') for release ${tag} (run ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})"
+          fi
+
+          cat diagnostics.txt
+          rm -f meta.released.js user.released.js
+          exit "$fail"
+
+      - name: Report result
+        if: always()
+        run: |
+          if [ -s diagnostics.txt ]; then
+            {
+              echo "Automated channel audit failed."
+              echo ""
+              echo "- Release under audit: ${{ steps.rel.outputs.tag }}"
+              echo "- Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+              echo "- Detected: $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+              echo ""
+              echo "```"
+              cat diagnostics.txt
+              echo "```"
+            } > body.md
+            gh label create channel-drift --color D97706 --description "Automated update-channel drift reports" 2>/dev/null || true
+            number="$(gh issue list --label channel-drift --state open --json number --jq '.[0].number // empty')"
+            if [ -z "$number" ]; then
+              gh issue create --title "channel-drift: update channel verification failed" --label channel-drift --body-file body.md
+            else
+              gh issue edit "$number" --body-file body.md
+            fi
+            exit 1
+          fi
+          number="$(gh issue list --label channel-drift --state open --json number --jq '.[0].number // empty')"
+          if [ -n "$number" ]; then
+            gh issue close "$number" --comment "Channel verified healthy by automated audit at $(date -u '+%Y-%m-%dT%H:%M:%SZ'). Closing."
+          fi

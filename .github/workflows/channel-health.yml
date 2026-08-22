@@ -53,9 +53,11 @@ jobs:
         run: |
           set -u
           : > diagnostics.txt
+          : > channel-log.txt
           fail=0
-          note() { printf '%s\n' "$1" >> diagnostics.txt; }
-          check() { if [ "$2" = "$3" ]; then note "PASS: $1 ($2)"; else note "FAIL: $1 (expected $3, got $2)"; fail=1; fi; }
+          note() { printf '%s\n' "$1" >> channel-log.txt; }
+          failnote() { printf '%s\n' "$1" >> channel-log.txt; printf '%s\n' "$1" >> diagnostics.txt; fail=1; }
+          check() { if [ "$2" = "$3" ]; then note "PASS: $1 ($2)"; else failnote "FAIL: $1 (expected $3, got $2)"; fi; }
 
           tag="${{ steps.rel.outputs.tag }}"
           expected="${tag#v}"
@@ -84,28 +86,26 @@ jobs:
             if [ "$sha_built" = "$sha_rel" ]; then
               note "PASS: rebuilt artifact SHA256 matches released asset (${sha_built})"
             else
-              note "FAIL: rebuilt artifact SHA256 ${sha_built} != released ${sha_rel}"
-              fail=1
+              failnote "FAIL: rebuilt artifact SHA256 ${sha_built} != released ${sha_rel}"
             fi
             sha_meta_built="$(sha256sum yt-zen.meta.js | cut -d' ' -f1)"
             sha_meta_rel="$(sha256sum meta.released.js | cut -d' ' -f1)"
             if [ "$sha_meta_built" = "$sha_meta_rel" ]; then
               note "PASS: rebuilt meta.js SHA256 matches released asset"
             else
-              note "FAIL: rebuilt meta.js SHA256 ${sha_meta_built} != released ${sha_meta_rel}"
-              fail=1
+              failnote "FAIL: rebuilt meta.js SHA256 ${sha_meta_built} != released ${sha_meta_rel}"
             fi
           else
-            note "SKIP: artifact comparison (release assets unreachable)"
+            failnote "SKIP: artifact comparison impossible (release assets unreachable)"
           fi
 
           if [ "$fail" -eq 0 ]; then
             note "RESULT: channel healthy at $(date -u '+%Y-%m-%dT%H:%M:%SZ') for release ${tag}"
           else
-            note "RESULT: channel drift detected at $(date -u '+%Y-%m-%dT%H:%M:%SZ') for release ${tag} (run ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})"
+            failnote "RESULT: channel drift detected at $(date -u '+%Y-%m-%dT%H:%M:%SZ') for release ${tag} (run ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})"
           fi
 
-          cat diagnostics.txt
+          cat channel-log.txt
           rm -f meta.released.js user.released.js
           exit "$fail"
 
@@ -119,10 +119,10 @@ jobs:
               echo "- Release under audit: ${{ steps.rel.outputs.tag }}"
               echo "- Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
               echo "- Detected: $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-              echo ""
-              echo "```"
-              cat diagnostics.txt
-              echo "```"
+              echo ''
+              echo '```'
+              cat channel-log.txt 2>/dev/null || true
+              echo '```'
             } > body.md
             gh label create channel-drift --color D97706 --description "Automated update-channel drift reports" 2>/dev/null || true
             number="$(gh issue list --label channel-drift --state open --json number --jq '.[0].number // empty')"

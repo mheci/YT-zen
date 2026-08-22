@@ -1342,6 +1342,36 @@
       Logger.clear();
     };
 
+    // ─── TimeWindow ──────────────────────────────────────────────────────────
+    // Pure wall-clock window math for scheduled policies ("HH:MM" pairs).
+    // A start after its end wraps past midnight; equal start and end describe
+    // an empty window that is never active. No timers, no state.
+    const TimeWindow = (() => {
+      const parseHHMM = (text) => {
+        const match = /^(\d{1,2}):(\d{2})$/.exec(String(text == null ? "" : text).trim());
+        if (!match) return null;
+        const hours = Number(match[1]);
+        const minutes = Number(match[2]);
+        if (hours > 23 || minutes > 59) return null;
+        return hours * 60 + minutes;
+      };
+      const contains = (startMin, endMin, nowMin) => {
+        if (
+          startMin === null || endMin === null || nowMin === null ||
+          !Number.isFinite(startMin) || !Number.isFinite(endMin) || !Number.isFinite(nowMin)
+        ) return false;
+        if (startMin === endMin) return false;
+        const now = ((Math.floor(nowMin) % 1440) + 1440) % 1440;
+        if (startMin < endMin) return now >= startMin && now < endMin;
+        return now >= startMin || now < endMin;
+      };
+      const containsHHMM = (startText, endText, date) => {
+        const at = date instanceof Date ? date : new Date();
+        return contains(parseHHMM(startText), parseHHMM(endText), at.getHours() * 60 + at.getMinutes());
+      };
+      return { parseHHMM, contains, containsHHMM };
+    })();
+
     return {
       BoundedCache,
       WeakElementCache,
@@ -1356,6 +1386,7 @@
       StateStore,
       Dom,
       Retry,
+      TimeWindow,
       stats,
       cleanup,
     };

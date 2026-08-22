@@ -58,6 +58,7 @@ run("src/zen-resources.js", "ZenResources");
 run("src/sponsorblock-engine-v2.js", "SponsorBlockEngine");
 const { BoundedCache, WeakElementCache, DeferredTask, ResourceScope, Bus, Logger, StateStore, Dom, Retry } = context.globalThis.ZenResources;
 const engine = context.globalThis.SponsorBlockEngine;
+const TimeWindow = context.globalThis.ZenResources.TimeWindow;
 
 const segments = engine.api.normalizeSegments({ segments: [
   { UUID: "b", category: "intro", actionType: "skip", segment: [20, 30] },
@@ -94,6 +95,27 @@ assert.strictEqual(elementCache.get("element"), element);
 element.isConnected = false;
 assert.strictEqual(elementCache.cleanupDisconnected(), 1);
 assert.strictEqual(elementCache.has("element"), false);
+
+assert.strictEqual(TimeWindow.parseHHMM("09:00"), 540, "parseHHMM reads minutes since midnight");
+assert.strictEqual(TimeWindow.parseHHMM("22:05"), 1325);
+assert.strictEqual(TimeWindow.parseHHMM("7:59"), 479, "parseHHMM accepts single-digit hours");
+assert.strictEqual(TimeWindow.parseHHMM("24:00"), null, "parseHHMM rejects out-of-range hours");
+assert.strictEqual(TimeWindow.parseHHMM("09:60"), null, "parseHHMM rejects out-of-range minutes");
+assert.strictEqual(TimeWindow.parseHHMM("0900"), null, "parseHHMM rejects missing colon");
+assert.strictEqual(TimeWindow.parseHHMM(""), null, "parseHHMM rejects empty input");
+assert.strictEqual(TimeWindow.parseHHMM(null), null, "parseHHMM rejects nullish input");
+assert.strictEqual(TimeWindow.contains(540, 1020, 600), true, "same-day window contains an interior minute");
+assert.strictEqual(TimeWindow.contains(540, 1020, 540), true, "window start is inclusive");
+assert.strictEqual(TimeWindow.contains(540, 1020, 1019), true, "the last minute before end belongs to the window");
+assert.strictEqual(TimeWindow.contains(540, 1020, 1020), false, "window end is exclusive");
+assert.strictEqual(TimeWindow.contains(540, 1020, 480), false, "times before the window are outside");
+assert.strictEqual(TimeWindow.contains(1320, 420, 1380), true, "midnight-crossing window covers late evening");
+assert.strictEqual(TimeWindow.contains(1320, 420, 200), true, "midnight-crossing window covers early morning");
+assert.strictEqual(TimeWindow.contains(1320, 420, 720), false, "midnight-crossing window excludes midday");
+assert.strictEqual(TimeWindow.contains(600, 600, 600), false, "equal bounds describe an empty window");
+assert.strictEqual(TimeWindow.contains(null, 600, 600), false, "invalid start never activates the window");
+assert.strictEqual(TimeWindow.contains(540, 1020, null), false, "invalid now never activates the window");
+assert.strictEqual(TimeWindow.contains(1320, 420, 1500), true, "now minutes past midnight wrap into range");
 
 let keepAlive;
 (async () => {
@@ -361,6 +383,30 @@ let keepAlive;
     ["bgThrottle", "containment", "disablePreviews", "killAnim", "killBlur", "lazyComments", "lazyThumbs", "maxPaint", "memory", "paint", "preconnect", "prefetch", "qualityCap", "thumbQuality"].sort().join(","),
     "perf-mode tiers cover exactly the 14 granular keys",
   );
+
+  // --- Group 4: v3.14.0 additions (watch-budget focus mode, shorts policy) ---
+  assert.strictEqual(countOccurrences(bundle, 'id: "watch-budget"'), 1, "watch-budget registers exactly once");
+  assert.strictEqual(countOccurrences(bundle, 'id: "shorts-policy"'), 1, "shorts-policy registers exactly once");
+  const zenDefaultKeys = [
+    "watchBudgetOn:",
+    "watchBudgetMinutes:",
+    "shortsScheduleOn:",
+    "shortsScheduleMode:",
+    "shortsScheduleStart:",
+    "shortsScheduleEnd:",
+  ];
+  for (const key of zenDefaultKeys) {
+    assert.ok(bundle.includes(key), `zen v3.14 default present: ${key}`);
+  }
+  for (const marker of [
+    "ytp-zen-focus-overlay",
+    "ytp-zen-shorts-gate",
+    "__zen_focus__",
+    "hotkey watch budget",
+    "TimeWindow",
+  ]) {
+    assert.ok(bundle.includes(marker), `v3.14 runtime marker present: ${marker}`);
+  }
 
 
   console.log("Unit tests passed.");

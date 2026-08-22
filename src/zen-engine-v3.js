@@ -135,6 +135,20 @@
 #ytp-zen-ai button:disabled{opacity:.5;cursor:wait}
 #ytp-zen-ai .zen-ai-body{font-size:12px;line-height:1.5;color:#ccc;white-space:pre-wrap;margin-top:6px}
 #ytp-zen-ai .zen-ai-note{font-size:10.5px;color:#777;margin-top:4px}
+#ytp-zen-focus-overlay,#ytp-zen-shorts-gate{position:fixed;inset:0;z-index:2147483642;display:flex;
+  align-items:center;justify-content:center;background:rgba(8,9,12,.72);
+  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);animation:zenFocusIn .35s ease}
+.zen-focus-card{max-width:min(420px,calc(100vw - 48px));padding:28px 26px;text-align:center;
+  background:rgba(18,20,27,.92);border:1px solid rgba(255,255,255,.1);border-radius:16px;
+  box-shadow:0 24px 70px rgba(0,0,0,.55)}
+.zen-focus-card::before{content:"";display:block;width:44px;height:3px;margin:0 auto 18px;
+  border-radius:2px;background:linear-gradient(90deg,transparent,#ff3d7f,transparent);
+  animation:zenBreath 2.6s ease-in-out infinite}
+.zen-focus-title{font:700 17px system-ui;color:#fff;margin-bottom:10px}
+.zen-focus-body{font:400 13px/1.6 system-ui;color:#aab;margin:0 0 20px}
+.zen-focus-row{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
+@keyframes zenFocusIn{from{opacity:0}to{opacity:1}}
+@keyframes zenBreath{0%,100%{opacity:.45;transform:scaleX(.7)}50%{opacity:1;transform:scaleX(1)}}
 `;
     let cssInjected = false;
     const injectCSS = () => {
@@ -1878,6 +1892,9 @@
             return;
           }
           videos.forEach(video => {
+            // Bound retention: a very long session resets the seen-set instead
+            // of growing it without limit across route changes.
+            if (sessionShown.size > 2000) sessionShown.clear();
             sessionShown.add(video.videoId);
             api.list.appendChild(ZenDiscovery.createVideoRow(
               video.videoId,
@@ -1982,7 +1999,18 @@
       };
       ctx.addTimeout(processCards, 0);
       ctx.onNav(() => ctx.addTimeout(processCards, 0));
-      ctx.addObserver(document.body, () => { ctx.addTimeout(processCards, 0); }, { childList: true, subtree: true });
+      // Leading-edge gate: YouTube fires body mutations near-continuously, so
+      // observer-driven rescans are capped at one per 250ms. Scans are
+      // idempotent (cards self-mark via dataset), and timer-free gating adds
+      // no teardown pressure during long sessions.
+      let lastScan = 0;
+      const gatedScan = () => {
+        const now = Date.now();
+        if (now - lastScan < 250) return;
+        lastScan = now;
+        processCards();
+      };
+      ctx.addObserver(document.body, gatedScan, { childList: true, subtree: true });
       Yt["credibility-layer"].push(() => {});
     },
     settings(en) { en.appendChild(Io("Enable Credibility Layer", "credLayerOn")); } });
@@ -2710,36 +2738,56 @@
 
       const adopt = () => {
         try {
-          if (!S.overlayHubOn || !document.body) { removeContainer(); return; }
+          if (!S.overlayHubOn || !document.body) { removeContainer(); return 0; }
           const widgets = document.querySelectorAll(ADOPT_SELECTOR);
           let count = 0;
           for (const w of widgets) {
             if (w.closest("#" + CONTAINER_ID)) { count++; continue; }
             const hub = getHub();
-            if (!hub) return;
+            if (!hub) return count;
             hub.appendChild(w);
             count++;
           }
           const hub = document.getElementById(CONTAINER_ID);
-          if (!hub) return;
+          if (!hub) return count;
           if (count === 0) {
-            if (collapsed) return;
+            if (collapsed) return 0;
             if (!hub.querySelector(".ytp-mon-empty")) {
               const empty = document.createElement("div");
               empty.className = "ytp-mon-empty";
               empty.textContent = "Enable a monitor to attach it here.";
               hub.appendChild(empty);
             }
-            return;
+            return 0;
           }
           const emptyEl = hub.querySelector(".ytp-mon-empty");
           if (emptyEl) emptyEl.remove();
           position();
-        } catch (_) {}
+          return count;
+        } catch (_) {
+          return 0;
+        }
       };
 
       adopt();
-      ctx.addInterval(adopt, 500);
+      // Safety-net sweep with idle backoff: the poll exists to catch monitor
+      // widgets injected outside our hooks. After six consecutive empty scans
+      // it sweeps at most once per ~4s instead of every 500ms; any hit or
+      // direct adopt() call (toggle/nav paths) restores fast sweeping. The
+      // early-out is counter-only, so idling creates no timers and no
+      // teardown entries.
+      let quietScans = 0;
+      let idleTicks = 0;
+      ctx.addInterval(() => {
+        if (quietScans >= 6) {
+          idleTicks += 1;
+          if (idleTicks % 8 !== 0) return;
+          idleTicks = 0;
+        }
+        const found = adopt();
+        if (found > 0) { quietScans = 0; idleTicks = 0; }
+        else if (quietScans < 6) quietScans += 1;
+      }, 500);
       ctx.onNav(() => ctx.addTimeout(adopt, 600));
 
       const unsub = So("cfg.changed", ({ key: k }) => {
@@ -2770,6 +2818,264 @@
       info.className = "ytp-hist-note";
       info.style.marginTop = "8px";
       info.innerHTML = "<strong>Monolith Overlay Hub:</strong> Consolidates all active floating performance meters and diagnostic tools into a single, unified docked glass HUD.";
+      en.appendChild(info);
+    },
+  });
+
+  // ─── Watch-Budget Focus Mode ───────────────────────────────────────────────
+  // A gentle daily watch budget. Usage accrues one second at a time, only
+  // while a video is actually playing on a visible watch page; the interval
+  // is registry-managed, so hidden tabs never count. At 80% a single toast
+  // nudges; at 100% a calm full-screen invitation appears with real escape
+  // hatches: break until midnight (persisted), up to three five-minute
+  // extensions per day (persisted), or Esc for ten minutes (in memory).
+  // Nothing is ever force-paused — "Take a break" pauses as a courtesy.
+  xa.register({
+    id: "watch-budget",
+    name: "Watch-Budget Focus Mode",
+    summary: "Sets a gentle daily watch budget with soft nudges and a calm stop screen; only visible playback counts toward it.",
+    masterKey: "watchBudgetOn",
+    keys: ["watchBudgetOn", "watchBudgetMinutes"],
+    apply(ctx) {
+      if (!S.watchBudgetOn) return;
+      ZenEngine.injectCSS();
+      const EXTENSION_SEC = 300;
+      const MAX_EXTENSIONS = 3;
+      const focusStore = ZenEngine.createStore("__zen_focus__", { date: "", nudged: false, extCount: 0, snoozedDay: "" });
+      const today = () => new Date().toDateString();
+      const rollDay = () => focusStore.update(d => {
+        if (d.date !== today()) { d.date = today(); d.nudged = false; d.extCount = 0; d.snoozedDay = ""; }
+      });
+      const budgetMin = () => Math.max(5, Math.min(1440, Number(S.watchBudgetMinutes) || 90));
+      const usedSec = () => { try { return ZenSession.budget.getUsed(); } catch (_) { return 0; } };
+      const limitSec = () => {
+        rollDay();
+        return budgetMin() * 60 + (focusStore.get().extCount || 0) * EXTENSION_SEC;
+      };
+      const remainingMin = () => Math.max(0, Math.round((limitSec() - usedSec()) / 60));
+      const snoozedToday = () => { rollDay(); return focusStore.get().snoozedDay === today(); };
+
+      let overlay = null;
+      let softSnoozeUntil = 0;
+      const removeOverlay = () => {
+        if (overlay && overlay.parentNode) overlay.remove();
+        overlay = null;
+      };
+      const showStatus = () => {
+        if (snoozedToday()) pe("Zen focus: today's budget is done. See you tomorrow.", 3200, "info");
+        else {
+          const left = remainingMin();
+          pe(left > 0
+            ? "Zen focus: about " + left + " min left of your " + budgetMin() + " min daily budget."
+            : "Zen focus: today's watch budget is used up.", 3200, "info");
+        }
+      };
+      const buildOverlay = () => {
+        overlay = document.createElement("div");
+        overlay.id = "ytp-zen-focus-overlay";
+        overlay.setAttribute("role", "dialog");
+        overlay.setAttribute("aria-label", "Daily watch budget reached");
+        const card = document.createElement("div");
+        card.className = "zen-focus-card";
+        const title = document.createElement("div");
+        title.className = "zen-focus-title";
+        title.textContent = "Today's watch budget is used up";
+        const body = document.createElement("p");
+        body.className = "zen-focus-body";
+        card.append(title, body);
+        const row = document.createElement("div");
+        row.className = "zen-focus-row";
+        const breakBtn = document.createElement("button");
+        breakBtn.type = "button";
+        breakBtn.className = "zen-btn primary";
+        breakBtn.textContent = "Take a break";
+        breakBtn.addEventListener("click", () => {
+          try { ie.pause(); } catch (_) {}
+          focusStore.update(d => { d.snoozedDay = today(); });
+          removeOverlay();
+        });
+        const moreBtn = document.createElement("button");
+        moreBtn.type = "button";
+        moreBtn.className = "zen-btn";
+        moreBtn.addEventListener("click", () => {
+          rollDay();
+          focusStore.update(d => { d.extCount = Math.min(MAX_EXTENSIONS, (d.extCount || 0) + 1); });
+          removeOverlay();
+        });
+        row.append(breakBtn, moreBtn);
+        card.appendChild(row);
+        overlay.appendChild(card);
+        document.body.appendChild(overlay);
+      };
+      const refreshOverlay = () => {
+        rollDay();
+        const ext = focusStore.get().extCount || 0;
+        const left = remainingMin();
+        const body = overlay.querySelector(".zen-focus-body");
+        if (body) body.textContent = "You have watched through your " + budgetMin() + " minute budget" +
+          (ext ? " plus " + ext * 5 + " extension minutes" : "") + ". About " + left +
+          " grace minutes are shown only because time keeps counting while you decide.";
+        const moreBtn = overlay.querySelector(".zen-focus-row button:not(.primary)");
+        if (moreBtn) {
+          moreBtn.textContent = ext >= MAX_EXTENSIONS
+            ? "No extensions left"
+            : "5 more minutes (" + (MAX_EXTENSIONS - ext) + " left)";
+          moreBtn.disabled = ext >= MAX_EXTENSIONS;
+        }
+      };
+      const ensureOverlay = () => {
+        if (!document.body) return;
+        if (!overlay) buildOverlay();
+        refreshOverlay();
+      };
+
+      ctx.addInterval(() => {
+        try {
+          if (!location.pathname.startsWith("/watch")) { removeOverlay(); return; }
+          if (Date.now() < softSnoozeUntil) return;
+          if (snoozedToday()) { removeOverlay(); return; }
+          const vid = ie.el();
+          if (!vid || vid.paused || vid.ended) return;
+          try { ZenSession.budget.tick(1); } catch (_) {}
+          const limit = limitSec();
+          const used = usedSec();
+          rollDay();
+          if (!focusStore.get().nudged && used >= limit * 0.8 && used < limit) {
+            focusStore.update(d => { d.nudged = true; });
+            pe("Zen focus: about " + remainingMin() + " min left in today's watch budget.", 4000, "info");
+          }
+          if (used >= limit) ensureOverlay();
+          else removeOverlay();
+        } catch (_) {}
+      }, 1000);
+
+      // SPA navigation closes the invitation; the next playing second under
+      // an exhausted budget re-opens it. Dismissal stays a decision, not a
+      // side effect of browsing.
+      ctx.onNav(() => removeOverlay());
+
+      ctx.addListener(document, "keydown", (ev) => {
+        if (ev.repeat) return;
+        const t = ev.target;
+        const tag = t && t.tagName ? String(t.tagName).toUpperCase() : "";
+        if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || !!(t && t.isContentEditable)) return;
+        try {
+          if (ev.key === "Escape" && overlay) {
+            softSnoozeUntil = Date.now() + 600000;
+            removeOverlay();
+            return;
+          }
+          if (ev.shiftKey && !ev.ctrlKey && !ev.altKey && !ev.metaKey &&
+              (ev.code === "KeyB" || ev.key === "B" || ev.key === "b")) {
+            ev.preventDefault();
+            showStatus();
+          }
+        } catch (err) {
+          m("hotkey watch budget", err);
+        }
+      });
+
+      Yt["watch-budget"].push(() => removeOverlay());
+    },
+    settings(en) {
+      en.appendChild(Io("Enable Watch-Budget Focus Mode", "watchBudgetOn"));
+      en.appendChild(No("Daily budget (minutes)", "watchBudgetMinutes", 15, 480, 5, v => v + "m"));
+      const info = document.createElement("div");
+      info.className = "ytp-hist-note";
+      info.style.marginTop = "8px";
+      info.innerHTML = "<strong>How it counts:</strong> only visible playback on watch pages accrues time. At 80% you get one gentle nudge; at 100% a calm screen offers a break or three five-minute extensions per day. Shortcut: Shift+B.";
+      en.appendChild(info);
+    },
+  });
+
+  // ─── Shorts Policy Schedule ────────────────────────────────────────────────
+  // Time-window policy for /shorts beyond simple hide-or-block: "block"
+  // pauses Shorts inside the configured window (work hours); "allow"
+  // permits them only inside it (wind-down). Midnight-crossing windows are
+  // handled by ZenResources.TimeWindow; malformed times deactivate the gate
+  // instead of guessing. A session override keeps repeated visits calm.
+  xa.register({
+    id: "shorts-policy",
+    name: "Shorts Policy Schedule",
+    summary: "Time-window based Shorts handling: block Shorts during chosen hours, or allow them only within a wind-down window.",
+    masterKey: "shortsScheduleOn",
+    keys: ["shortsScheduleOn", "shortsScheduleMode", "shortsScheduleStart", "shortsScheduleEnd"],
+    apply(ctx) {
+      if (!S.shortsScheduleOn) return;
+      ZenEngine.injectCSS();
+      let gate = null;
+      let overrideUntil = 0;
+      const mode = () => (S.shortsScheduleMode === "allow" ? "allow" : "block");
+      const windowText = () => String(S.shortsScheduleStart || "??:??") + " to " + String(S.shortsScheduleEnd || "??:??");
+      const blockedNow = () => {
+        if (overrideUntil && Date.now() < overrideUntil) return false;
+        const active = ZenResources.TimeWindow.containsHHMM(S.shortsScheduleStart, S.shortsScheduleEnd);
+        return mode() === "block" ? active : !active;
+      };
+      const removeGate = () => {
+        if (gate && gate.parentNode) gate.remove();
+        gate = null;
+      };
+      const enforce = () => {
+        if (!location.pathname.startsWith("/shorts") || !blockedNow()) { removeGate(); return; }
+        if (gate || !document.body) return;
+        gate = document.createElement("div");
+        gate.id = "ytp-zen-shorts-gate";
+        gate.setAttribute("role", "dialog");
+        gate.setAttribute("aria-label", "Shorts policy window active");
+        const card = document.createElement("div");
+        card.className = "zen-focus-card";
+        const title = document.createElement("div");
+        title.className = "zen-focus-title";
+        const body = document.createElement("p");
+        body.className = "zen-focus-body";
+        if (mode() === "block") {
+          title.textContent = "Shorts are paused right now";
+          body.textContent = "You asked YT-zen to pause Shorts between " + windowText() + ". Everything else is still here.";
+        } else {
+          title.textContent = "Shorts are resting outside your window";
+          body.textContent = "Shorts are available between " + windowText() + ". The rest of YouTube is untouched.";
+        }
+        const row = document.createElement("div");
+        row.className = "zen-focus-row";
+        const homeBtn = document.createElement("button");
+        homeBtn.type = "button";
+        homeBtn.className = "zen-btn primary";
+        homeBtn.textContent = "Open YouTube Home";
+        homeBtn.addEventListener("click", () => { try { e.location.href = "/"; } catch (_) {} });
+        const anywayBtn = document.createElement("button");
+        anywayBtn.type = "button";
+        anywayBtn.className = "zen-btn";
+        anywayBtn.textContent = "Watch anyway (30 min)";
+        anywayBtn.addEventListener("click", () => {
+          overrideUntil = Date.now() + 1800000;
+          removeGate();
+        });
+        row.append(homeBtn, anywayBtn);
+        card.append(title, body, row);
+        gate.appendChild(card);
+        document.body.appendChild(gate);
+      };
+
+      enforce();
+      ctx.onNav(() => ctx.addTimeout(enforce, 0));
+      // Window transitions can happen while parked on /shorts; re-check
+      // gently. The interval is registry-managed and pauses when hidden.
+      ctx.addInterval(enforce, 30000);
+      Yt["shorts-policy"].push(() => removeGate());
+    },
+    settings(en) {
+      en.appendChild(Io("Enable Shorts Policy Schedule", "shortsScheduleOn"));
+      en.appendChild(Ro("Policy", "shortsScheduleMode", {
+        block: "Block during the window (e.g. work hours)",
+        allow: "Allow only during the window (e.g. wind-down)",
+      }));
+      en.appendChild(_o("Window start (HH:MM)", "shortsScheduleStart"));
+      en.appendChild(_o("Window end (HH:MM)", "shortsScheduleEnd"));
+      const info = document.createElement("div");
+      info.className = "ytp-hist-note";
+      info.style.marginTop = "8px";
+      info.textContent = "Times use your local clock and may cross midnight (22:00 to 07:00). Malformed times keep the gate off rather than guessing.";
       en.appendChild(info);
     },
   });

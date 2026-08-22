@@ -95,7 +95,10 @@ element.isConnected = false;
 assert.strictEqual(elementCache.cleanupDisconnected(), 1);
 assert.strictEqual(elementCache.has("element"), false);
 
+let keepAlive;
 (async () => {
+  keepAlive = setInterval(() => {}, 1000);
+
   let factoryCalls = 0;
   const asyncCache = new BoundedCache(4, "async");
   const asyncFactory = () => {
@@ -364,4 +367,6 @@ assert.strictEqual(elementCache.has("element"), false);
 })().catch((error) => {
   console.error(error);
   process.exitCode = 1;
+}).finally(() => {
+  clearInterval(keepAlive);
 });

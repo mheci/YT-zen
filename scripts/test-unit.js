@@ -268,6 +268,13 @@ assert.strictEqual(elementCache.has("element"), false);
     "idle-dim",
     "confirm-leave-playing",
     "remaining-time-badge",
+    // Pruned from the shipped artifact in the 3.13.0 trim (commits 88784cf/88a79df).
+    "smart-speed",
+    "search-remix",
+    "watch-genome",
+    "time-budget",
+    "dearrow",
+    "ryd-votes",
   ];
   for (const id of removedFeatureIds) {
     assert.ok(!bundle.includes(`id: "${id}"`), `removed feature registration is absent: ${id}`);
@@ -302,10 +309,6 @@ assert.strictEqual(elementCache.has("element"), false);
     }
   };
   assert.strictEqual(countOccurrences(bundle, 'id: "perf-mode"'), 1, "perf-mode registers exactly once");
-  assert.strictEqual(countOccurrences(bundle, 'id: "smart-speed"'), 1, "smart-speed registers exactly once");
-  for (const key of ["smartSpeedSilence:", "smartSpeedRamp:"]) {
-    assert.ok(bundle.includes(key), `smart-speed default present: ${key}`);
-  }
   const perfGranularKeys = [
     "perfContainment:",
     "perfLazyThumbs:",
@@ -325,14 +328,8 @@ assert.strictEqual(elementCache.has("element"), false);
     assert.ok(bundle.includes(key), `perf-mode granular default present: ${key}`);
   }
   assert.ok(bundle.includes("ytp-shot-btn"), "screenshot toolbar button id ytp-shot-btn is present");
-  const smartSpeedStart = bundle.indexOf('id: "smart-speed"');
-  const smartSpeedEnd = bundle.indexOf("xa.register", smartSpeedStart + 'id: "smart-speed"'.length);
-  const smartSpeedRegistration = bundle.slice(smartSpeedStart, smartSpeedEnd === -1 ? bundle.length : smartSpeedEnd);
-  for (const marker of ["isSpeech", "silenceRate", "catchup"]) {
-    assert.ok(smartSpeedRegistration.includes(marker), `smart-speed registration contains Premium-style marker: ${marker}`);
-  }
 
-  // --- Group 3: perf-mode tier and smart-speed rate logic ---
+  // --- Group 3: perf-mode tier logic ---
   const tierLevels = ["light", "balanced", "aggressive", "extreme", "maximum"];
   const tierAdditions = {
     light: ["containment", "lazyThumbs", "preconnect"],
@@ -362,121 +359,6 @@ assert.strictEqual(elementCache.has("element"), false);
     "perf-mode tiers cover exactly the 14 granular keys",
   );
 
-  const createSmartSpeedModel = (settings = {}) => {
-    const baseRate = Math.min(1.5, Math.max(0.5, Number(settings.smartSpeedBase) || 1));
-    const fastRate = Math.min(3, Math.max(baseRate, Number(settings.smartSpeedFast) || 1.5));
-    const silenceRate = Math.min(3.5, Math.max(fastRate, Number(settings.smartSpeedSilence) || 1.75));
-    const clampRate = (rate) => Math.max(0.25, Math.min(4, rate));
-    const HYSTERESIS_S = 1.2;
-    let state = "idle";
-    let stateSince = 0;
-    let catchup = 0;
-    return {
-      baseRate,
-      fastRate,
-      silenceRate,
-      clampRate,
-      get state() { return state; },
-      get catchup() { return catchup; },
-      tick(now, audio, currentRate) {
-        if (!audio.active) return { applied: null, state, inState: (now - stateSince) / 1000 };
-        if (state === "idle") { state = "listening"; stateSince = now; }
-        const inState = (now - stateSince) / 1000;
-        let desired = baseRate;
-        if (audio.isSpeech) {
-          desired = baseRate;
-          if (inState > 4 && catchup > 0.75) desired = Math.min(fastRate, baseRate + Math.min(0.15, catchup * 0.05));
-        } else if (audio.isQuiet) {
-          desired = silenceRate;
-        } else {
-          desired = fastRate;
-        }
-        const nextState = desired === baseRate ? "speech" : desired === silenceRate ? "silence" : "fast";
-        if (nextState !== state) {
-          if (inState < HYSTERESIS_S) return { applied: null, state, inState };
-          state = nextState;
-          stateSince = now;
-        }
-        catchup = Math.min(20, catchup + Math.max(0, currentRate - baseRate) * 0.5);
-        return { applied: clampRate(desired), state, inState };
-      },
-    };
-  };
-
-  const defaultModel = createSmartSpeedModel();
-  assert.strictEqual(defaultModel.baseRate, 1, "smart-speed base rate defaults to 1x");
-  assert.strictEqual(defaultModel.fastRate, 1.5, "smart-speed fast rate defaults to 1.5x");
-  assert.strictEqual(defaultModel.silenceRate, 1.75, "smart-speed silence rate defaults to 1.75x");
-  assert.ok(defaultModel.baseRate <= defaultModel.fastRate && defaultModel.fastRate <= defaultModel.silenceRate, "smart-speed rates are monotonic base <= fast <= silence");
-  assert.strictEqual(defaultModel.clampRate(0.1), 0.25, "smart-speed rate clamp floor is 0.25x");
-  assert.strictEqual(defaultModel.clampRate(9), 4, "smart-speed rate clamp ceiling is 4x");
-  assert.strictEqual(defaultModel.clampRate(1.75), 1.75, "smart-speed clamp is a no-op inside bounds");
-
-  const loweredModel = createSmartSpeedModel({ smartSpeedFast: "0.5", smartSpeedSilence: "0.9" });
-  assert.strictEqual(loweredModel.fastRate, 1, "fast rate never drops below base rate");
-  assert.strictEqual(loweredModel.silenceRate, 1, "silence rate never drops below fast rate");
-  const wildModel = createSmartSpeedModel({ smartSpeedFast: "99", smartSpeedSilence: "99" });
-  assert.strictEqual(wildModel.fastRate, 3, "fast rate clamps to its 3x maximum");
-  assert.strictEqual(wildModel.silenceRate, 3.5, "silence rate clamps to its 3.5x maximum");
-
-  const mappingModel = createSmartSpeedModel();
-  let mapped = mappingModel.tick(0, { active: true, isSpeech: true, isQuiet: false, energy: 0.5 }, 1);
-  assert.strictEqual(mapped.applied, null, "hysteresis blocks a rate change on the first tick");
-  mapped = mappingModel.tick(2000, { active: true, isSpeech: true, isQuiet: false, energy: 0.5 }, 1);
-  assert.strictEqual(mapped.applied, 1, "speech maps to the base rate");
-  assert.strictEqual(mapped.state, "speech", "speech transitions into the speech state");
-
-  const quietModel = createSmartSpeedModel();
-  quietModel.tick(0, { active: true, isSpeech: false, isQuiet: true, energy: 0.1 }, 1.75);
-  const quietOut = quietModel.tick(2000, { active: true, isSpeech: false, isQuiet: true, energy: 0.1 }, 1.75);
-  assert.strictEqual(quietOut.applied, 1.75, "quiet maps to the silence rate");
-  assert.strictEqual(quietOut.state, "silence", "quiet transitions into the silence state");
-
-  const fastModel = createSmartSpeedModel();
-  fastModel.tick(0, { active: true, isSpeech: false, isQuiet: false, energy: 0.9 }, 1.5);
-  const fastOut = fastModel.tick(2000, { active: true, isSpeech: false, isQuiet: false, energy: 0.9 }, 1.5);
-  assert.strictEqual(fastOut.applied, 1.5, "non-speech, non-quiet audio maps to the fast rate");
-  assert.strictEqual(fastOut.state, "fast", "fast audio transitions into the fast state");
-
-  const inactiveModel = createSmartSpeedModel();
-  const inactiveOut = inactiveModel.tick(0, { active: false, isSpeech: false, isQuiet: false, energy: 0.02 }, 1);
-  assert.strictEqual(inactiveOut.applied, null, "inactive audio (low energy) is ignored by the rate model");
-
-  const hysteresisModel = createSmartSpeedModel();
-  hysteresisModel.tick(0, { active: true, isSpeech: false, isQuiet: false }, 1.5);
-  const earlySwitch = hysteresisModel.tick(1100, { active: true, isSpeech: true, isQuiet: false }, 1.5);
-  assert.strictEqual(earlySwitch.applied, null, "hysteresis blocks a switch before ~1.2s in-state");
-  assert.strictEqual(earlySwitch.state, "listening", "a blocked switch keeps the current state");
-  const lateSwitch = hysteresisModel.tick(2000, { active: true, isSpeech: true, isQuiet: false }, 1.5);
-  assert.strictEqual(lateSwitch.applied, 1, "hysteresis allows the switch once ~1.2s has elapsed");
-  assert.strictEqual(lateSwitch.state, "speech", "state flips to speech after the hysteresis window");
-
-  const boostModel = createSmartSpeedModel();
-  const fastAudio = { active: true, isSpeech: false, isQuiet: false };
-  const speechAudio = { active: true, isSpeech: true, isQuiet: false };
-  boostModel.tick(0, fastAudio, 1.5);
-  boostModel.tick(2000, fastAudio, 1.5);
-  boostModel.tick(4000, fastAudio, 1.5);
-  boostModel.tick(6000, fastAudio, 1.5);
-  boostModel.tick(8000, fastAudio, 1.5);
-  assert.strictEqual(boostModel.catchup, 1, "catchup accrues 0.5x of the rate delta over base while fast playback continues");
-  const boostOut = boostModel.tick(10000, speechAudio, 1.5);
-  assert.strictEqual(boostOut.applied, 1.05, "speech after sustained fast playback gets the bounded catchup boost");
-  assert.ok(boostOut.applied > boostModel.baseRate, "catchup boost lifts speech above base rate");
-  assert.ok(boostOut.applied <= boostModel.fastRate, "catchup boost is capped at fast rate");
-  assert.ok(boostModel.catchup <= 20, "catchup itself is capped at 20");
-
-  const noBoostModel = createSmartSpeedModel();
-  noBoostModel.tick(0, { active: true, isSpeech: false, isQuiet: false }, 1);
-  noBoostModel.tick(2000, { active: true, isSpeech: false, isQuiet: false }, 1);
-  const noBoostOut = noBoostModel.tick(8000, speechAudio, 1);
-  assert.strictEqual(noBoostOut.applied, 1, "speech stays at base rate when catchup never accrued");
-
-  const wildOut = wildModel.tick(0, { active: true, isSpeech: false, isQuiet: true }, 3.5);
-  const wildLate = wildModel.tick(2000, { active: true, isSpeech: false, isQuiet: true }, 3.5);
-  assert.strictEqual(wildOut.applied, null, "extreme settings still respect the hysteresis window");
-  assert.strictEqual(wildLate.applied, 3.5, "applied rates respect the [0.25, 4] clamp");
-  assert.ok(wildLate.applied >= 0.25 && wildLate.applied <= 4, "smart-speed applied rates stay within [0.25, 4]");
 
   console.log("Unit tests passed.");
 })().catch((error) => {

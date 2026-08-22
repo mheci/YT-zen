@@ -6,7 +6,7 @@ ZenEngine is the shared coordination layer for the optional discovery, playback,
 
 - `ZenEngine` owns CSS injection (a single minified stylesheet), small persistent stores (`StateStore` over the shared kv adapter), idle scheduling, request deduplication, and a namespaced logger.
 - `ZenDiscovery` creates feed panels and video rows.
-- `ZenPlayback` owns the shared audio graph (exactly one `MediaElementSource` per video element), used by Smart Speed's audio-driven segment analysis.
+- `ZenPlayback` owns the shared audio graph (exactly one `MediaElementSource` per video element); its audio-energy analyzer is available to playback features, though no shipped feature currently consumes it.
 - `ZenSearch` owns search templates and result credibility signals.
 - `ZenSession` owns the watch genome, session memory, collections, and time budget.
 - `ZenLayout` owns mood and layout state.
@@ -18,7 +18,7 @@ Features must not create permanent global observers or timers. A feature registe
 
 ## Playback
 
-`ZenPlayback` owns one `AudioContext`-backed graph used by Smart Speed's audio-driven detection of speech, silence, and ambient segments. A `MediaElementSource` is created once per video element (creating a second source on the same element throws, which previously broke smart speed on player replacement). The graph is torn down when the video element is released.
+`ZenPlayback` owns one `AudioContext`-backed graph for audio-energy analysis. A `MediaElementSource` is created once per video element (creating a second source on the same element throws, which previously broke smart speed on player replacement; Smart Speed itself was pruned in 3.13.0). The graph is torn down when the video element is released.
 
 ## Data integrity
 

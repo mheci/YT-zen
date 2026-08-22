@@ -27,10 +27,7 @@
 // @connect      ytimg.com
 // @connect      ggpht.com
 // @connect      api.github.com
-// @connect      doubleclick.net
-// @connect      returnyoutubedislikeapi.com
 // @connect      cdn.jsdelivr.net
-// @connect      huggingface.co
 // @require      https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js
 // @require      https://cdn.jsdelivr.net/npm/culori@3.2.0/bundled/culori.min.js
 // @icon         https://raw.githubusercontent.com/mheci/YT-zen/main/icon.png

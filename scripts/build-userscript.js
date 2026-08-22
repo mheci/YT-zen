@@ -84,5 +84,15 @@ bundle = replaceBetween(
   read("src/zen-engine-v3.js"),
 );
 
+// Version propagation: package.json is the single source of truth for the
+// release version. Stamp it into both header files so check-release.js can
+// never observe drift between package, artifact, and metadata.
+const pkgVersion = JSON.parse(read("package.json")).version;
+const stampVersion = (text) =>
+  text.replace(/^\/\/ @version\s+\S+$/m, `// @version      ${pkgVersion}`);
+let meta = stampVersion(read("yt-zen.meta.js"));
+bundle = stampVersion(bundle);
+fs.writeFileSync(path.join(root, "yt-zen.meta.js"), toCrlf(meta));
+
 fs.writeFileSync(path.join(root, "yt-zen.user.js"), toCrlf(bundle));
-console.log("Built yt-zen.user.js from source mirrors.");
+console.log(`Built yt-zen.user.js from source mirrors (version ${pkgVersion}).`);

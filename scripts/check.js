@@ -32,13 +32,28 @@ const hasExplosion = (text) => {
 };
 
 let failed = 0;
+// Parse-only validation. Node exposes `node --check`; Bun has no parse-only
+// CLI flag (its --check would execute the file), so use Bun.Transpiler there.
+const isBun = typeof Bun !== "undefined";
+const bunTranspiler = isBun ? new Bun.Transpiler({ loader: "js" }) : null;
 for (const file of files) {
-  const result = spawnSync(process.execPath, ["--check", path.join(root, file)], {
-    encoding: "utf8",
-  });
-  if (result.status !== 0) {
+  let failedMessage = "";
+  try {
+    const source = fs.readFileSync(path.join(root, file), "utf8");
+    if (isBun) {
+      bunTranspiler.transformSync(source);
+    } else {
+      const result = spawnSync(process.execPath, ["--check", path.join(root, file)], {
+        encoding: "utf8",
+      });
+      if (result.status !== 0) failedMessage = result.stderr || "node --check failed";
+    }
+  } catch (error) {
+    failedMessage = error && error.message ? String(error.message) : String(error);
+  }
+  if (failedMessage) {
     failed++;
-    process.stderr.write(`Syntax error in ${file}\n${result.stderr || ""}\n`);
+    process.stderr.write(`Syntax error in ${file}\n${failedMessage}\n`);
   }
 }
 

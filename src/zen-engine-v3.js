@@ -233,17 +233,23 @@
     };
     // Fast retry mounting for SPA sections: try immediately, then back off a
     // few times. fn() must return truthy when the mount succeeded.
+    //
+    // Retries use fire-and-forget timers on purpose: registering every retry
+    // as a ctx-tracked cleanup grows the context's teardown array by one
+    // entry per attempt per navigation for the whole session. The chains are
+    // self-terminating (bounded attempts), fn() is expected to be idempotent,
+    // and failures are swallowed, so untracked timers are safe here.
     const scheduleOnReady = (ctx, fn, opts = {}) => {
       const attempts = Math.max(1, Number(opts.attempts) || 5);
       const delayMs = Math.max(50, Number(opts.delayMs) || 400);
       const attempt = (left, ms) => {
-        ctx.addTimeout(() => {
+        setTimeout(() => {
           let ok = false;
           try { ok = !!fn(); } catch (_) {}
           if (!ok && left > 1) attempt(left - 1, ms);
         }, ms);
       };
-      ctx.addTimeout(() => attempt(attempts, delayMs), 0);
+      attempt(attempts, 0);
       ctx.onNav(() => attempt(attempts, delayMs));
     };
     return { injectCSS, createStore, whenIdle, dedup, innerTube, fetchJson, scheduleOnReady, log, CSS };
@@ -505,7 +511,9 @@
           // reconnect to the destination or the video goes silent.
           analyser.connect(ctx.destination);
         }
-        const entry = { ctx, source, analyser, stream, rerouted };
+        // One reusable frequency buffer per analyser: readEnergy() runs on a
+        // cadence and allocating a fresh Uint8Array per read churned GC.
+        const entry = { ctx, source, analyser, stream, rerouted, buf: new Uint8Array(analyser.frequencyBinCount) };
         perVideo.set(video, entry);
         if (typeof video.addEventListener === "function") {
           try {
@@ -522,9 +530,8 @@
     const readEnergy = (video) => {
       const entry = analyserFor(video);
       if (!entry) return { energy: 0, speech: 0, isQuiet: true, isSpeech: false, active: false };
-      const analyser = entry.analyser;
-      const buf = new Uint8Array(analyser.frequencyBinCount);
-      analyser.getByteFrequencyData(buf);
+      const buf = entry.buf;
+      entry.analyser.getByteFrequencyData(buf);
       let sum = 0, speechBand = 0;
       for (let i = 0; i < buf.length; i++) { sum += buf[i]; if (i > 10 && i < 80) speechBand += buf[i]; }
       const avg = sum / buf.length;
@@ -880,9 +887,32 @@
     const ContentClassifier = (() => {
       const cache = new ZenResources.BoundedCache(256, "topic-cache");
 
+      // Compile the whole taxonomy exactly once. Compiling per classify()
+      // call built ~1,000 RegExp objects per video card (and re-ran for every
+      // homepage card on every scan), which dominated CPU during scans and
+      // watch tracking.
+      let compiledTaxonomy = null;
+      const escapeRe = (text) => String(text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const compileTaxonomy = () => {
+        if (compiledTaxonomy) return compiledTaxonomy;
+        const compiled = [];
+        for (const [topic, keywords] of Object.entries(TOPIC_TAXONOMY)) {
+          const patterns = [];
+          for (const kw of keywords) {
+            try { patterns.push(new RegExp("\\b" + escapeRe(kw) + "\\b", "gi")); } catch (_) {}
+          }
+          if (patterns.length) compiled.push([topic, patterns]);
+        }
+        compiledTaxonomy = compiled;
+        return compiled;
+      };
+
       const classify = (metadata) => {
         if (!metadata) return {};
-        const cacheKey = metadata.videoId || "";
+        // Cards without a video id (some feed renderers) previously bypassed
+        // the cache entirely; fall back to a stable text-derived key.
+        const cacheKey = metadata.videoId ||
+          (metadata.title ? "t:" + String(metadata.title).toLowerCase() : "");
         if (cacheKey && cache.has(cacheKey)) return cache.get(cacheKey);
 
         const text = [
@@ -895,18 +925,17 @@
         ].join(" ").toLowerCase();
 
         const scores = {};
-        for (const [topic, keywords] of Object.entries(TOPIC_TAXONOMY)) {
+        let total = 0;
+        for (const [topic, patterns] of compileTaxonomy()) {
           let score = 0;
-          for (const kw of keywords) {
-            const regex = new RegExp("\\b" + kw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "gi");
+          for (const regex of patterns) {
             const matches = text.match(regex);
             if (matches) score += matches.length;
           }
-          if (score > 0) scores[topic] = score;
+          if (score > 0) { scores[topic] = score; total += score; }
         }
 
         // Normalize scores to percentages
-        const total = Object.values(scores).reduce((a, b) => a + b, 0);
         if (total > 0) {
           for (const topic of Object.keys(scores)) {
             scores[topic] = Math.round((scores[topic] / total) * 100);
@@ -948,9 +977,41 @@
         sessionSignals: 0,
       });
 
+      // Watch-progress milestones: while a video plays, playback monitors
+      // call trackWatch() on a fixed cadence, and every call used to rewrite
+      // the whole signals blob to storage (debounced). Recording only when
+      // the watch percentage moved meaningfully keeps the profile identical
+      // while removing most of those writes.
+      const MILESTONE_PCT = 5;
+      const MILESTONE_MIN_MS = 45000;
+      const lastMilestone = new Map();
+
+      const shouldRecordWatch = (videoId, pct) => {
+        const at = Date.now();
+        const prev = lastMilestone.get(videoId);
+        if (!prev) {
+          lastMilestone.set(videoId, { at, pct });
+          if (lastMilestone.size > 64) {
+            let oldestKey = null;
+            let oldestAt = Infinity;
+            for (const [key, value] of lastMilestone) {
+              if (value.at < oldestAt) { oldestAt = value.at; oldestKey = key; }
+            }
+            if (oldestKey !== null && oldestKey !== videoId) lastMilestone.delete(oldestKey);
+          }
+          return true;
+        }
+        if (Math.abs(pct - prev.pct) >= MILESTONE_PCT || at - prev.at >= MILESTONE_MIN_MS) {
+          lastMilestone.set(videoId, { at, pct });
+          return true;
+        }
+        return false;
+      };
+
       const trackWatch = (videoId, watchTime, duration) => {
         if (!videoId) return;
         const pct = duration > 0 ? Math.min(100, Math.round((watchTime / duration) * 100)) : 0;
+        if (!shouldRecordWatch(videoId, pct)) return;
         const topics = ContentClassifier.classifyFromPage();
         let channelId = "";
         let channelName = "";
@@ -1040,6 +1101,7 @@
           d.feedbackHistory = {};
           d.sessionSignals = 0;
         });
+        lastMilestone.clear();
       };
 
       const trackLike = (videoId, action) => {
@@ -1207,6 +1269,37 @@
 
     // ─── Profile Analyzer ────────────────────────────────────────────────────
     // Analyzes what YouTube is currently recommending to understand the profile.
+    //
+    // Feedback tokens are extracted lazily: serializing every card's Polymer
+    // data on each scan cost tens of JSON.stringify calls over large objects,
+    // while only the handful of cards actually being blocked ever needs a
+    // token. Extraction prefers Polymer's public element `.data` and falls
+    // back to the private `__data` for older builds.
+    const extractMenuTokens = (menuEl) => {
+      const empty = { notInterestedToken: "", dontRecommendToken: "" };
+      try {
+        if (!menuEl) return empty;
+        const source = menuEl.data !== undefined ? menuEl.data : menuEl.__data;
+        if (!source) return empty;
+        const dataStr = typeof source === "string" ? source : JSON.stringify(source);
+        if (!dataStr) return empty;
+        const niMatch = dataStr.match(/notInterested.*?feedbackToken.*?"([^"]+)"/);
+        const drMatch = dataStr.match(/dontRecommend.*?feedbackToken.*?"([^"]+)"/);
+        return {
+          notInterestedToken: niMatch ? niMatch[1] : "",
+          dontRecommendToken: drMatch ? drMatch[1] : "",
+        };
+      } catch (_) {
+        return empty;
+      }
+    };
+    const recWithLazyTokens = (rec, menuEl) => {
+      Object.defineProperties(rec, {
+        notInterestedToken: { configurable: true, get() { return extractMenuTokens(menuEl).notInterestedToken; } },
+        dontRecommendToken: { configurable: true, get() { return extractMenuTokens(menuEl).dontRecommendToken; } },
+      });
+      return rec;
+    };
     const ProfileAnalyzer = (() => {
       const analyzeHomepage = () => {
         const recommendations = [];
@@ -1222,23 +1315,10 @@
             const href = linkEl ? (linkEl.getAttribute("href") || "") : "";
             const videoIdMatch = href.match(/[?&]v=([A-Za-z0-9_-]{11})/);
             const videoId = videoIdMatch ? videoIdMatch[1] : "";
-
-            // Extract feedback tokens from the menu
-            let notInterestedToken = "";
-            let dontRecommendToken = "";
-            try {
-              const menuData = item.querySelector("ytd-menu-renderer");
-              if (menuData && menuData.__data) {
-                const dataStr = JSON.stringify(menuData.__data);
-                const niMatch = dataStr.match(/notInterested.*?feedbackToken.*?"([^"]+)"/);
-                const drMatch = dataStr.match(/dontRecommend.*?feedbackToken.*?"([^"]+)"/);
-                if (niMatch) notInterestedToken = niMatch[1];
-                if (drMatch) dontRecommendToken = drMatch[1];
-              }
-            } catch (_) {}
+            const menuEl = item.querySelector("ytd-menu-renderer");
 
             const topics = ContentClassifier.classify({ title, channelName: channel, videoId });
-            recommendations.push({ videoId, title, channel, topics, notInterestedToken, dontRecommendToken });
+            recommendations.push(recWithLazyTokens({ videoId, title, channel, topics }, menuEl));
           }
         } catch (_) {}
 
@@ -1412,14 +1492,16 @@
     // - For unwanted topics: minimize watch time to signal disinterest
     const WatchOptimizer = (() => {
       let monitoring = false;
-      let intervalId = 0;
+      let tickerId = 0;
       let skipSignals = 0;
 
       const start = () => {
         if (monitoring) return;
         monitoring = true;
 
-        intervalId = setInterval(() => {
+        // SharedTicker pauses in hidden tabs, so a backgrounded player never
+        // burns cycles on classification and profile scans.
+        tickerId = ZenResources.SharedTicker.add(() => {
           if (!monitoring) return;
           const vid = ie.el();
           if (!vid || vid.paused || vid.ended) return;
@@ -1457,13 +1539,15 @@
           const pct = duration > 0 ? Math.round((currentTime / duration) * 100) : 0;
           MicroFeedback.maybeAutoLike(videoId, topics, pct, profile);
           MicroFeedback.maybeAutoDislike(videoId, topics, pct, unwantedScore, wantedScore);
-        }, 10000); // Check every 10 seconds
+        }, 10000, { pauseHidden: true, label: "algo-watch-optimizer" });
       };
 
       const stop = () => {
         monitoring = false;
-        clearInterval(intervalId);
-        intervalId = 0;
+        if (tickerId) {
+          ZenResources.SharedTicker.remove(tickerId);
+          tickerId = 0;
+        }
       };
 
       const getSkipCount = () => skipSignals;
@@ -1630,7 +1714,10 @@
       };
 
       const maybeAutoDislike = (videoId, topics, pct, unwantedScore, wantedScore) => {
-        if (!videoId || !S.algoAutoLikeOn) return;
+        // Deliberately separate from the auto-LIKE gate: silently sending
+        // dislike signals as a side effect of enabling auto-like was a
+        // surprising, user-hostile coupling. Auto-dislike is its own opt-in.
+        if (!videoId || !S.algoAutoDislikeOn) return;
         if (pct < 15 || pct > 60) return;
         if (SignalTracker.getStore().get().likeHistory[videoId]) return;
         if (unwantedScore > wantedScore && unwantedScore >= 25) {
@@ -1682,9 +1769,12 @@
       };
 
       // Extract a "not interested" feedback token from a shorts item's data.
+      // Prefer Polymer's public element data; `__data` is the legacy fallback.
       const extractTokenFromItem = (item) => {
         try {
-          const dataStr = JSON.stringify(item.__data || "");
+          const source = item && item.data !== undefined ? item.data : (item && item.__data);
+          if (!source) return "";
+          const dataStr = typeof source === "string" ? source : JSON.stringify(source);
           const m = dataStr.match(/"feedbackToken":"([^"]+)"/);
           return m ? m[1] : "";
         } catch (_) { return ""; }
@@ -1834,8 +1924,26 @@
       };
       // A video counts as watched when a row exists in the always-on local
       // history store, so picks never repeat anything you have already seen.
+      // Lookups run in small parallel batches: one IDB round-trip per
+      // candidate in series stalled every topic load noticeably.
+      const HISTORY_BATCH = 12;
       const isWatched = async (videoId) => {
         try { return !!(await v("history", videoId)); } catch (_) { return false; }
+      };
+      const filterUnwatched = async (videos) => {
+        const kept = [];
+        for (let i = 0; i < videos.length; i += HISTORY_BATCH) {
+          const chunk = videos.slice(i, i + HISTORY_BATCH);
+          const watched = await Promise.all(chunk.map((video) => isWatched(video && video.videoId)));
+          for (let j = 0; j < chunk.length; j++) {
+            const video = chunk[j];
+            if (!video || !video.videoId || seen.has(video.videoId) || sessionShown.has(video.videoId)) continue;
+            if (watched[j]) continue;
+            seen.add(video.videoId);
+            kept.push(video);
+          }
+        }
+        return kept;
       };
       const fetchFresh = async (category) => {
         const spec = DISCOVER_CATEGORIES[category];
@@ -1846,12 +1954,7 @@
           if (fresh.length >= DISCOVER_MIN_VIDEOS) break;
           let list = [];
           try { list = await ZenSearch.search(spec.query, sp); } catch (_) {}
-          for (const video of list) {
-            if (!video || !video.videoId || seen.has(video.videoId) || sessionShown.has(video.videoId)) continue;
-            if (await isWatched(video.videoId)) continue;
-            seen.add(video.videoId);
-            fresh.push(video);
-          }
+          fresh.push(...await filterUnwatched(list));
         }
         return fresh.slice(0, DISCOVER_MAX_VIDEOS);
       };
@@ -1967,6 +2070,7 @@
       if (!S.credLayerOn) return;
       ZenEngine.injectCSS();
       const processCards = () => {
+        let added = 0;
         document.querySelectorAll("ytd-video-renderer, ytd-compact-video-renderer, ytd-rich-item-renderer").forEach(card => {
           if (card.dataset.zenCred) return;
           card.dataset.zenCred = "1";
@@ -1987,6 +2091,7 @@
             badge.textContent = "Emerging";
           }
           meta.appendChild(badge);
+          added++;
           if (info.age && info.age > 730) {
             const ab = document.createElement("span");
             ab.className = "zen-cred-badge";
@@ -1996,22 +2101,23 @@
             meta.appendChild(ab);
           }
         });
+        return added;
       };
-      ctx.addTimeout(processCards, 0);
-      ctx.onNav(() => ctx.addTimeout(processCards, 0));
-      // Leading-edge gate: YouTube fires body mutations near-continuously, so
-      // observer-driven rescans are capped at one per 250ms. Scans are
-      // idempotent (cards self-mark via dataset), and timer-free gating adds
-      // no teardown pressure during long sessions.
-      let lastScan = 0;
-      const gatedScan = () => {
-        const now = Date.now();
-        if (now - lastScan < 250) return;
-        lastScan = now;
-        processCards();
-      };
-      ctx.addObserver(document.body, gatedScan, { childList: true, subtree: true });
-      Yt["credibility-layer"].push(() => {});
+      // Platform-managed rescan cadence: nudged by mutations and navigation
+      // (priority — new cards are badged within the minimum gap), with an
+      // idle tick that backs off while scans report nothing new. Hidden tabs
+      // never scan.
+      const scanner = ZenResources.ScanScheduler.create(processCards, {
+        intervalMs: 3000,
+        minGapMs: 250,
+        maxBackoffMs: 10000,
+        label: "credibility",
+      });
+      scanner.request({ priority: true });
+      scanner.start();
+      ctx.onNav(() => scanner.request({ priority: true }));
+      ctx.addObserver(document.body, () => scanner.request({ priority: true }), { childList: true, subtree: true });
+      Yt["credibility-layer"].push(() => scanner.dispose());
     },
     settings(en) { en.appendChild(Io("Enable Credibility Layer", "credLayerOn")); } });
 
@@ -2105,7 +2211,7 @@
     name: "Algorithm Intelligence",
     summary: "Advanced algorithmic feed shaping: organic interest boosting, recency decay control, and diversity enforcement.",
     masterKey: "algoIntelligenceOn",
-    keys: ["algoIntelligenceOn", "algoAutoTrain", "algoBlockTopics", "algoBlockKeywords", "algoBlockChannels", "algoScanInterval", "algoStrength", "algoBoostOn", "algoBoostInterval", "algoDiversityOn", "algoDiversityMax", "algoAutoLikeOn", "algoAutoLikePct", "algoShortsOn"],
+    keys: ["algoIntelligenceOn", "algoAutoTrain", "algoBlockTopics", "algoBlockKeywords", "algoBlockChannels", "algoScanInterval", "algoStrength", "algoBoostOn", "algoBoostInterval", "algoDiversityOn", "algoDiversityMax", "algoAutoLikeOn", "algoAutoLikePct", "algoAutoDislikeOn", "algoShortsOn"],
     apply(ctx) {
       if (!S.algoIntelligenceOn) {
         AlgoEngine.stopMonitoring();
@@ -2193,6 +2299,7 @@
       en.appendChild(No("Diversity trigger (dominant topic %)", "algoDiversityMax", 45, 90, 5, v => v + "%"));
       en.appendChild(Io("Auto-like strongly-aligned watches", "algoAutoLikeOn"));
       en.appendChild(No("Auto-like at watch %", "algoAutoLikePct", 50, 100, 5, v => v + "%"));
+      en.appendChild(Io("Auto-dislike clearly-unwanted watches", "algoAutoDislikeOn"));
       en.appendChild(Io("Shape the Shorts feed too", "algoShortsOn"));
       en.appendChild(Ho(
         "Blocked topics (comma-separated)",

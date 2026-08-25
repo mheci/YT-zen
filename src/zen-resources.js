@@ -790,7 +790,9 @@
         observedRoot = root;
         observer = new MutationObserver((mutations) => {
           if (!mutations || !mutations.length) return;
-          pendingBatch.push(...mutations);
+          // Push record-by-record: spread on an array this large can exceed
+          // the engine's argument limit and throw mid-callback.
+          for (let i = 0; i < mutations.length; i++) pendingBatch.push(mutations[i]);
           scheduleFlush();
         });
         try { observer.observe(root, config); } catch (_) {
@@ -1108,6 +1110,83 @@
       };
     })();
 
+    // ─── ScanScheduler ───────────────────────────────────────────────────────
+    // Adaptive rescan scheduler for feature-level DOM sweeps (badges, adoption,
+    // reconciliation). One SharedTicker task per scanner (paused in hidden
+    // tabs), plus request() nudges from mutation observers. A scan that
+    // reports work (> 0) restores the fast cadence; quiet scans back off
+    // exponentially toward maxBackoffMs. Nudges are coalesced and gap-checked
+    // so mutation storms can never stack concurrent runs.
+    const ScanScheduler = (() => {
+      const create = (scanFn, options = {}) => {
+        if (typeof scanFn !== "function") return null;
+        const baseIntervalMs = Math.max(200, finite(options.intervalMs, 2000));
+        const minGapMs = Math.max(50, finite(options.minGapMs, 250));
+        const maxBackoffMs = Math.max(baseIntervalMs, finite(options.maxBackoffMs, 8000));
+        const runWhenHidden = !!options.runWhenHidden;
+        const label = String(options.label || "scan");
+        let disposed = false;
+        let running = false;
+        let rerunAfter = false;
+        let lastRunAt = 0;
+        let currentDelay = baseIntervalMs;
+        let tickerId = 0;
+
+        const run = () => {
+          if (disposed) return;
+          const doc = getDocument();
+          if (!runWhenHidden && doc && doc.hidden) return;
+          if (running) { rerunAfter = true; return; }
+          running = true;
+          lastRunAt = now();
+          let didWork = 0;
+          try { didWork = finite(scanFn(), 0) | 0; } catch (_) { didWork = 0; }
+          running = false;
+          currentDelay = didWork > 0
+            ? baseIntervalMs
+            : Math.min(maxBackoffMs, Math.max(baseIntervalMs, currentDelay * 2));
+          if (rerunAfter && !disposed) {
+            rerunAfter = false;
+            request();
+          }
+        };
+
+        const request = (opts = {}) => {
+          if (disposed) return;
+          if (running) { rerunAfter = true; return; }
+          const elapsed = now() - lastRunAt;
+          // Mutation-driven nudges pass priority:true so fresh content is
+          // scanned at the minimum cadence even while the idle tick is
+          // backed off; the periodic tick always respects currentDelay.
+          if (elapsed >= minGapMs && (!!opts.priority || elapsed >= currentDelay)) run();
+        };
+
+        const start = () => {
+          if (disposed || tickerId) return;
+          tickerId = SharedTicker.add(() => request(), baseIntervalMs, { pauseHidden: true, label: "scan:" + label });
+        };
+
+        const stop = () => {
+          if (tickerId) { SharedTicker.remove(tickerId); tickerId = 0; }
+        };
+
+        const dispose = () => {
+          disposed = true;
+          stop();
+        };
+
+        return {
+          request,
+          start,
+          stop,
+          dispose,
+          stats: () => ({ label, disposed, active: tickerId !== 0, delayMs: currentDelay }),
+        };
+      };
+
+      return { create };
+    })();
+
     // ─── AbortGroup ──────────────────────────────────────────────────────────
     const AbortGroup = (() => {
       const groups = new Map();
@@ -1379,6 +1458,7 @@
       SharedTicker,
       TrackedBlobURL,
       DeferredTask,
+      ScanScheduler,
       AbortGroup,
       ResourceScope,
       Bus,

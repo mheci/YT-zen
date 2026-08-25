@@ -56,7 +56,7 @@ const run = (file, expose) => {
 
 run("src/zen-resources.js", "ZenResources");
 run("src/sponsorblock-engine-v2.js", "SponsorBlockEngine");
-const { BoundedCache, WeakElementCache, DeferredTask, ResourceScope, Bus, Logger, StateStore, Dom, Retry } = context.globalThis.ZenResources;
+const { BoundedCache, WeakElementCache, DeferredTask, ResourceScope, Bus, Logger, StateStore, Dom, Retry, ScanScheduler } = context.globalThis.ZenResources;
 const engine = context.globalThis.SponsorBlockEngine;
 const TimeWindow = context.globalThis.ZenResources.TimeWindow;
 
@@ -407,6 +407,136 @@ let keepAlive;
   ]) {
     assert.ok(bundle.includes(marker), `v3.14 runtime marker present: ${marker}`);
   }
+  // --- Group 5: ScanScheduler (nudge gap, quiet backoff, hidden drop) ---
+  {
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    const schedulers = [];
+    try {
+      // Cadence math is driven through priority nudges so the test never
+      // depends on real ticker pacing; every scheduler is disposed in a
+      // finally block because a live SharedTicker task would keep the
+      // process alive after a failed assertion.
+      let mode = 1; // 1 = scan reports work, 0 = quiet scan
+      const schedBackoff = ScanScheduler.create(() => (mode ? 1 : 0), { intervalMs: 2000, minGapMs: 40, maxBackoffMs: 8000 });
+      schedulers.push(schedBackoff);
+      schedBackoff.request({ priority: true });
+      assert.strictEqual(schedBackoff.stats().delayMs, 2000, "a scan that reports work keeps the base cadence");
+      mode = 0;
+      await sleep(50);
+      schedBackoff.request({ priority: true });
+      assert.strictEqual(schedBackoff.stats().delayMs, 4000, "one quiet scan backs off by one step");
+      await sleep(50);
+      schedBackoff.request({ priority: true });
+      await sleep(50);
+      schedBackoff.request({ priority: true });
+      assert.strictEqual(schedBackoff.stats().delayMs, 8000, "quiet scans keep backing off to the cap");
+
+      mode = 1;
+      await sleep(50);
+      schedBackoff.request({ priority: true });
+      assert.strictEqual(schedBackoff.stats().delayMs, 2000, "a scan that reports work restores the base cadence");
+
+      let runs = 0;
+      const schedGap = ScanScheduler.create(() => ++runs, { intervalMs: 200, minGapMs: 60, maxBackoffMs: 400 });
+      schedulers.push(schedGap);
+      schedGap.request({ priority: true });
+      assert.strictEqual(runs, 1, "ScanScheduler runs an initial priority nudge");
+      schedGap.request({ priority: true });
+      assert.strictEqual(runs, 1, "ScanScheduler nudges inside the minimum gap are coalesced");
+      await sleep(70);
+      schedGap.request({ priority: true });
+      assert.strictEqual(runs, 2, "ScanScheduler nudges run once the minimum gap elapses");
+
+      const schedTick = ScanScheduler.create(() => 0, { intervalMs: 200, minGapMs: 10 });
+      schedulers.push(schedTick);
+      schedTick.start();
+      assert.strictEqual(schedTick.stats().active, true, "start() registers the periodic tick");
+      schedTick.stop();
+      assert.strictEqual(schedTick.stats().active, false, "stop() unregisters the periodic tick");
+
+      let hiddenRuns = 0;
+      context.document.hidden = true;
+      const schedHidden = ScanScheduler.create(() => ++hiddenRuns, { intervalMs: 200, minGapMs: 10 });
+      schedulers.push(schedHidden);
+      schedHidden.request({ priority: true });
+      assert.strictEqual(hiddenRuns, 0, "hidden tabs never run scheduled scans");
+      context.document.hidden = false;
+      schedHidden.request({ priority: true });
+      assert.strictEqual(hiddenRuns, 1, "scans resume when the tab becomes visible");
+    } finally {
+      for (const scheduler of schedulers) scheduler.dispose();
+    }
+  }
+
+  // --- Group 6: SB persistent-cache freshness cap regression ---
+  // A persisted entry whose in-memory freshness window (fetchedAt + 1h) has
+  // passed must be served as stale, never re-promoted to fresh just because
+  // the persistent record's own long TTL is still running.
+  {
+    const sbVideo = "cachefresh1";
+    const cfgKey = "all-categories-v2:0";
+    const rowKey = "cache:sb:" + sbVideo + ":" + cfgKey;
+    const fetchedAt = Date.now() - 2 * 60 * 60 * 1000;
+    const kvTable = new Map();
+    kvTable.set(rowKey, {
+      k: rowKey,
+      v: {
+        version: 5,
+        videoId: sbVideo,
+        segments: [{ UUID: "persisted", category: "sponsor", actionType: "skip", segment: [5, 8] }],
+        fetchedAt,
+        expiresAt: fetchedAt + 24 * 60 * 60 * 1000,
+        apiVersion: "v1",
+        checksum: "unit",
+        lastValidated: fetchedAt,
+        configHash: cfgKey,
+      },
+    });
+    const previousV = context.v;
+    const previousK = context.k;
+    const previousX = context.x;
+    context.v = async (store, key) => (store === "kv" && kvTable.has(key) ? kvTable.get(key) : null);
+    context.k = async (store, row) => { if (store === "kv" && row && row.k) kvTable.set(row.k, row); };
+    context.x = async (store, key) => { if (store === "kv") kvTable.delete(key); };
+    const previousPrivacy = context.S.sbPrivacy;
+    const previousHe = context.he;
+    context.S.sbPrivacy = false;
+    context.ie.videoId = () => sbVideo;
+    context.he = async () => ({
+      ok: true,
+      status: 200,
+      json: async () => [{ UUID: "network", category: "sponsor", actionType: "skip", segment: [9, 12] }],
+    });
+    // destroy() must run even when an assertion throws: skipping it leaks
+    // the seekbar watchdog task and keeps this process alive forever.
+    try {
+      const metricsBefore = engine.stats();
+      const segmentsServed = await engine.init(sbVideo, { force: true });
+      const metricsAfter = engine.stats();
+      assert.strictEqual(segmentsServed.length, 1, "stale-then-revalidated lookup still yields one segment");
+      assert.strictEqual(segmentsServed[0].UUID, "network", "the revalidated network result wins");
+      assert.strictEqual(
+        metricsAfter.staleServed - metricsBefore.staleServed, 1,
+        "expired-in-RAM persistent entries are served as stale",
+      );
+      assert.strictEqual(
+        metricsAfter.cacheHits - metricsBefore.cacheHits, 0,
+        "expired-in-RAM persistent entries are never counted as fresh hits",
+      );
+    } finally {
+      engine.destroy();
+      context.v = previousV;
+      context.k = previousK;
+      context.x = previousX;
+      context.S.sbPrivacy = previousPrivacy;
+      context.he = previousHe;
+    }
+  }
+
+  // --- Group 7: bundle markers for the v3.15.0 fixes ---
+  assert.ok(bundle.includes("ScanScheduler"), "ZenResources ScanScheduler ships in the bundle");
+  assert.ok(bundle.includes("algoAutoDislikeOn"), "auto-dislike has its own opt-in key");
+  assert.ok(bundle.includes("!S.algoAutoDislikeOn"), "maybeAutoDislike no longer rides the auto-like gate");
 
 
   console.log("Unit tests passed.");

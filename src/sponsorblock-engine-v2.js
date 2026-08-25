@@ -430,7 +430,12 @@
               await x("kv", "cache:" + cacheKey);
               return null;
             }
-            if (entry.expiresAt > now) {
+            // The persistent record carries the long TTL; only the shorter
+            // in-memory freshness window may serve data as fresh. Cap the
+            // expiry BEFORE comparing so an old-but-persisted entry is
+            // treated as stale instead of being silently promoted.
+            const runtimeExpiresAt = Math.min(entry.expiresAt, entry.fetchedAt + CACHE_TTL_MS);
+            if (runtimeExpiresAt > now) {
               memCache.set(cacheKey, runtimeEntry(entry));
               evictIfNeeded();
               Metrics.recordCacheHit();
@@ -1148,16 +1153,26 @@
 
       const events = ["timeupdate", "seeked", "seeking", "ratechange", "emptied", "loadedmetadata", "durationchange", "ended", "pause"];
 
+      // The teardown hook is registered once and survives attach/detach
+      // cycles, so per-navigation reattachments never accumulate duplicate
+      // cleanup entries in the feature registry. A registry teardown runs
+      // the hook, which clears the flag so a later attach can re-register
+      // against the fresh (emptied) registry array.
+      let listenersTeardownHooked = false;
+
       const attachListeners = () => {
         if (State.listenersAttached) return;
         events.forEach(type => {
           document.addEventListener(type, handleEvent, true);
         });
         State.listenersAttached = true;
-
-        Yt["sponsorblock"].push(() => {
-          detachListeners();
-        });
+        if (!listenersTeardownHooked && Yt && Yt["sponsorblock"]) {
+          listenersTeardownHooked = true;
+          Yt["sponsorblock"].push(() => {
+            listenersTeardownHooked = false;
+            detachListeners();
+          });
+        }
       };
 
       const detachListeners = () => {

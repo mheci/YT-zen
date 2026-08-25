@@ -50,6 +50,10 @@ Tracks object URLs, labels, byte totals, last-use times, automatic revocation, a
 
 Schedules idle or timeout work, supports cancellation, and removes completed debounce keys. Promise rejections are consumed so optional background work cannot become an unhandled rejection.
 
+### `ScanScheduler`
+
+Adaptive rescan scheduler for feature-level DOM sweeps (badges, adoption, reconciliation). `create(scanFn, options)` returns a handle with `request()` (nudge; coalesced and minimum-gap checked), `start()`/`stop()` for an optional periodic tick on the shared ticker (paused in hidden tabs), and `dispose()`. The scan function reports the number of items it processed: a non-zero result restores the base cadence, quiet scans back off exponentially toward `maxBackoffMs`. Nudges may pass `{ priority: true }` so mutation-driven rescans of fresh content run at the minimum gap even while the idle tick is backed off. Scans never run in hidden tabs unless `runWhenHidden` is set.
+
 ### `AbortGroup`
 
 Groups controllers by feature and removes a controller from the group when it aborts. Groups can be timed out, aborted individually, or aborted globally.

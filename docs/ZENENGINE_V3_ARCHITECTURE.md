@@ -14,7 +14,14 @@ ZenEngine is the shared coordination layer for the optional discovery, playback,
 - `AlgoEngine` implements the opt-in algorithm-intelligence subsystem: rate-limited feedback injection, topic classification, a persisted signal store, profile analysis, and negative-signal management.
 - the feature registry owns enable/disable lifecycle and invokes each feature's cleanup stack before reapplying it.
 
-Features must not create permanent global observers or timers. A feature registers teardown functions in `Yt[featureId]` and uses the registry context (`addTimeout`, `addInterval`, `addListener`, `addObserver`, `addRAF`, `onNav`, `addStyle`) for everything it schedules.
+Features must not create permanent global observers or timers. A feature registers teardown functions in `Yt[featureId]` and uses the registry context (`addTimeout`, `addInterval`, `addListener`, `addObserver`, `addRAF`, `onNav`, `addStyle`) for everything it schedules. Periodic DOM rescans should go through `ZenResources.ScanScheduler`, which coalesces nudges, pauses in hidden tabs, and backs off when scans report no work.
+
+## Hot-path rules
+
+- Topic classification compiles its taxonomy regexes once per session; `ContentClassifier.classify` never builds patterns per call, and results are cached per video id (or title-derived key for cards without one).
+- Homepage token extraction is lazy: recommendation scans record menu element references, and feedback tokens are serialized only for the few items actually being acted on. Polymer data is read through the public `.data` accessor with `__data` as a legacy fallback.
+- Watch-signal recording is milestone-based (percentage moved or a minimum interval elapsed) so playback monitors do not rewrite the whole signal blob to storage on every tick.
+- The watch optimizer runs on the shared ticker and is paused entirely in hidden tabs.
 
 ## Playback
 
@@ -24,7 +31,7 @@ Features must not create permanent global observers or timers. A feature registe
 
 - Untrusted values (video titles, channel names, search queries, genome input) are rendered via `textContent`, `zenEscapeHtml`, or `ZenResources.Dom.esc`; thumbnail URLs are sanitized before use in CSS.
 - The watch genome records only real signals — topics, channels, length preference, and session counts — and never fabricates compatibility scores.
-- AlgoEngine's feedback, likes, watches, and searches run inside the opt-in feature with per-action rate limits; nothing runs automatically without the feature enabled.
+- AlgoEngine's feedback, likes, watches, and searches run inside the opt-in feature with per-action rate limits; nothing runs automatically without the feature enabled. Auto-dislike of unwanted-topic watches is a separate opt-in (`algoAutoDislikeOn`) and is never implied by enabling auto-like.
 
 ## YouTube boundary
 

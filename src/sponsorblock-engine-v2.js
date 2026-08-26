@@ -683,7 +683,7 @@
           seen.add(key);
           normalized.push(valid);
         }
-        normalized.sort((a, b) => a.segment[0] - b.segment[0] || a.segment[1] - b.segment[1] || a.UUID.localeCompare(b.UUID));
+        normalized.sort((a, b) => a.segment[0] - b.segment[0] || a.segment[1] - b.segment[1] || (a.UUID < b.UUID ? -1 : a.UUID > b.UUID ? 1 : 0));
         // Overlapping categories are common in server data; the playback
         // binary search assumes disjoint intervals and silently misses skips
         // inside overlaps. Contain every segment within its predecessor.
@@ -1141,6 +1141,7 @@
         resetMuteState();
         State.activeSegmentIndex = -1;
         State.processedUUIDs.clear();
+        State.undoUntilTs = 0;
       };
 
       const handleEvent = (ev) => {
@@ -1318,6 +1319,12 @@
 
         watchdogTaskId = ZenResources.SharedTicker.add(() => {
           if (!S.sponsorblockOn || !S.sbSeekbar) return;
+          // Marks only exist on watch/Shorts pages; skip the DOM probes
+          // (and the popup-detection layout reads) everywhere else.
+          try {
+            const p = location.pathname || "";
+            if (!p.startsWith("/watch") && !p.startsWith("/shorts")) return;
+          } catch (_) {}
           if (typeof _a === "function" && _a()) return;
           if (document.hidden) return;
           try { renderSeekbarMarks(); } catch (_) {}
@@ -1538,7 +1545,9 @@
             videoDuration: ie.el() ? ie.el().duration : 0,
             description: State.editor.description
           });
-          State.segments.sort((a, b) => a.segment[0] - b.segment[0]);
+          State.segments.sort((a, b) => a.segment[0] - b.segment[0] || (a.UUID < b.UUID ? -1 : a.UUID > b.UUID ? 1 : 0));
+          // Keep the binary-search disjoint invariant: contain the preview
+          // within its neighbors exactly like normalizeSegments does.
           invalidateRenderCache();
           renderSeekbarMarks();
           pe("Preview segment added locally", 1800, "success");
@@ -1715,6 +1724,7 @@
       State.hidden = false;
       State.segments = [];
       State.processedUUIDs.clear();
+      State.undoUntilTs = 0;
       State.activeSegmentIndex = -1;
       UI.clearMarks();
 
@@ -1858,6 +1868,7 @@
       State.hidden = false;
       State.segments = [];
       State.processedUUIDs.clear();
+      State.undoUntilTs = 0;
       State.activeSegmentIndex = -1;
     };
 

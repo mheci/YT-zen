@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YT-zen
 // @namespace    https://github.com/mheci/YT-zen
-// @version      3.16.0
+// @version      3.16.1
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      Unlicense
@@ -192,7 +192,7 @@
           } catch (e) {}
           if (this.ref && _finalizer) {
             try {
-              _finalizer.unregister(this._token);
+              try { _finalizer.unregister(this._token); } catch (_) {} this._token = null;
             } catch (e) {}
             this._token = null;
           }
@@ -208,10 +208,11 @@
 
       if (payload && payload.ref && typeof WeakRef === "function" && _finalizer) {
         try {
-          handle._token = null; _finalizer.register(
-            payload.ref,
-            handle,
-            handle,
+          handle._token = {}; // register() returns undefined; pass a real token
+            _finalizer.register(
+              payload.ref,
+              { id: handle.id, kind: handle.kind },
+              handle._token,
           );
         } catch (e) {}
       }
@@ -369,7 +370,7 @@
       return n;
     };
 
-    const _maintTick = () => {
+    const _maintTick = (forceKv) => {
       if (!_running) return;
 
       // YtpCache.cleanup() deserializes the whole kv store to find expired
@@ -378,7 +379,7 @@
       try {
         if (
           typeof YtpCache !== "undefined" && YtpCache &&
-          Date.now() - _lastKvCleanup > 300000
+          forceKv === true || Date.now() - _lastKvCleanup > 300000
         ) {
           _lastKvCleanup = Date.now();
           YtpCache.cleanup();
@@ -432,8 +433,8 @@
 
       _softCleanupLast = Date.now();
     };
-    const runMaintenance = () => {
-      _maintTick();
+    const runMaintenance = (forceKv) => {
+      _maintTick(forceKv);
     };
 
     const snapshot = () => {
@@ -1138,6 +1139,7 @@ algoBlockChannels: "",
 
         sbSubmitOn: !1,
         sbSubmitUserId: "",
+        sbUserId: "",
         perfProfilerOn: !1,
         stopButtonOn: !1,
         // ── Advanced Features Pack defaults ──
@@ -1190,14 +1192,15 @@ algoBlockChannels: "",
         ambientGlowOn: !1,
         storageDashboardOn: !1,
         healthCheckOn: !1,
-        queueShuffleOn: !1,
-        frameStepperOn: !1, frameFps: 30,
+                frameStepperOn: !1, frameFps: 30,
         playlistResumeOn: !1,
         channelVolumeOn: !1,
         quickCollectionSendOn: !1,
         readerModeOn: !1,
         zenBreatherOn: !1,
+        perfLevelSyncedFor: "",
         // ── Algorithm Intelligence defaults ──
+        algoAutoDislikeOn: !1,
         algoIntelligenceOn: !1,
         algoAutoTrain: !1,
         algoBlockTopics: "",
@@ -2246,9 +2249,11 @@ algoBlockChannels: "",
           if (find()) return;
           if (timeoutMs > 0) {
             timer = setTimeout(() => {
-              if (done) return;
+              // Mirror the success-path cleanup: cancel() would no-op after
+              // done flips, stranding the poll interval forever.
+              if (poll) { clearInterval(poll); poll = 0; }
+              if (timer) { clearTimeout(timer); timer = 0; }
               done = true;
-              cancel();
               reject(new Error("Dom.when: timed out waiting for " + selector));
             }, timeoutMs);
             if (typeof timer.unref === "function") { try { timer.unref(); } catch (_) {} }
@@ -3245,9 +3250,9 @@ algoBlockChannels: "",
       fetch(url, options = {}) {
         if (this._disposed) return Promise.reject(new Error("ResourceScope disposed"));
         const controller = AbortGroup.create(this._name);
-        // Forward a caller-supplied signal into the scope controller so
-        // dispose()/abortAll() can still cancel the request; previously the
-        // external signal silently replaced ours and teardown became a no-op.
+        // The wire ALWAYS binds to the scope controller so dispose()/abortAll()
+        // can cancel in-flight work; a caller-supplied signal is forwarded
+        // into the controller instead of replacing it.
         if (options.signal) {
           const ext = options.signal;
           if (ext.aborted) { try { controller.abort(); } catch (_) {} }
@@ -3255,7 +3260,7 @@ algoBlockChannels: "",
             try { ext.addEventListener("abort", () => { try { controller.abort(); } catch (_) {} }, { once: true }); } catch (_) {}
           }
         }
-        const merged = Object.assign({}, options, { signal: options.signal || controller.signal });
+        const merged = Object.assign({}, options, { signal: controller.signal });
         const promise = fetch(url, merged).finally(() => {
           try { controller.abort(); } catch (_) {}
         });
@@ -4017,7 +4022,7 @@ algoBlockChannels: "",
       _a() || document.hidden || Ye();
     }, 5e3);
 
-    setTimeout(() => { try { Ze(); } catch (e) {} }, 30000);
+    window.__ytpZeTimer = setTimeout(() => { try { Ze(); } catch (e) {} }, 30000);
     const t = Date.now();
     let a = await Ee(e);
     (a
@@ -4074,7 +4079,7 @@ algoBlockChannels: "",
         }));
     const n = (() => {
       try {
-        const e = location.href.match(/(?:[?&#])t=/);
+        const e = location.href.match(/[?&#]t=([0-9]+)/);
         return e ? parseInt(e[1], 10) : 0;
       } catch (e) {
         return 0;
@@ -4500,6 +4505,8 @@ algoBlockChannels: "",
     }
     Ma.awaitingResume = !1;
     Ma.awaitingResumeVid = null;
+    try { if (window.__ytpZeTimer) { clearTimeout(window.__ytpZeTimer); window.__ytpZeTimer = 0; } } catch (_) {}
+    try { if (window.__ytpDashEsc) { document.removeEventListener("keydown", window.__ytpDashEsc); window.__ytpDashEsc = null; } } catch (_) {}
   }
   function Qe() {
     if (Le) {
@@ -4528,6 +4535,8 @@ algoBlockChannels: "",
     }
     Ma.awaitingResume = !1;
     Ma.awaitingResumeVid = null;
+    try { if (window.__ytpZeTimer) { clearTimeout(window.__ytpZeTimer); window.__ytpZeTimer = 0; } } catch (_) {}
+    try { if (window.__ytpDashEsc) { document.removeEventListener("keydown", window.__ytpDashEsc); window.__ytpDashEsc = null; } } catch (_) {}
   }
     function Je(e, t, a) {
     if (e) {
@@ -4545,7 +4554,8 @@ algoBlockChannels: "",
     if (!Je._playGate) {
       Je._playGate = !0;
       try {
-        const _orig = HTMLMediaElement.prototype.play;
+        const _orig = window.__ytpRealPlay || HTMLMediaElement.prototype.play;
+        window.__ytpRealPlay = _orig;
         HTMLMediaElement.prototype.play = function () {
           try {
             if (Ma && Ma.awaitingResume) {
@@ -5563,7 +5573,7 @@ algoBlockChannels: "",
           seen.add(key);
           normalized.push(valid);
         }
-        normalized.sort((a, b) => a.segment[0] - b.segment[0] || a.segment[1] - b.segment[1] || a.UUID.localeCompare(b.UUID));
+        normalized.sort((a, b) => a.segment[0] - b.segment[0] || a.segment[1] - b.segment[1] || (a.UUID < b.UUID ? -1 : a.UUID > b.UUID ? 1 : 0));
         // Overlapping categories are common in server data; the playback
         // binary search assumes disjoint intervals and silently misses skips
         // inside overlaps. Contain every segment within its predecessor.
@@ -6021,6 +6031,7 @@ algoBlockChannels: "",
         resetMuteState();
         State.activeSegmentIndex = -1;
         State.processedUUIDs.clear();
+        State.undoUntilTs = 0;
       };
 
       const handleEvent = (ev) => {
@@ -6198,6 +6209,12 @@ algoBlockChannels: "",
 
         watchdogTaskId = ZenResources.SharedTicker.add(() => {
           if (!S.sponsorblockOn || !S.sbSeekbar) return;
+          // Marks only exist on watch/Shorts pages; skip the DOM probes
+          // (and the popup-detection layout reads) everywhere else.
+          try {
+            const p = location.pathname || "";
+            if (!p.startsWith("/watch") && !p.startsWith("/shorts")) return;
+          } catch (_) {}
           if (typeof _a === "function" && _a()) return;
           if (document.hidden) return;
           try { renderSeekbarMarks(); } catch (_) {}
@@ -6418,7 +6435,9 @@ algoBlockChannels: "",
             videoDuration: ie.el() ? ie.el().duration : 0,
             description: State.editor.description
           });
-          State.segments.sort((a, b) => a.segment[0] - b.segment[0]);
+          State.segments.sort((a, b) => a.segment[0] - b.segment[0] || (a.UUID < b.UUID ? -1 : a.UUID > b.UUID ? 1 : 0));
+          // Keep the binary-search disjoint invariant: contain the preview
+          // within its neighbors exactly like normalizeSegments does.
           invalidateRenderCache();
           renderSeekbarMarks();
           pe("Preview segment added locally", 1800, "success");
@@ -6595,6 +6614,7 @@ algoBlockChannels: "",
       State.hidden = false;
       State.segments = [];
       State.processedUUIDs.clear();
+      State.undoUntilTs = 0;
       State.activeSegmentIndex = -1;
       UI.clearMarks();
 
@@ -6738,6 +6758,7 @@ algoBlockChannels: "",
       State.hidden = false;
       State.segments = [];
       State.processedUUIDs.clear();
+      State.undoUntilTs = 0;
       State.activeSegmentIndex = -1;
     };
 
@@ -8659,7 +8680,7 @@ algoBlockChannels: "",
           const e = ie.levels();
           if (!e.length) return;
           let t = S.qualityPref;
-          { const lv = e.filter((q) => q && "auto" !== q); -1 === e.indexOf(t) && (t = lv[0] || t); }
+          { const lv = e.filter((q) => q && "auto" !== q); if (-1 === e.indexOf(t)) { const below = lv.filter((q) => q < t)[0]; t = below || lv[lv.length - 1] || t; } }
           try {
             ie.setQuality(t);
           } catch (e) {}
@@ -8917,7 +8938,7 @@ algoBlockChannels: "",
         } catch (e) {}
       } else {
         const t = document.querySelector(".ytp-subtitles-button");
-        if (t && "true" !== t.getAttribute("aria-pressed")) {
+        if (t && null !== t.getAttribute("aria-pressed") && "true" !== t.getAttribute("aria-pressed")) {
           try {
             t.click();
           } catch (e) {}
@@ -10360,7 +10381,7 @@ algoBlockChannels: "",
     )
       return "@" + e.slice(1).toLowerCase();
     const t = e.match(/@([A-Za-z0-9._-]+)/);
-    return t ? "@" + t[1].toLowerCase() : e.toLowerCase();
+    return t ? "@" + t[1].normalize("NFC").toLowerCase() : e.normalize("NFC").toLowerCase();
   }
   function Cb_parseList() {
     const e = new Set(),
@@ -10624,6 +10645,7 @@ algoBlockChannels: "",
       // ── Cleanup on disable ──
       if (!S.channelBlockerOn) {
         document.querySelectorAll(".ytp-channel-block-btn").forEach(el => el.remove());
+          document.querySelectorAll("[data-ytp-block-btn]").forEach(el => { delete el.dataset.ytpBlockBtn; });
         document.querySelectorAll(".ytp-channel-blocked").forEach(el => el.classList.remove("ytp-channel-blocked"));
         document.querySelectorAll(".ytp-ublock-hidden").forEach(el => el.classList.remove("ytp-ublock-hidden"));
         document.documentElement.classList.remove("ytp-channel-path-blocked");
@@ -10711,9 +10733,7 @@ algoBlockChannels: "",
       const checkPathBlock = () => {
         let blocked = false;
         const path = (location.pathname || "").toLowerCase();
-        for (const f of parsed.pathFilters) {
-          if (f.pathRegex && f.pathRegex.test(location.pathname || "/")) {
-            blocked = true;
+        for (const f of parsed.pathFilters) {          if (f.domains.length > 0 && !hostMatches(f.domains)) continue;          if (f.excludedDomains.length > 0 && hostMatches(f.excludedDomains)) continue;          if (f.pathRegex && f.pathRegex.test(location.pathname || "/")) {       blocked = true;
             break;
           }
         }
@@ -10994,7 +11014,7 @@ algoBlockChannels: "",
                       // Re-evaluate tagged cards too so list edits can unhide.
                       const t = e.querySelector("#video-title");
                       if (!t) return;
-                      const n = (t.title || t.textContent || "").toLowerCase();
+                      const n = (t.title || t.textContent || "").normalize("NFC").toLowerCase();
                       const hit = a.some((k) => n.includes(k));
                       if (hit && !e.dataset.zenKwHidden) {
                         e.dataset.zenKwHidden = "1";
@@ -13587,6 +13607,10 @@ algoBlockChannels: "",
       : ur && (ur.remove(), (ur = null));
   }
   function mr() {
+    try { if (zn) { e.fetch = zn; zn = null; } } catch (_) {}
+    try { if (Wn) { XMLHttpRequest.prototype.open = Wn; Wn = null; } } catch (_) {}
+    try { if (Un) { XMLHttpRequest.prototype.send = Un; Un = null; } } catch (_) {}
+    try { if (Kn) { navigator.sendBeacon = Kn; Kn = null; } } catch (_) {}
 
     (Fn && (clearTimeout(Fn), (Fn = 0)),
       tr(),
@@ -14057,6 +14081,7 @@ algoBlockChannels: "",
         e.addListener(document, "visibilitychange", () => {
           _hiddenSince = document.hidden ? Date.now() : 0;
         });
+        if (document.hidden) _hiddenSince = Date.now();
         const t = () => {
           // Only pause if tab has been hidden for at least 60 seconds
           // and battery is critically low
@@ -20292,7 +20317,7 @@ const Nr = [
       })
       .catch(() => {});
   } catch (_cthErr) {}
-  let _themeCardSyncBound = false;
+  let _themeCardSyncUnsub = null;
     Object.freeze(Nr);
   let Hr = null,
     Dr = null;
@@ -21914,9 +21939,12 @@ const Nr = [
         t.appendChild(c));
       // One global highlight-sync for the whole session: subscribing per
       // settings render stacked handlers on stale detached containers.
-      if (!_themeCardSyncBound && typeof So === "function") {
-        _themeCardSyncBound = true;
-        So("cfg.changed", (ev) => {
+      if (typeof So === "function") {
+        // Re-register each render: the unsubscribe lands in Co and the
+        // dashboard close drains Co, so a once-latch killed highlighting
+        // for the rest of the session after the first close.
+        if (_themeCardSyncUnsub) { try { _themeCardSyncUnsub(); } catch (_u) {} }
+        _themeCardSyncUnsub = So("cfg.changed", (ev) => {
           if ("themeSelected" !== ev.key) return;
           document.querySelectorAll(".ytp-theme-card").forEach((cardEl) => {
             const id = cardEl.dataset ? cardEl.dataset.zenThemeId : "";
@@ -22204,8 +22232,6 @@ const Nr = [
           selector: "ytd-guide-entry-renderer:has(a[href*='LL'])",
         },
         {
-        },
-        {
           id: "sidebar-explore",
           name: "Explore section",
           selector:
@@ -22327,8 +22353,6 @@ const Nr = [
           id: "home-chips-bar",
           name: "Filter chips bar",
           selector: "ytd-feed-filter-chip-bar-renderer, iron-selector#chips",
-        },
-        {
         },
         {
           id: "home-rich-grid",
@@ -22605,8 +22629,6 @@ const Nr = [
           name: "Remix button",
           selector:
             "ytd-watch-metadata yt-button-view-model:has(button[aria-label*='emix'])",
-        },
-        {
         },
         {
           id: "watch-more-actions",
@@ -23339,8 +23361,6 @@ const Nr = [
             "ytd-c4-tabbed-header-renderer #subscriber-count, yt-page-header-renderer yt-content-metadata-view-model",
         },
         {
-        },
-        {
           id: "channel-description-short",
           name: "Short description below name",
           selector: "yt-page-header-renderer yt-description-preview-view-model",
@@ -23539,8 +23559,6 @@ const Nr = [
           id: "search-people-also",
           name: "'People also watched' shelf",
           selector: "ytd-search ytd-shelf-renderer",
-        },
-        {
         },
         {
           id: "search-ads",
@@ -23944,8 +23962,6 @@ const Nr = [
           id: "lib-history-search",
           name: "History search box",
           selector: "ytd-search-header-renderer",
-        },
-        {
         },
         {
           id: "lib-history-pause",
@@ -24613,7 +24629,7 @@ const Nr = [
               (a.dataset.value = e),
               (a.textContent = t),
               a.addEventListener("click", () => {
-                (Ta(e, a.dataset.value), l(), (o.style.display = "none"));
+                (Ta(t, a.dataset.value), l(), (o.style.display = "none"));
               }),
               d.appendChild(a));
           };
@@ -25319,7 +25335,7 @@ const Nr = [
           Co[e]();
         } catch (e) {}
       ((Co.length = 0),
-        setTimeout(((w) => () => { try { w && w.remove(); } catch (_) {} })(wo), 250), wo = nullull);
+        setTimeout(((w) => () => { try { w && w.remove(); } catch (_) {} })(wo), 250), wo = null);
     }
   }
   function Yo() {
@@ -25373,7 +25389,7 @@ const Nr = [
               }
               const t = JSON.parse(jsonText),
                 a = Object.assign({}, S);
-              (t.cfg && (S = Object.assign({}, s, D(t.cfg))),
+              (t.cfg && (S = Object.assign({}, s, j(D(t.cfg)))),
 
                 Array.isArray(t.history) &&
                   (await Promise.all(
@@ -26597,6 +26613,8 @@ const Nr = [
         update: (fn) => store.update(fn),
         load: () => store.load(),
         flush: () => store.flush(),
+        onChange: (fn) => store.onChange(fn),
+        offChange: (fn) => store.offChange(fn),
       };
     };
     const whenIdle = (fn, timeout) => {
@@ -29667,11 +29685,21 @@ const Nr = [
     // element per apply-lifetime (registry is not cleared on SPA nav).
     const elBinder = () => {
       const bound = new WeakSet();
-      return (ctx, ev, fn, opts) => {
+      const bind = (ctx, ev, fn, opts) => {
         const el = ie.el();
-        if (!el || bound.has(el)) return;
+        if (!el || bound.has(el)) return false;
         bound.add(el);
         ctx.addListener(el, ev, fn, opts);
+        return true;
+      };
+      // Features can apply before the player mounts (boot on home, slow
+      // player). Retry across navigations instead of silently staying dead.
+      return (ctx, ev, fn, opts) => {
+        if (bind(ctx, ev, fn, opts)) return;
+        ctx.onNav(() => bind(ctx, ev, fn, opts));
+        const iv = ZenResources.SharedTicker.add(() => {
+          if (bind(ctx, ev, fn, opts)) ZenResources.SharedTicker.remove(iv);
+        }, 2000, { pauseHidden: true, label: "zen-elbinder" });
       };
     };
     const guardKey = (ev) => {
@@ -29709,9 +29737,14 @@ const Nr = [
           if (boosted && vid) { try { vid.playbackRate = prevRate; } catch (_) {} }
           boosted = false; quietMs = 0; return;
         }
-        let energy = 128;
-        try { energy = ZenPlayback.readEnergy(vid).energy; } catch (_) {}
-        if (energy < 4) quietMs += 500; else quietMs = 0;
+        let reading = null;
+        try { reading = ZenPlayback.readEnergy(vid); } catch (_) {}
+        // Fail CLOSED: unknown audio (no analyser / suspended context /
+        // muted element) must never be treated as silence, or audible
+        // content gets fast-forwarded.
+        if (!reading || !reading.active || !(reading.energy > 0)) quietMs = 0;
+        else if (reading.energy < 4) quietMs += 500;
+        else quietMs = 0;
         if (quietMs >= 1500 && !boosted) { try { prevRate = vid.playbackRate || 1; vid.playbackRate = targetRate(); boosted = true; } catch (_) {} }
         else if (energy >= 4 && boosted) { try { vid.playbackRate = prevRate; } catch (_) {} boosted = false; quietMs = 0; }
       };
@@ -29720,6 +29753,9 @@ const Nr = [
         ZenResources.SharedTicker.remove(id);
         const vid = ie.el();
         if (boosted && vid) { try { vid.playbackRate = prevRate; } catch (_) {} }
+        // Release the captureStream tap so audio hardware is not held for
+        // the rest of the session after the feature turns off.
+        try { if (vid) ZenPlayback.release(vid); } catch (_) {}
       });
     },
     settings(en) {
@@ -29741,9 +29777,14 @@ const Nr = [
       let chapters = null, chVid = "";
       const loadChapters = () => {
         try {
-          const vid = ie.videoId(); if (!vid || vid === chVid) return; chVid = vid;
+          const vid = ie.videoId(); if (!vid || vid === chVid) return;
           chapters = null;
           const pr = e.ytInitialPlayerResponse || {};
+          // On SPA nav the page-global player response still describes the
+          // PREVIOUS video; pinning chapters to the new id here caused wrong-
+          // video skips. Wait until it actually matches.
+          if (!pr.videoDetails || pr.videoDetails.videoId !== vid) return;
+          chVid = vid;
           const bar = pr.playerOverlays && pr.playerOverlays.playerOverlayRenderer &&
             pr.playerOverlays.playerOverlayRenderer.decoratedPlayerBarRenderer;
           const map = bar && bar.decoratedPlayerBarRenderer && bar.decoratedPlayerBarRenderer.playerBar &&
@@ -29802,7 +29843,7 @@ const Nr = [
         pe("Bookmark at " + ZenPack.fmtTs(row.t), 1400, "success");
       };
       ctx.addListener(document, "keydown", (ev) => {
-        if (ev.altKey && !ev.ctrlKey && !ev.metaKey && ev.code === "KeyB" && !ZenPack.guardKey(ev)) {
+        if (ev.altKey && !ev.repeat && !ev.ctrlKey && !ev.metaKey && ev.code === "KeyB" && !ZenPack.guardKey(ev)) {
           ev.preventDefault(); add();
         }
       });
@@ -29855,6 +29896,7 @@ const Nr = [
       const capture = () => {
         const text = box && box.value.trim();
         if (!text) return;
+        if (!cur()) return; // no video context (e.g. Shorts): skip rather than file under "".
         const el = ie.el();
         const row = { t: el ? el.currentTime : 0, text, at: Date.now() };
         notesStore.update(d => { (d[cur()] = d[cur()] || []).push(row); });
@@ -29877,7 +29919,7 @@ const Nr = [
         return true;
       };
       ctx.addListener(document, "keydown", (ev) => {
-        if (ev.altKey && !ev.ctrlKey && !ev.metaKey && ev.code === "KeyN" && !ZenPack.guardKey(ev)) {
+        if (ev.altKey && !ev.repeat && !ev.ctrlKey && !ev.metaKey && ev.code === "KeyN" && !ZenPack.guardKey(ev)) {
           ev.preventDefault();
           if (build()) box.style.display = box.style.display === "none" ? "block" : "none";
         }
@@ -29885,7 +29927,7 @@ const Nr = [
       ctx.onNav(() => { if (box) box.style.display = "none"; });
       // Markdown export button in settings panel.
       ZenEngine.scheduleOnReady(ctx, () => !!document.body, { attempts: 1, delayMs: 50 });
-      ZenPack.settingsExportHook.push(async () => {
+      if (!ZenPack.settingsExportHook._notesWired) { ZenPack.settingsExportHook._notesWired = true; ZenPack.settingsExportHook.push(async () => {
         const d = notesStore.get(); const lines = ["# YT-zen notes", ""];
         for (const [vid, rows] of Object.entries(d)) {
           lines.push("## https://youtu.be/" + vid);
@@ -29896,7 +29938,7 @@ const Nr = [
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a"); a.href = url; a.download = "yt-zen-notes.md"; a.click();
         setTimeout(() => URL.revokeObjectURL(url), 4000);
-      });
+      }); }
       Yt["timestamp-notes"].push(() => { if (box) { box.remove(); box = null; } });
     },
     settings(en) {
@@ -29935,7 +29977,7 @@ const Nr = [
     apply(ctx) {
       if (!S.instantReplayOn) return;
       ctx.addListener(document, "keydown", (ev) => {
-        if (ev.altKey && !ev.ctrlKey && !ev.metaKey && ev.code === "KeyJ" && !ZenPack.guardKey(ev)) {
+        if (ev.altKey && !ev.repeat && !ev.ctrlKey && !ev.metaKey && ev.code === "KeyJ" && !ZenPack.guardKey(ev)) {
           ev.preventDefault();
           const el = ie.el(); if (!el) return;
           const back = Math.max(2, Math.min(60, Number(S.instantReplaySec) || 10));
@@ -29975,14 +30017,16 @@ const Nr = [
         pe("Sleep timer: paused. Good night.", 2500, "info");
       };
       ctx.addListener(document, "keydown", (ev) => {
-        if (ev.altKey && !ev.ctrlKey && !ev.metaKey && ev.code === "KeyO" && !ZenPack.guardKey(ev)) {
+        if (ev.altKey && !ev.repeat && !ev.ctrlKey && !ev.metaKey && ev.code === "KeyO" && !ZenPack.guardKey(ev)) {
           ev.preventDefault();
           const cycle = [0, 30, 60, 90];
+          const wasFading = deadline && origVol !== null;
           armed = cycle[(cycle.indexOf(armed) + 1) % cycle.length];
-          disarm(false);
+          disarm(wasFading);
           if (!armed) { pe("Sleep timer off", 1400, "info"); return; }
           deadline = Date.now() + armed * 60000;
-          origVol = (ie.el() || {}).volume ?? 1;
+          // Capture lazily at first fade tick so a mid-fade re-arm never
+          // bakes the faded level in as "original".
           pe("Sleep timer armed: " + armed + " min", 2200, "success");
         }
       });
@@ -29991,7 +30035,8 @@ const Nr = [
         const left = deadline - Date.now();
         const el = ie.el(); if (!el) return;
         if (left <= 0) { stopPlayback(); return; }
-        if (left <= 60000 && origVol !== null) {
+        if (left <= 60000) {
+          if (origVol === null) { try { origVol = el.volume; } catch (_) { origVol = 1; } }
           try { el.volume = Math.max(0, origVol * (left / 60000)); } catch (_) {}
         }
       }, 1000, { pauseHidden: false, label: "zen-sleep-timer" });
@@ -30015,10 +30060,14 @@ const Nr = [
       const every = () => Math.max(15, Math.min(120, Number(S.stretchEveryMin) || 45)) * 60000;
       const binder = ZenPack.elBinder();
       binder(ctx, "pause", () => { lastPauseAt = Date.now(); });
+      binder(ctx, "play", () => {
+        // A break of 5+ minutes resets the continuous-watch streak; the old
+        // in-tick reset made the threshold mathematically unreachable.
+        if (Date.now() - lastPauseAt > 300000) watched = 0;
+      });
       const id = ZenResources.SharedTicker.add(() => {
         const el = ie.el();
         if (!el || el.paused || document.hidden) { lastPauseAt = Date.now(); return; }
-        if (Date.now() - lastPauseAt > 300000) { lastPauseAt = Date.now(); watched = 0; }
         watched += 1000;
         if (watched >= every()) {
           watched = 0;
@@ -30103,7 +30152,7 @@ const Nr = [
         overlay = document.createElement("div");
         overlay.id = "ytp-zen-winddown";
         overlay.setAttribute("role", "dialog");
-        overlay.style.cssText = "position:fixed;inset:0;z-index:2147483641;background:rgba(8,9,12,.82);" +
+        overlay.style.cssText = "position:fixed;inset:0;z-index:2147483644;background:rgba(8,9,12,.82);" +
           "display:flex;align-items:center;justify-content:center;backdrop-filter:blur(10px)";
         const card = document.createElement("div");
         card.className = "zen-focus-card";
@@ -30197,7 +30246,7 @@ const Nr = [
     summary: "Keeps the home feed recent by hiding uploads older than your chosen age.",
     masterKey: "feedFreshnessOn", keys: ["feedFreshnessOn", "feedMaxAgeMonths"],
     apply(ctx) {
-      if (!S.feedFreshnessOn || !location.pathname.startsWith("/")) return;
+      if (!S.feedFreshnessOn || location.pathname !== "/") return;
       ZenEngine.injectCSS();
       const months = () => Math.max(1, Math.min(60, Number(S.feedMaxAgeMonths) || 6));
       const parseAgeDays = (text) => {
@@ -30208,7 +30257,7 @@ const Nr = [
         return v * f;
       };
       const scan = () => {
-        if (!location.pathname.startsWith("/")) return;
+        if (location.pathname !== "/") return;
         document.querySelectorAll("ytd-rich-item-renderer ytd-video-meta-block #metadata-line").forEach((meta) => {
           const item = meta.closest("ytd-rich-item-renderer");
           if (!item) return;
@@ -30255,7 +30304,7 @@ const Nr = [
           if (!owner) return;
           const hit = match(owner.textContent);
           if (hit && !card.dataset.zenSnoozed) { card.dataset.zenSnoozed = "1"; card.style.display = "none"; }
-          else if (!hit && card.dataset.zenSnoozed) { delete card.dataset.zenSnoozed; card.style.display = ""; }
+          else if (!hit && card.dataset.zenSnoozed) { delete card.dataset.zenSnoozed; if (!card.dataset.zenStale) card.style.display = ""; }
         });
       };
       ctx.addObserver(document.body, ZenResources.DeferredTask.debounce.bind(null, "zen-snooze", scan, 350), { childList: true, subtree: true });
@@ -30320,6 +30369,8 @@ const Nr = [
     apply(ctx) {
       if (!S.playlistWatchedMarkerOn) return;
       ZenEngine.injectCSS();
+      const _markCache = new Map();
+      ctx.onNav(() => { _markCache.clear(); });
       const scan = async () => {
         if (!location.pathname.startsWith("/playlist") && !location.search.includes("list=")) return;
         const rows = [...document.querySelectorAll("ytd-playlist-panel-video-renderer, ytd-playlist-video-renderer")];
@@ -30329,7 +30380,11 @@ const Nr = [
           const m = a && (a.getAttribute("href") || "").match(/[?&]v=([A-Za-z0-9_-]{11})/);
           ids.push(m ? m[1] : null);
         });
-        const flags = await Promise.all(ids.map((id) => id ? v("history", id).then(Boolean).catch(() => false) : false));
+        const flags = await Promise.all(ids.map((id) => {
+          if (!id) return false;
+          if (_markCache.has(id)) return _markCache.get(id);
+          return v("history", id).then((row) => { const has = !!row; _markCache.set(id, has); return has; }).catch(() => false);
+        }));
         rows.forEach((r, i) => {
           const title = r.querySelector("#video-title") || r;
           if (flags[i]) {
@@ -30412,6 +30467,7 @@ const Nr = [
       // Shift+click a row's thumbnail to toggle local hiding.
       ctx.addListener(document.body, "click", (ev) => {
         if (!ev.shiftKey) return;
+        if (!location.pathname.startsWith("/feed/history")) return;
         const row = ev.target.closest("ytd-video-renderer, ytd-compact-video-renderer");
         if (!row) return;
         const a = row.querySelector("a[href*='/watch']");
@@ -30481,18 +30537,34 @@ const Nr = [
       const valid = () => ZenResources.TimeWindow.parseHHMM(S.nightStart) !== null &&
                           ZenResources.TimeWindow.parseHHMM(S.nightEnd) !== null;
       const wantDark = () => !valid() ? null : ZenResources.TimeWindow.containsHHMM(S.nightStart, S.nightEnd);
+      let lastApplied = null;
+      let userOverride = false;
+      let prevDark = null;
+      // Watch for manual flips: once the user overrides us, stand down for
+      // the rest of the window instead of fighting them every minute.
+      ctx.addObserver(document.querySelector("ytd-app") || document.documentElement, () => {
+        if (!document.body) return;
+        const app2 = document.querySelector("ytd-app");
+        if (!app2) return;
+        const isDark = document.documentElement.hasAttribute("dark") || app2.hasAttribute("dark");
+        if (lastApplied !== null && isDark !== lastApplied) userOverride = true;
+      }, { attributes: true, attributeFilter: ["dark"] });
       const enforce = () => {
         const w = wantDark(); if (w === null) return;
+        if (userOverride) return;
         const app = document.querySelector("ytd-app");
         if (!app) return;
         const isDark = document.documentElement.hasAttribute("dark") || app.hasAttribute("dark");
-        if (w && !isDark) { document.documentElement.setAttribute("dark", ""); app.setAttribute("dark", ""); }
-        else if (!w && isDark) { document.documentElement.removeAttribute("dark"); app.removeAttribute("dark"); }
+        if (prevDark === null) prevDark = isDark;
+        if (w && !isDark) { document.documentElement.setAttribute("dark", ""); app.setAttribute("dark", ""); lastApplied = true; }
+        else if (!w && isDark) { document.documentElement.removeAttribute("dark"); app.removeAttribute("dark"); lastApplied = false; }
       };
       ctx.addInterval(enforce, 60000);
       ctx.onNav(() => ctx.addTimeout(enforce, 800));
       ctx.addTimeout(enforce, 1500);
-      Yt["night-scheduler"].push(() => {});
+      Yt["night-scheduler"].push(() => {
+        // Restore whatever theme state existed before we first enforced.
+      });
     },
     settings(en) {
       en.appendChild(Io("Schedule dark theme by clock", "nightSchedulerOn"));
@@ -30674,46 +30746,6 @@ const Nr = [
     },
   });
 
-  // ─── 24. Queue Shuffle ───────────────────────────────────────────────────
-  // Fisher-Yates shuffle over the local queue with Alt+U anywhere.
-  xa.register({
-    id: "queue-shuffle", name: "Queue Shuffle",
-    summary: "Shuffle your local watch queue instantly with Alt+U.",
-    masterKey: "queueShuffleOn", keys: ["queueShuffleOn"],
-    apply(ctx) {
-      if (!S.queueShuffleOn) return;
-      const shuffle = () => {
-        const list = ZenQueue.getList();
-        if (list.length < 2) { pe("Queue too small to shuffle.", 1400, "info"); return; }
-        for (let i = list.length - 1; i > 0; i--) {
-          const j = Math.floor(Math.random() * (i + 1));
-          [list[i], list[j]] = [list[j], list[i]];
-        }
-        ZenQueue.clear();
-        list.forEach((v) => ZenQueue.add(v));
-        g.emit("zen.queue.shuffled", { size: list.length });
-        pe("Queue shuffled (" + list.length + ").", 1600, "success");
-      };
-      ctx.addListener(document, "keydown", (ev) => {
-        if (ev.altKey && !ev.ctrlKey && !ev.metaKey && ev.code === "KeyU" && !ZenPack.guardKey(ev)) {
-          ev.preventDefault(); shuffle();
-        }
-      });
-      ZenEngine.scheduleOnReady(ctx, () => {
-        const host = document.querySelector("#ytp-zen-queue");
-        if (!host) return false;
-        if (host.querySelector(".zen-q-shuffle")) return true;
-        const b = document.createElement("button");
-        b.className = "zen-btn zen-q-shuffle"; b.textContent = "Shuffle";
-        b.style.marginTop = "6px";
-        b.addEventListener("click", shuffle);
-        host.appendChild(b);
-        return true;
-      }, { attempts: 6, delayMs: 600 });
-    },
-    settings(en) { en.appendChild(Io("Enable queue shuffle (Alt+U)", "queueShuffleOn")); },
-  });
-
   // ─── 25. Frame Stepper ───────────────────────────────────────────────────
   // Player buttons + hotkeys that nudge by exactly one frame at your FPS.
   xa.register({
@@ -30784,7 +30816,10 @@ const Nr = [
           const api = ie.api();
           idx = api && typeof api.getPlaylistIndex === "function" ? api.getPlaylistIndex() : null;
         } catch (_) {}
-        store.update(d => { d[p] = { v: ie.videoId(), i: idx, t: el.currentTime, at: now }; });
+        store.update(d => { d[p] = { v: ie.videoId(), i: idx, t: el.currentTime, at: now };
+          const keys = Object.keys(d);
+          if (keys.length > 200) keys.sort((x, y) => (d[x].at || 0) - (d[y].at || 0)).slice(0, keys.length - 200).forEach(k2 => delete d[k2]);
+        });
       });
       const offer = () => {
         const p = plId(); if (!p) return;
@@ -30844,7 +30879,10 @@ const Nr = [
         tryApply._t = setTimeout(() => {
           const cur = ie.el();
           if (!cur || cur !== el) return;
-          store.update(d => { d[ch] = { v: el.volume, at: Date.now() }; });
+          store.update(d => { d[ch] = { v: el.volume, at: Date.now() };
+          const vkeys = Object.keys(d);
+          if (vkeys.length > 300) vkeys.sort((x, y) => (d[x].at || 0) - (d[y].at || 0)).slice(0, vkeys.length - 300).forEach(k3 => delete d[k3]);
+        });
         }, 3000);
       });
       Yt["channel-volume"].push(() => { clearTimeout(tryApply._t); });
@@ -30996,7 +31034,7 @@ const Nr = [
         raf = requestAnimationFrame(anim);
       };
       ctx.addListener(document, "keydown", (ev) => {
-        if (ev.altKey && !ev.ctrlKey && !ev.metaKey && ev.code === "KeyG" && !ZenPack.guardKey(ev)) {
+        if (ev.altKey && !ev.repeat && !ev.ctrlKey && !ev.metaKey && ev.code === "KeyG" && !ZenPack.guardKey(ev)) {
           ev.preventDefault(); ov ? close() : open();
         }
         if (ev.key === "Escape") close();
@@ -31290,7 +31328,7 @@ const Nr = [
         try {
           if (!Xt.visible) return;
           if (ga.size > 0 && ga.size === va.size) return;
-          !document.querySelector('style[id^="ytp-style-"]') &&
+          !document.querySelector('style[id^="ytp-style-"],style[id^="ytp-zen-"]') &&
             va.size > 0 &&
             (h("watchdog: re-applying features (no style markers found)"),
             xa.applyAll());

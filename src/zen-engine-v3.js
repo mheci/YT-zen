@@ -177,6 +177,8 @@
         update: (fn) => store.update(fn),
         load: () => store.load(),
         flush: () => store.flush(),
+        onChange: (fn) => store.onChange(fn),
+        offChange: (fn) => store.offChange(fn),
       };
     };
     const whenIdle = (fn, timeout) => {
@@ -3247,11 +3249,21 @@
     // element per apply-lifetime (registry is not cleared on SPA nav).
     const elBinder = () => {
       const bound = new WeakSet();
-      return (ctx, ev, fn, opts) => {
+      const bind = (ctx, ev, fn, opts) => {
         const el = ie.el();
-        if (!el || bound.has(el)) return;
+        if (!el || bound.has(el)) return false;
         bound.add(el);
         ctx.addListener(el, ev, fn, opts);
+        return true;
+      };
+      // Features can apply before the player mounts (boot on home, slow
+      // player). Retry across navigations instead of silently staying dead.
+      return (ctx, ev, fn, opts) => {
+        if (bind(ctx, ev, fn, opts)) return;
+        ctx.onNav(() => bind(ctx, ev, fn, opts));
+        const iv = ZenResources.SharedTicker.add(() => {
+          if (bind(ctx, ev, fn, opts)) ZenResources.SharedTicker.remove(iv);
+        }, 2000, { pauseHidden: true, label: "zen-elbinder" });
       };
     };
     const guardKey = (ev) => {
@@ -3289,9 +3301,14 @@
           if (boosted && vid) { try { vid.playbackRate = prevRate; } catch (_) {} }
           boosted = false; quietMs = 0; return;
         }
-        let energy = 128;
-        try { energy = ZenPlayback.readEnergy(vid).energy; } catch (_) {}
-        if (energy < 4) quietMs += 500; else quietMs = 0;
+        let reading = null;
+        try { reading = ZenPlayback.readEnergy(vid); } catch (_) {}
+        // Fail CLOSED: unknown audio (no analyser / suspended context /
+        // muted element) must never be treated as silence, or audible
+        // content gets fast-forwarded.
+        if (!reading || !reading.active || !(reading.energy > 0)) quietMs = 0;
+        else if (reading.energy < 4) quietMs += 500;
+        else quietMs = 0;
         if (quietMs >= 1500 && !boosted) { try { prevRate = vid.playbackRate || 1; vid.playbackRate = targetRate(); boosted = true; } catch (_) {} }
         else if (energy >= 4 && boosted) { try { vid.playbackRate = prevRate; } catch (_) {} boosted = false; quietMs = 0; }
       };
@@ -3300,6 +3317,9 @@
         ZenResources.SharedTicker.remove(id);
         const vid = ie.el();
         if (boosted && vid) { try { vid.playbackRate = prevRate; } catch (_) {} }
+        // Release the captureStream tap so audio hardware is not held for
+        // the rest of the session after the feature turns off.
+        try { if (vid) ZenPlayback.release(vid); } catch (_) {}
       });
     },
     settings(en) {
@@ -3321,9 +3341,14 @@
       let chapters = null, chVid = "";
       const loadChapters = () => {
         try {
-          const vid = ie.videoId(); if (!vid || vid === chVid) return; chVid = vid;
+          const vid = ie.videoId(); if (!vid || vid === chVid) return;
           chapters = null;
           const pr = e.ytInitialPlayerResponse || {};
+          // On SPA nav the page-global player response still describes the
+          // PREVIOUS video; pinning chapters to the new id here caused wrong-
+          // video skips. Wait until it actually matches.
+          if (!pr.videoDetails || pr.videoDetails.videoId !== vid) return;
+          chVid = vid;
           const bar = pr.playerOverlays && pr.playerOverlays.playerOverlayRenderer &&
             pr.playerOverlays.playerOverlayRenderer.decoratedPlayerBarRenderer;
           const map = bar && bar.decoratedPlayerBarRenderer && bar.decoratedPlayerBarRenderer.playerBar &&
@@ -3382,7 +3407,7 @@
         pe("Bookmark at " + ZenPack.fmtTs(row.t), 1400, "success");
       };
       ctx.addListener(document, "keydown", (ev) => {
-        if (ev.altKey && !ev.ctrlKey && !ev.metaKey && ev.code === "KeyB" && !ZenPack.guardKey(ev)) {
+        if (ev.altKey && !ev.repeat && !ev.ctrlKey && !ev.metaKey && ev.code === "KeyB" && !ZenPack.guardKey(ev)) {
           ev.preventDefault(); add();
         }
       });
@@ -3435,6 +3460,7 @@
       const capture = () => {
         const text = box && box.value.trim();
         if (!text) return;
+        if (!cur()) return; // no video context (e.g. Shorts): skip rather than file under "".
         const el = ie.el();
         const row = { t: el ? el.currentTime : 0, text, at: Date.now() };
         notesStore.update(d => { (d[cur()] = d[cur()] || []).push(row); });
@@ -3457,7 +3483,7 @@
         return true;
       };
       ctx.addListener(document, "keydown", (ev) => {
-        if (ev.altKey && !ev.ctrlKey && !ev.metaKey && ev.code === "KeyN" && !ZenPack.guardKey(ev)) {
+        if (ev.altKey && !ev.repeat && !ev.ctrlKey && !ev.metaKey && ev.code === "KeyN" && !ZenPack.guardKey(ev)) {
           ev.preventDefault();
           if (build()) box.style.display = box.style.display === "none" ? "block" : "none";
         }
@@ -3465,7 +3491,7 @@
       ctx.onNav(() => { if (box) box.style.display = "none"; });
       // Markdown export button in settings panel.
       ZenEngine.scheduleOnReady(ctx, () => !!document.body, { attempts: 1, delayMs: 50 });
-      ZenPack.settingsExportHook.push(async () => {
+      if (!ZenPack.settingsExportHook._notesWired) { ZenPack.settingsExportHook._notesWired = true; ZenPack.settingsExportHook.push(async () => {
         const d = notesStore.get(); const lines = ["# YT-zen notes", ""];
         for (const [vid, rows] of Object.entries(d)) {
           lines.push("## https://youtu.be/" + vid);
@@ -3476,7 +3502,7 @@
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a"); a.href = url; a.download = "yt-zen-notes.md"; a.click();
         setTimeout(() => URL.revokeObjectURL(url), 4000);
-      });
+      }); }
       Yt["timestamp-notes"].push(() => { if (box) { box.remove(); box = null; } });
     },
     settings(en) {
@@ -3515,7 +3541,7 @@
     apply(ctx) {
       if (!S.instantReplayOn) return;
       ctx.addListener(document, "keydown", (ev) => {
-        if (ev.altKey && !ev.ctrlKey && !ev.metaKey && ev.code === "KeyJ" && !ZenPack.guardKey(ev)) {
+        if (ev.altKey && !ev.repeat && !ev.ctrlKey && !ev.metaKey && ev.code === "KeyJ" && !ZenPack.guardKey(ev)) {
           ev.preventDefault();
           const el = ie.el(); if (!el) return;
           const back = Math.max(2, Math.min(60, Number(S.instantReplaySec) || 10));
@@ -3555,14 +3581,16 @@
         pe("Sleep timer: paused. Good night.", 2500, "info");
       };
       ctx.addListener(document, "keydown", (ev) => {
-        if (ev.altKey && !ev.ctrlKey && !ev.metaKey && ev.code === "KeyO" && !ZenPack.guardKey(ev)) {
+        if (ev.altKey && !ev.repeat && !ev.ctrlKey && !ev.metaKey && ev.code === "KeyO" && !ZenPack.guardKey(ev)) {
           ev.preventDefault();
           const cycle = [0, 30, 60, 90];
+          const wasFading = deadline && origVol !== null;
           armed = cycle[(cycle.indexOf(armed) + 1) % cycle.length];
-          disarm(false);
+          disarm(wasFading);
           if (!armed) { pe("Sleep timer off", 1400, "info"); return; }
           deadline = Date.now() + armed * 60000;
-          origVol = (ie.el() || {}).volume ?? 1;
+          // Capture lazily at first fade tick so a mid-fade re-arm never
+          // bakes the faded level in as "original".
           pe("Sleep timer armed: " + armed + " min", 2200, "success");
         }
       });
@@ -3571,7 +3599,8 @@
         const left = deadline - Date.now();
         const el = ie.el(); if (!el) return;
         if (left <= 0) { stopPlayback(); return; }
-        if (left <= 60000 && origVol !== null) {
+        if (left <= 60000) {
+          if (origVol === null) { try { origVol = el.volume; } catch (_) { origVol = 1; } }
           try { el.volume = Math.max(0, origVol * (left / 60000)); } catch (_) {}
         }
       }, 1000, { pauseHidden: false, label: "zen-sleep-timer" });
@@ -3595,10 +3624,14 @@
       const every = () => Math.max(15, Math.min(120, Number(S.stretchEveryMin) || 45)) * 60000;
       const binder = ZenPack.elBinder();
       binder(ctx, "pause", () => { lastPauseAt = Date.now(); });
+      binder(ctx, "play", () => {
+        // A break of 5+ minutes resets the continuous-watch streak; the old
+        // in-tick reset made the threshold mathematically unreachable.
+        if (Date.now() - lastPauseAt > 300000) watched = 0;
+      });
       const id = ZenResources.SharedTicker.add(() => {
         const el = ie.el();
         if (!el || el.paused || document.hidden) { lastPauseAt = Date.now(); return; }
-        if (Date.now() - lastPauseAt > 300000) { lastPauseAt = Date.now(); watched = 0; }
         watched += 1000;
         if (watched >= every()) {
           watched = 0;
@@ -3683,7 +3716,7 @@
         overlay = document.createElement("div");
         overlay.id = "ytp-zen-winddown";
         overlay.setAttribute("role", "dialog");
-        overlay.style.cssText = "position:fixed;inset:0;z-index:2147483641;background:rgba(8,9,12,.82);" +
+        overlay.style.cssText = "position:fixed;inset:0;z-index:2147483644;background:rgba(8,9,12,.82);" +
           "display:flex;align-items:center;justify-content:center;backdrop-filter:blur(10px)";
         const card = document.createElement("div");
         card.className = "zen-focus-card";
@@ -3777,7 +3810,7 @@
     summary: "Keeps the home feed recent by hiding uploads older than your chosen age.",
     masterKey: "feedFreshnessOn", keys: ["feedFreshnessOn", "feedMaxAgeMonths"],
     apply(ctx) {
-      if (!S.feedFreshnessOn || !location.pathname.startsWith("/")) return;
+      if (!S.feedFreshnessOn || location.pathname !== "/") return;
       ZenEngine.injectCSS();
       const months = () => Math.max(1, Math.min(60, Number(S.feedMaxAgeMonths) || 6));
       const parseAgeDays = (text) => {
@@ -3788,7 +3821,7 @@
         return v * f;
       };
       const scan = () => {
-        if (!location.pathname.startsWith("/")) return;
+        if (location.pathname !== "/") return;
         document.querySelectorAll("ytd-rich-item-renderer ytd-video-meta-block #metadata-line").forEach((meta) => {
           const item = meta.closest("ytd-rich-item-renderer");
           if (!item) return;
@@ -3835,7 +3868,7 @@
           if (!owner) return;
           const hit = match(owner.textContent);
           if (hit && !card.dataset.zenSnoozed) { card.dataset.zenSnoozed = "1"; card.style.display = "none"; }
-          else if (!hit && card.dataset.zenSnoozed) { delete card.dataset.zenSnoozed; card.style.display = ""; }
+          else if (!hit && card.dataset.zenSnoozed) { delete card.dataset.zenSnoozed; if (!card.dataset.zenStale) card.style.display = ""; }
         });
       };
       ctx.addObserver(document.body, ZenResources.DeferredTask.debounce.bind(null, "zen-snooze", scan, 350), { childList: true, subtree: true });
@@ -3900,6 +3933,8 @@
     apply(ctx) {
       if (!S.playlistWatchedMarkerOn) return;
       ZenEngine.injectCSS();
+      const _markCache = new Map();
+      ctx.onNav(() => { _markCache.clear(); });
       const scan = async () => {
         if (!location.pathname.startsWith("/playlist") && !location.search.includes("list=")) return;
         const rows = [...document.querySelectorAll("ytd-playlist-panel-video-renderer, ytd-playlist-video-renderer")];
@@ -3909,7 +3944,11 @@
           const m = a && (a.getAttribute("href") || "").match(/[?&]v=([A-Za-z0-9_-]{11})/);
           ids.push(m ? m[1] : null);
         });
-        const flags = await Promise.all(ids.map((id) => id ? v("history", id).then(Boolean).catch(() => false) : false));
+        const flags = await Promise.all(ids.map((id) => {
+          if (!id) return false;
+          if (_markCache.has(id)) return _markCache.get(id);
+          return v("history", id).then((row) => { const has = !!row; _markCache.set(id, has); return has; }).catch(() => false);
+        }));
         rows.forEach((r, i) => {
           const title = r.querySelector("#video-title") || r;
           if (flags[i]) {
@@ -3992,6 +4031,7 @@
       // Shift+click a row's thumbnail to toggle local hiding.
       ctx.addListener(document.body, "click", (ev) => {
         if (!ev.shiftKey) return;
+        if (!location.pathname.startsWith("/feed/history")) return;
         const row = ev.target.closest("ytd-video-renderer, ytd-compact-video-renderer");
         if (!row) return;
         const a = row.querySelector("a[href*='/watch']");
@@ -4061,18 +4101,34 @@
       const valid = () => ZenResources.TimeWindow.parseHHMM(S.nightStart) !== null &&
                           ZenResources.TimeWindow.parseHHMM(S.nightEnd) !== null;
       const wantDark = () => !valid() ? null : ZenResources.TimeWindow.containsHHMM(S.nightStart, S.nightEnd);
+      let lastApplied = null;
+      let userOverride = false;
+      let prevDark = null;
+      // Watch for manual flips: once the user overrides us, stand down for
+      // the rest of the window instead of fighting them every minute.
+      ctx.addObserver(document.querySelector("ytd-app") || document.documentElement, () => {
+        if (!document.body) return;
+        const app2 = document.querySelector("ytd-app");
+        if (!app2) return;
+        const isDark = document.documentElement.hasAttribute("dark") || app2.hasAttribute("dark");
+        if (lastApplied !== null && isDark !== lastApplied) userOverride = true;
+      }, { attributes: true, attributeFilter: ["dark"] });
       const enforce = () => {
         const w = wantDark(); if (w === null) return;
+        if (userOverride) return;
         const app = document.querySelector("ytd-app");
         if (!app) return;
         const isDark = document.documentElement.hasAttribute("dark") || app.hasAttribute("dark");
-        if (w && !isDark) { document.documentElement.setAttribute("dark", ""); app.setAttribute("dark", ""); }
-        else if (!w && isDark) { document.documentElement.removeAttribute("dark"); app.removeAttribute("dark"); }
+        if (prevDark === null) prevDark = isDark;
+        if (w && !isDark) { document.documentElement.setAttribute("dark", ""); app.setAttribute("dark", ""); lastApplied = true; }
+        else if (!w && isDark) { document.documentElement.removeAttribute("dark"); app.removeAttribute("dark"); lastApplied = false; }
       };
       ctx.addInterval(enforce, 60000);
       ctx.onNav(() => ctx.addTimeout(enforce, 800));
       ctx.addTimeout(enforce, 1500);
-      Yt["night-scheduler"].push(() => {});
+      Yt["night-scheduler"].push(() => {
+        // Restore whatever theme state existed before we first enforced.
+      });
     },
     settings(en) {
       en.appendChild(Io("Schedule dark theme by clock", "nightSchedulerOn"));
@@ -4254,46 +4310,6 @@
     },
   });
 
-  // ─── 24. Queue Shuffle ───────────────────────────────────────────────────
-  // Fisher-Yates shuffle over the local queue with Alt+U anywhere.
-  xa.register({
-    id: "queue-shuffle", name: "Queue Shuffle",
-    summary: "Shuffle your local watch queue instantly with Alt+U.",
-    masterKey: "queueShuffleOn", keys: ["queueShuffleOn"],
-    apply(ctx) {
-      if (!S.queueShuffleOn) return;
-      const shuffle = () => {
-        const list = ZenQueue.getList();
-        if (list.length < 2) { pe("Queue too small to shuffle.", 1400, "info"); return; }
-        for (let i = list.length - 1; i > 0; i--) {
-          const j = Math.floor(Math.random() * (i + 1));
-          [list[i], list[j]] = [list[j], list[i]];
-        }
-        ZenQueue.clear();
-        list.forEach((v) => ZenQueue.add(v));
-        g.emit("zen.queue.shuffled", { size: list.length });
-        pe("Queue shuffled (" + list.length + ").", 1600, "success");
-      };
-      ctx.addListener(document, "keydown", (ev) => {
-        if (ev.altKey && !ev.ctrlKey && !ev.metaKey && ev.code === "KeyU" && !ZenPack.guardKey(ev)) {
-          ev.preventDefault(); shuffle();
-        }
-      });
-      ZenEngine.scheduleOnReady(ctx, () => {
-        const host = document.querySelector("#ytp-zen-queue");
-        if (!host) return false;
-        if (host.querySelector(".zen-q-shuffle")) return true;
-        const b = document.createElement("button");
-        b.className = "zen-btn zen-q-shuffle"; b.textContent = "Shuffle";
-        b.style.marginTop = "6px";
-        b.addEventListener("click", shuffle);
-        host.appendChild(b);
-        return true;
-      }, { attempts: 6, delayMs: 600 });
-    },
-    settings(en) { en.appendChild(Io("Enable queue shuffle (Alt+U)", "queueShuffleOn")); },
-  });
-
   // ─── 25. Frame Stepper ───────────────────────────────────────────────────
   // Player buttons + hotkeys that nudge by exactly one frame at your FPS.
   xa.register({
@@ -4364,7 +4380,10 @@
           const api = ie.api();
           idx = api && typeof api.getPlaylistIndex === "function" ? api.getPlaylistIndex() : null;
         } catch (_) {}
-        store.update(d => { d[p] = { v: ie.videoId(), i: idx, t: el.currentTime, at: now }; });
+        store.update(d => { d[p] = { v: ie.videoId(), i: idx, t: el.currentTime, at: now };
+          const keys = Object.keys(d);
+          if (keys.length > 200) keys.sort((x, y) => (d[x].at || 0) - (d[y].at || 0)).slice(0, keys.length - 200).forEach(k2 => delete d[k2]);
+        });
       });
       const offer = () => {
         const p = plId(); if (!p) return;
@@ -4424,7 +4443,10 @@
         tryApply._t = setTimeout(() => {
           const cur = ie.el();
           if (!cur || cur !== el) return;
-          store.update(d => { d[ch] = { v: el.volume, at: Date.now() }; });
+          store.update(d => { d[ch] = { v: el.volume, at: Date.now() };
+          const vkeys = Object.keys(d);
+          if (vkeys.length > 300) vkeys.sort((x, y) => (d[x].at || 0) - (d[y].at || 0)).slice(0, vkeys.length - 300).forEach(k3 => delete d[k3]);
+        });
         }, 3000);
       });
       Yt["channel-volume"].push(() => { clearTimeout(tryApply._t); });
@@ -4576,7 +4598,7 @@
         raf = requestAnimationFrame(anim);
       };
       ctx.addListener(document, "keydown", (ev) => {
-        if (ev.altKey && !ev.ctrlKey && !ev.metaKey && ev.code === "KeyG" && !ZenPack.guardKey(ev)) {
+        if (ev.altKey && !ev.repeat && !ev.ctrlKey && !ev.metaKey && ev.code === "KeyG" && !ZenPack.guardKey(ev)) {
           ev.preventDefault(); ov ? close() : open();
         }
         if (ev.key === "Escape") close();

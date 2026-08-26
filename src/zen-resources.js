@@ -359,9 +359,11 @@
           if (find()) return;
           if (timeoutMs > 0) {
             timer = setTimeout(() => {
-              if (done) return;
+              // Mirror the success-path cleanup: cancel() would no-op after
+              // done flips, stranding the poll interval forever.
+              if (poll) { clearInterval(poll); poll = 0; }
+              if (timer) { clearTimeout(timer); timer = 0; }
               done = true;
-              cancel();
               reject(new Error("Dom.when: timed out waiting for " + selector));
             }, timeoutMs);
             if (typeof timer.unref === "function") { try { timer.unref(); } catch (_) {} }
@@ -1358,9 +1360,9 @@
       fetch(url, options = {}) {
         if (this._disposed) return Promise.reject(new Error("ResourceScope disposed"));
         const controller = AbortGroup.create(this._name);
-        // Forward a caller-supplied signal into the scope controller so
-        // dispose()/abortAll() can still cancel the request; previously the
-        // external signal silently replaced ours and teardown became a no-op.
+        // The wire ALWAYS binds to the scope controller so dispose()/abortAll()
+        // can cancel in-flight work; a caller-supplied signal is forwarded
+        // into the controller instead of replacing it.
         if (options.signal) {
           const ext = options.signal;
           if (ext.aborted) { try { controller.abort(); } catch (_) {} }
@@ -1368,7 +1370,7 @@
             try { ext.addEventListener("abort", () => { try { controller.abort(); } catch (_) {} }, { once: true }); } catch (_) {}
           }
         }
-        const merged = Object.assign({}, options, { signal: options.signal || controller.signal });
+        const merged = Object.assign({}, options, { signal: controller.signal });
         const promise = fetch(url, merged).finally(() => {
           try { controller.abort(); } catch (_) {}
         });

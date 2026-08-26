@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YT-zen
 // @namespace    https://github.com/mheci/YT-zen
-// @version      3.15.0
+// @version      3.15.1
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      Unlicense
@@ -126,6 +126,7 @@
 
     let _lastHeap = 0;
     let _lastHeapWarn = 0;
+    let _lastKvCleanup = 0;
 
     let _maintTimer = 0;
 
@@ -371,7 +372,18 @@
     const _maintTick = () => {
       if (!_running) return;
 
-      try { typeof YtpCache !== "undefined" && YtpCache && YtpCache.cleanup(); } catch (e) {}
+      // YtpCache.cleanup() deserializes the whole kv store to find expired
+      // rows — far too heavy for a 30s heartbeat. Throttle it to one pass
+      // per five minutes; pagehide checkpoints still force it immediately.
+      try {
+        if (
+          typeof YtpCache !== "undefined" && YtpCache &&
+          Date.now() - _lastKvCleanup > 300000
+        ) {
+          _lastKvCleanup = Date.now();
+          YtpCache.cleanup();
+        }
+      } catch (e) {}
 
       try {
         const m = performance && performance.memory;
@@ -3632,7 +3644,8 @@ algoBlockChannels: "",
     Oe = null,
     Me = null,
     Le = null,
-    Ae = null;
+    Ae = null,
+    _resumeEsc = null;
   const Ee = (e) => v("history", e),
     Be = (e) => k("history", e),
     Pe = (e) => x("history", e),
@@ -3767,8 +3780,12 @@ algoBlockChannels: "",
 
       for (const r of need) {
         if (!_oembedInFlight.has(r.videoId)) {
-          const data = await _oembedFetch(r.videoId);
-          if (data) {
+          // Mark in-flight so a concurrent backfill pass cannot double-fetch
+          // the same video; always release the mark when the await settles.
+          _oembedInFlight.add(r.videoId);
+          try {
+            const data = await _oembedFetch(r.videoId);
+            if (data) {
             const cur = await Ee(r.videoId);
             if (cur) {
               let n = !1;
@@ -3781,6 +3798,9 @@ algoBlockChannels: "",
                 g.emit("history.updated", { videoId: cur.videoId });
               }
             }
+          }
+          } finally {
+            _oembedInFlight.delete(r.videoId);
           }
         }
 
@@ -3828,7 +3848,7 @@ algoBlockChannels: "",
       if (!t || !t.blob) return null;
       if (Ve.size > 24) {
 
-        const e2 = Ve.keys().next().value;
+        const e2 = Ve.keys()[0];
         try {
           URL.revokeObjectURL(Ve.get(e2));
         } catch (e) {}
@@ -4042,6 +4062,9 @@ algoBlockChannels: "",
               let r = !1;
               const o = new MutationObserver(() => {
                 if (r) return;
+                // The observer can outlive this video (mount races take up to
+                // 8s); never seek a different video to the recorded position.
+                try { if (e.videoId && ie.videoId() && ie.videoId() !== e.videoId) return; } catch (_) {}
                 const n = document.querySelector("#movie_player"),
                   i = ie.el();
                 if (n && i) {
@@ -4099,6 +4122,9 @@ algoBlockChannels: "",
               let r = !1;
               const o = new MutationObserver(() => {
                 if (r) return;
+                // Same cross-video guard as the silent path: a stale observer
+                // must never pop the resume overlay over the wrong video.
+                try { if (e.videoId && ie.videoId() && ie.videoId() !== e.videoId) return; } catch (_) {}
                 const n = document.querySelector("#movie_player"),
                   i = ie.el();
                 if (n && i) {
@@ -4436,6 +4462,12 @@ algoBlockChannels: "",
       } catch (e) {}
       Ae = null;
     }
+    if (_resumeEsc) {
+      try {
+        document.removeEventListener("keydown", _resumeEsc, !0);
+      } catch (e) {}
+      _resumeEsc = null;
+    }
     if (Me) {
       try {
         Me.remove();
@@ -4689,10 +4721,10 @@ algoBlockChannels: "",
       if ("Escape" === e.key && Me) {
         e.stopPropagation();
         Qe();
-        document.removeEventListener("keydown", T, !0);
       }
     };
     document.addEventListener("keydown", T, !0);
+    _resumeEsc = T;
     try {
       Le = new MutationObserver(() => {
         if (Me && Me.parentNode !== n) {
@@ -7673,8 +7705,14 @@ algoBlockChannels: "",
       try {
         const a = new URL(location.href);
         if (a.searchParams.get("v") !== e) return;
+        // `e` here is the video id string (parameter shadowing) — history
+        // must come from window or the call throws and gets swallowed.
         (a.searchParams.set("t", String(Math.floor(t))),
-          e.history.replaceState(e.history.state, "", a.toString()));
+          (window.history || e.history).replaceState(
+            window.history ? window.history.state : null,
+            "",
+            a.toString(),
+          ));
       } catch (e) {}
     })(a, n);
     const m = () => {
@@ -8307,10 +8345,14 @@ algoBlockChannels: "",
           a();
         };
       if ((a(), !S.speedRemember && 1 === S.speedDefault)) return;
+      // The registry is not cleared per navigation, so re-binding on every
+      // nav would stack duplicate listeners on the persistent video element.
+      const boundEls = new WeakSet();
       const n = () => {
         const t = ie.el();
-        t &&
-          (e.addListener(t, "ratechange", ag),
+        t && !boundEls.has(t) &&
+          (boundEls.add(t),
+          e.addListener(t, "ratechange", ag),
           e.addListener(t, "loadedmetadata", ag),
           e.addListener(t, "play", ag));
       };
@@ -8359,24 +8401,30 @@ algoBlockChannels: "",
           );
         const _wr = (map) =>
           k("kv", { k: "__perChSpeed__", v: map, updatedAt: Date.now() });
+        // Serialize read-modify-write cycles: rapid ratechange bursts used to
+        // run concurrent _rd→_wr passes where the last write silently dropped
+        // the earlier channel entry.
+        let _wrChain = Promise.resolve();
         const _save = () => {
           const t = ie.el();
           if (!t) return;
           const ch = Ne();
           if (!ch || !isFinite(t.playbackRate)) return;
-          _rd()
-            .then((m) => {
-              const keys = Object.keys(m);
-              if (keys.length >= 200) {
-                keys.sort(
-                  (a2, b2) =>
-                    ((m[a2] && m[a2].ts) || 0) - ((m[b2] && m[b2].ts) || 0),
-                );
-                for (const k2 of keys.slice(0, 50)) delete m[k2];
-              }
-              m[ch] = { r: t.playbackRate || 1, ts: Date.now() };
-              _wr(m);
-            })
+          _wrChain = _wrChain
+            .then(() =>
+              _rd().then((m) => {
+                const keys = Object.keys(m);
+                if (keys.length >= 200) {
+                  keys.sort(
+                    (a2, b2) =>
+                      ((m[a2] && m[a2].ts) || 0) - ((m[b2] && m[b2].ts) || 0),
+                  );
+                  for (const k2 of keys.slice(0, 50)) delete m[k2];
+                }
+                m[ch] = { r: t.playbackRate || 1, ts: Date.now() };
+                return _wr(m);
+              }),
+            )
             .catch(() => {});
         };
         const _restore = () => {
@@ -8448,9 +8496,10 @@ algoBlockChannels: "",
           e && (e.loop = !0);
         };
         t();
+        const boundEls = new WeakSet();
         const a = () => {
           const a = ie.el();
-          a && e.addListener(a, "loadedmetadata", t);
+          a && !boundEls.has(a) && (boundEls.add(a), e.addListener(a, "loadedmetadata", t));
         };
         (a(),
           e.onNav(() => {
@@ -8477,7 +8526,10 @@ algoBlockChannels: "",
           },
           a = () => {
             const a = ie.el();
-            a && e.addListener(a, "timeupdate", t);
+            // Guard against per-navigation listener stacking.
+            if (!a || a.__ytpAbRepeatBound) return;
+            a.__ytpAbRepeatBound = !0;
+            e.addListener(a, "timeupdate", t);
           };
         (a(), e.onNav(() => e.addTimeout(a, 1200)));
       },
@@ -8521,10 +8573,12 @@ algoBlockChannels: "",
           } catch (e) {}
         };
         t();
+        const boundEls = new WeakSet();
         const a = () => {
           const a = ie.el();
-          a &&
-            (e.addListener(a, "loadedmetadata", t),
+          a && !boundEls.has(a) &&
+            (boundEls.add(a),
+            e.addListener(a, "loadedmetadata", t),
             e.addListener(a, "loadeddata", t));
         };
         (a(),
@@ -9058,16 +9112,18 @@ algoBlockChannels: "",
           (Ea(), Aa());
         };
       (a(), n());
+      const boundCc = new WeakSet();
       const r = () => {
         const t = ie.el();
-        t &&
-          (e.addListener(t, "loadedmetadata", a),
+        t && !boundCc.has(t) &&
+          (boundCc.add(t),
+          e.addListener(t, "loadedmetadata", a),
           e.addListener(t, "loadeddata", a),
           e.addListener(t, "playing", () => {
-            S.ccReEngageOnPlay && setTimeout(a, 400);
+            S.ccReEngageOnPlay && e.addTimeout(a, 400);
           }));
         const n = ie.api();
-        n && e.addListener(n, "onStateChange", a);
+        n && !n.__ytpCcStateBound && ((n.__ytpCcStateBound = !0), e.addListener(n, "onStateChange", a));
       };
       r();
       const o = () => {
@@ -9096,121 +9152,19 @@ algoBlockChannels: "",
           ));
       };
       (o(),
-        So("cfg.changed", ({ key }) => {
-          if (key && (key.startsWith("cc") || key.startsWith("forceCC"))) {
-            try {
-              Ea();
-            } catch (e) {}
-            try {
-              Aa();
-            } catch (e) {}
-            try {
-              a();
-            } catch (e) {}
-            try {
-              Cc_apply();
-            } catch (e) {}
-            try {
-              e.addStyle(
-                (function () {
-                  const e = (function (e) {
-                      const t = String(e || "")
-                        .trim()
-                        .match(/^#?([0-9a-f]{3}|[0-9a-f]{6})$/i);
-                      if (!t) return [0, 0, 0];
-                      let h = t[1];
-                      if (h.length === 3)
-                        h = h.split("").map((c) => c + c).join("");
-                      const a = parseInt(h, 16);
-                      return [(a >> 16) & 255, (a >> 8) & 255, 255 & a];
-                    })(S.ccBgColor),
-                    t = Math.max(0, Math.min(100, Number(S.ccBgOpacity) || 0)) / 100,
-                    a = Math.max(10, Math.min(96, Number(S.ccFontSize) || 28)),
-                    n = String(S.ccPos || "bottom"),
-                    r = Math.max(0, Math.min(30, Number(S.ccRadius) || 0)),
-                    o = String(S.ccFontFamily || "Roboto, Arial, sans-serif").replace(
-                      /[;{}<>]/g,
-                      "",
-                    ),
-                    i = String(S.ccFontWeight || "700").replace(/[^0-9a-zA-Z -]/g, ""),
-                    d = Math.max(0.8, Math.min(2.5, Number(S.ccLineHeight) || 1.25)),
-                    c = Math.max(-10, Math.min(40, Number(S.ccLetterSpacing) || 0)) / 100,
-                    s = S.ccUppercase ? "uppercase" : "none",
-                    l = String(S.ccTextShadow || "outline"),
-                    p =
-                      "none" === l
-                        ? "none"
-                        : "soft" === l
-                          ? "0 2px 6px rgba(0,0,0,.85)"
-                          : "heavy" === l
-                            ? "0 0 3px #000,0 0 5px #000,0 2px 4px #000"
-                            : "-1px -1px 0 #000,1px -1px 0 #000,-1px 1px 0 #000,1px 1px 0 #000,0 2px 3px #000";
-                  return [
-                  ("top" === n
-                ? ".ytp-caption-window-container{top:2%!important;bottom:auto!important}"
-                : "middle" === n
-                  ? ".ytp-caption-window-container{top:50%!important;bottom:auto!important}"
-                  : "left" === n
-                    ? ".ytp-caption-window-container{left:4px!important;right:auto!important;bottom:10%!important;top:auto!important}"
-                    : "right" === n
-                      ? ".ytp-caption-window-container{right:4px!important;left:auto!important;bottom:10%!important;top:auto!important}"
-                      : ".ytp-caption-window-container{bottom:0%!important;top:auto!important;left:0!important;right:0!important}"),
-                    ".ytp-caption-segment{font-size:" +
-                      a +
-                      "px!important;font-family:" +
-                      o +
-                      "!important;font-weight:" +
-                      i +
-                      "!important;color:" +
-
-                      (function () {
-                        const m = String(S.ccTextColor || "")
-                          .trim()
-                          .match(/^#?([0-9a-f]{3}|[0-9a-f]{6})$/i);
-                        if (!m) return "#ffffff";
-                        let h = m[1];
-                        if (h.length === 3)
-                          h = h
-                            .split("")
-                            .map((c) => c + c)
-                            .join("");
-                        return "#" + h.toLowerCase();
-                      })() +
-                      "!important;line-height:" +
-                      d +
-                      "!important;letter-spacing:" +
-                      c.toFixed(2) +
-                      "em!important;text-transform:" +
-                      s +
-                      "!important;text-shadow:" +
-                      p +
-                      "!important;background:rgba(" +
-                      e[0] +
-                      "," +
-                      e[1] +
-                      "," +
-                      e[2] +
-                      "," +
-                      t +
-                      ")!important;border-radius:" +
-                      r +
-                      "px!important;padding:.08em .28em!important;box-decoration-break:clone!important;-webkit-box-decoration-break:clone!important}",
-                    ".caption-window{font-size:" +
-                      a +
-                      "px!important;font-family:" +
-                      o +
-                      "!important;line-height:" +
-                      d +
-                      "!important}",
-                    ".caption-visual-line{margin:.08em 0!important}",
-                  ].join("\n");
-                })(),
-              );
-            } catch (e) {}
-          }
-        }),
+        // cfg.changed handling is intentionally absent: every cc*/forceCC*
+        // key is registered in this feature's keys list, so the registry
+        // tears down and re-applies the feature (re-running Ea/Aa/style)
+        // on change. A live subscription here leaked one listener per
+        // re-apply and kept styling while the feature was disabled.
         e.addInterval(() => {
           if (!S.forceCC) return;
+          // Captions only exist on watch pages and Shorts; skip the DOM
+          // probes on home/browse/search instead of paying them every 2s.
+          try {
+            const _p = location.pathname || "";
+            if (!_p.startsWith("/watch") && !_p.startsWith("/shorts")) return;
+          } catch (_pe) {}
           try {
             const t = Cc_state();
             if (t.enabled && !t.displayed && Date.now() - (Ma.lastVerifyFix || 0) > 4e3) {
@@ -9363,11 +9317,14 @@ algoBlockChannels: "",
           },
           a = () => {
             const a = document.querySelector("#movie_player");
-            a &&
-              e.addObserver(a, ee(t, 200), {
-                attributes: !0,
-                attributeFilter: ["class"],
-              });
+            // Guard: the registry is not cleared per nav, so re-running this
+            // on every navigation stacked duplicate observers on the player.
+            if (!a || a.__ytpAdSkipObs) return;
+            a.__ytpAdSkipObs = !0;
+            e.addObserver(a, ee(t, 200), {
+              attributes: !0,
+              attributeFilter: ["class"],
+            });
           };
         (a(), e.onNav(() => e.addTimeout(a, 1e3)));
       },
@@ -9761,7 +9718,10 @@ algoBlockChannels: "",
           return true;
         };
         if (mountBtn()) return;
-        const iv = setInterval(() => { if (mountBtn()) clearInterval(iv); }, 800);
+        // Exit when the button exists regardless of who mounted it — the
+        // onNav path below can win the race and mountBtn() reports false for
+        // an already-mounted button.
+        const iv = setInterval(() => { if (mountBtn() || document.getElementById("ytp-shot-btn")) clearInterval(iv); }, 800);
         e.onNav(() => e.addTimeout(mountBtn, 1500));
         Yt["screenshot"].push(() => {
           clearInterval(iv);
@@ -9911,7 +9871,7 @@ algoBlockChannels: "",
         };
 
         syncCinema();
-        e.onNav(() => setTimeout(syncCinema, 50));
+        e.onNav(() => e.addTimeout(syncCinema, 50));
         Yt["cinema-mode"].push(() => {
           document.documentElement.classList.remove("ytp-cinema-mode");
           const bd = document.getElementById("ytp-zen-cinema-backdrop");
@@ -10865,7 +10825,19 @@ algoBlockChannels: "",
       masterKey: "keywordFilterOn",
       keys: ["keywordFilterOn", "keywordFilterList"],
       apply(e) {
-        if (!S.keywordFilterOn) return;
+        if (!S.keywordFilterOn) {
+          // Unhide anything the inline-style fallback tagged; the :has() CSS
+          // path cleans itself up via the registry-managed stylesheet.
+          try {
+            document
+              .querySelectorAll("[data-zen-kw-hidden]")
+              .forEach((el) => {
+                delete el.dataset.zenKwHidden;
+                el.style.display = "";
+              });
+          } catch (_kwErr) {}
+          return;
+        }
         const t = (S.keywordFilterList || "")
           .split("\n")
           .map((e) => e.trim())
@@ -10897,11 +10869,18 @@ algoBlockChannels: "",
                       "ytd-video-renderer,ytd-compact-video-renderer,ytd-rich-item-renderer",
                     )
                     .forEach((e) => {
+                      // Re-evaluate tagged cards too so list edits can unhide.
                       const t = e.querySelector("#video-title");
                       if (!t) return;
                       const n = (t.title || t.textContent || "").toLowerCase();
-                      a.some((e) => n.includes(e)) &&
-                        (e.style.display = "none");
+                      const hit = a.some((k) => n.includes(k));
+                      if (hit && !e.dataset.zenKwHidden) {
+                        e.dataset.zenKwHidden = "1";
+                        e.style.display = "none";
+                      } else if (!hit && e.dataset.zenKwHidden) {
+                        delete e.dataset.zenKwHidden;
+                        e.style.display = "";
+                      }
                     });
               };
             (document.body &&
@@ -11152,6 +11131,8 @@ algoBlockChannels: "",
     yn = null,
     gn = null,
     fn = null,
+    _origDtf = null,
+    _origNf = null,
     bn = { language: null, languages: null };
   function vn() {
     return (S.geoRegion || "US").toUpperCase();
@@ -11385,13 +11366,55 @@ algoBlockChannels: "",
   }
 
   function En() {
-
+    // Restore window.fetch; the install path saves the native in mn.
+    try {
+      if (ln && mn) {
+        e.fetch = mn;
+        ln = !1;
+      }
+    } catch (_e) {}
   }
   function Bn() {
-
+    // Restore XMLHttpRequest.open/send.
+    try {
+      if (pn && yn && gn) {
+        XMLHttpRequest.prototype.open = yn;
+        XMLHttpRequest.prototype.send = gn;
+        pn = !1;
+      }
+    } catch (_e) {}
   }
   function Pn() {
-
+    // Restore sendBeacon, navigator locale getters and Intl wrappers.
+    try {
+      if (un && fn) {
+        navigator.sendBeacon = fn;
+        un = !1;
+      }
+    } catch (_e1) {}
+    try {
+      if (hn) {
+        Object.defineProperty(navigator, "language", {
+          get: () => bn.language,
+          configurable: !0,
+        });
+        Object.defineProperty(navigator, "languages", {
+          get: () => bn.languages,
+          configurable: !0,
+        });
+        hn = !1;
+      }
+    } catch (_e2) {}
+    try {
+      if (_origDtf && Intl.DateTimeFormat && Intl.DateTimeFormat.__ytpGeo) {
+        Intl.DateTimeFormat = _origDtf;
+        _origDtf = null;
+      }
+      if (_origNf && Intl.NumberFormat && Intl.NumberFormat.__ytpGeo) {
+        Intl.NumberFormat = _origNf;
+        _origNf = null;
+      }
+    } catch (_e3) {}
   }
   function In() {
     (Mn(),
@@ -11671,21 +11694,20 @@ algoBlockChannels: "",
     summary:
       "Make YouTube think you’re in a different country and language. Useful for unblocking region-restricted content or just browsing as if you were somewhere else.",
     masterKey: "geoOverrideOn",
-    keys: [
+        keys: [
       "geoOverrideOn",
       "geoRegion",
       "geoLang",
       "geoTimezone",
       "geoSafeSearch",
       "geoRestrictMode",
-      "geoAutoReload",
       "geoPatchFetch",
       "geoPatchXHR",
       "geoPatchBeacon",
       "geoPatchNavigator",
     ],
     apply(t) {
-      if (!S.geoOverrideOn) return (En(), Bn(), Pn(), void Ln());
+        if (!S.geoOverrideOn) return (En(), Bn(), Pn(), void Ln());
       (!(function () {
         if (!hn && S.geoPatchNavigator) {
           hn = !0;
@@ -11711,25 +11733,27 @@ algoBlockChannels: "",
               }));
           } catch (e) {}
           try {
-            const e = Intl.DateTimeFormat;
-            if (e && !e.__ytpGeo) {
+            const e2 = Intl.DateTimeFormat;
+            if (e2 && !e2.__ytpGeo) {
               const t = function (t, a) {
-                return (xn() && !t && (t = kn()), new e(t, a));
+                return (xn() && !t && (t = kn()), new e2(t, a));
               };
-              ((t.__ytpGeo = !0),
-                (t.prototype = e.prototype),
-                (t.supportedLocalesOf = e.supportedLocalesOf.bind(e)),
+              ((_origDtf = e2),
+                (t.__ytpGeo = !0),
+                (t.prototype = e2.prototype),
+                (t.supportedLocalesOf = e2.supportedLocalesOf.bind(e2)),
                 (Intl.DateTimeFormat = t));
             }
-            const t = Intl.NumberFormat;
-            if (t && !t.__ytpGeo) {
-              const e = function (e, a) {
-                return (xn() && !e && (e = kn()), new t(e, a));
+            const tf = Intl.NumberFormat;
+            if (tf && !tf.__ytpGeo) {
+              const ef = function (e2, a) {
+                return (xn() && !e2 && (e2 = kn()), new tf(e2, a));
               };
-              ((e.__ytpGeo = !0),
-                (e.prototype = t.prototype),
-                (e.supportedLocalesOf = t.supportedLocalesOf.bind(t)),
-                (Intl.NumberFormat = e));
+              ((_origNf = tf),
+                (ef.__ytpGeo = !0),
+                (ef.prototype = tf.prototype),
+                (ef.supportedLocalesOf = tf.supportedLocalesOf.bind(tf)),
+                (Intl.NumberFormat = ef));
             }
           } catch (e) {}
         }
@@ -11868,7 +11892,6 @@ algoBlockChannels: "",
         e.appendChild(
           Io("Match browser language and time formatting", "geoPatchNavigator"),
         ),
-        e.appendChild(Io("Auto-reload on region change", "geoAutoReload")),
         e.appendChild(To("div", "ytp-elem-sec-title", "Actions")));
       const n = To("div", "ytp-rowb");
       (n.appendChild(
@@ -12479,6 +12502,9 @@ algoBlockChannels: "",
         if (!S.shortenShareUrlOn) return;
         const t = (a) => {
           if (!a || a.tagName !== "A") return;
+          // The rewrite target still matches youtu.be; without this guard
+          // our own setAttribute re-triggers the observer forever.
+          if (a.dataset && a.dataset.shortened === "1") return;
           const n = a.getAttribute("href") || "";
           if (!/^https?:\/\/youtu\.be\//i.test(n)) return;
           try {
@@ -12619,7 +12645,9 @@ algoBlockChannels: "",
           }
         };
         t();
-        const a = new MutationObserver(t);
+        // Shared debouncer: an undebounced body-subtree observer re-ran the
+        // whole-document shelf scan on every mutation batch.
+        const a = new MutationObserver(ee(t, 300));
         a.observe(document.body || document.documentElement, { childList: !0, subtree: !0 });
         Yt["hide-top-live-games"].push(() => {
           try {
@@ -12944,23 +12972,50 @@ algoBlockChannels: "",
       masterKey: "sessionReplay",
       keys: ["sessionReplay"],
       apply(e) {
-        S.sessionReplay &&
-          (e.addListener(
-            document,
-            "click",
-            (e) => {
-              k("replay", {
-                t: Date.now(),
-                kind: "click",
-                tag: e.target && e.target.tagName,
-                url: location.pathname,
-              });
-            },
-            !0,
-          ),
-          e.onNav(() =>
-            k("replay", { t: Date.now(), kind: "nav", url: location.href }),
-          ));
+        if (!S.sessionReplay) return;
+        // The replay store is append-only and nothing in the script reads it
+        // back yet; bound it so it cannot grow without limit across sessions.
+        let _replayWrites = 0;
+        const _pruneReplay = () => {
+          try {
+            b().then((db2) => {
+              if (!db2) return;
+              try {
+                const tx = db2.transaction("replay", "readwrite");
+                const store = tx.objectStore("replay");
+                let kept = 0;
+                const cursorReq = store.openCursor();
+                cursorReq.onsuccess = () => {
+                  const cursor = cursorReq.result;
+                  if (!cursor) return;
+                  kept++;
+                  // Keep only the newest 500 records (highest autoincrement keys).
+                  if (kept <= 500) { cursor.continue(); return; }
+                  cursor.delete();
+                  cursor.continue();
+                };
+              } catch (_pe) {}
+            });
+          } catch (_oe) {}
+        };
+        e.addListener(
+          document,
+          "click",
+          (ev) => {
+            k("replay", {
+              t: Date.now(),
+              kind: "click",
+              tag: ev.target && ev.target.tagName,
+              url: location.pathname,
+            });
+            if (++_replayWrites % 400 === 0) _pruneReplay();
+          },
+          !0,
+        ),
+          e.onNav(() => {
+            k("replay", { t: Date.now(), kind: "nav", url: location.href });
+            if (++_replayWrites % 400 === 0) _pruneReplay();
+          });
       },
       settings() {},
     }),
@@ -13874,12 +13929,17 @@ algoBlockChannels: "",
       keys: ["adaptiveThrottleOn"],
       apply(e) {
         if (!S.adaptiveThrottleOn) return;
-        let _batSessionStart = Date.now();
+        // Track when the tab was actually hidden so "hidden for at least 60
+        // seconds" means hidden-duration, not time since feature apply.
+        let _hiddenSince = 0;
+        e.addListener(document, "visibilitychange", () => {
+          _hiddenSince = document.hidden ? Date.now() : 0;
+        });
         const t = () => {
           // Only pause if tab has been hidden for at least 60 seconds
           // and battery is critically low
           if ("hidden" !== document.visibilityState) return;
-          if (Date.now() - _batSessionStart < 60000) return;
+          if (!_hiddenSince || Date.now() - _hiddenSince < 60000) return;
           navigator.getBattery &&
             navigator
               .getBattery()
@@ -14059,7 +14119,7 @@ algoBlockChannels: "",
           const closeBtn=document.createElement("button");
           closeBtn.textContent="×";
           closeBtn.style.cssText="background:rgba(255,255,255,0.1);border:0;color:#fff;width:28px;height:28px;border-radius:50%;cursor:pointer;";
-          closeBtn.onclick=()=>{ overlay.style.display="none"; };
+          closeBtn.onclick=()=>{ overlay.style.display="none"; try { clearInterval(overlay.__ytpTimer); overlay.__ytpTimer = 0; } catch (e2) {} };
           header.appendChild(closeBtn);
           overlay.appendChild(header);
           const search=document.createElement("input");
@@ -14781,7 +14841,11 @@ algoBlockChannels: "",
           e.onNav(() =>
             e.addTimeout(() => {
               const t = ie.el();
-              t && e.addListener(t, "timeupdate", n);
+              // Registry is not cleared per nav — bind each element once.
+              if (t && !t.__ytpTopProgressBound) {
+                t.__ytpTopProgressBound = !0;
+                e.addListener(t, "timeupdate", n);
+              }
             }, 1200),
           ),
           Yt["top-progress-bar"].push(() => t.remove()));
@@ -15257,7 +15321,11 @@ algoBlockChannels: "",
           e.onNav(() =>
             e.addTimeout(() => {
               const t = ie.el();
-              t && e.addListener(t, "timeupdate", r);
+              // Registry is not cleared per nav — bind each element once.
+              if (t && !t.__ytpEndSoonBound) {
+                t.__ytpEndSoonBound = !0;
+                e.addListener(t, "timeupdate", r);
+              }
             }, 1200),
           ),
           Yt["end-soon-warning"].push(() => t.remove()));
@@ -20087,6 +20155,22 @@ const Nr = [
     return t.join(";");
   }
   const _customThemes = [];
+  // Generated themes used to live only for the session while themeSelected
+  // persisted across reloads — after a restart the selection silently
+  // resolved to nothing. Persist them (bounded) and hydrate at startup.
+  try {
+    v("kv", "__zen_custom_themes__")
+      .then((row) => {
+        const list = row && Array.isArray(row.v) ? row.v : [];
+        for (const ct of list.slice(-50)) {
+          if (ct && ct.id && ct.vars && !_customThemes.some((x) => x && x.id === ct.id)) {
+            _customThemes.push(ct);
+          }
+        }
+      })
+      .catch(() => {});
+  } catch (_cthErr) {}
+  let _themeCardSyncBound = false;
     Object.freeze(Nr);
   let Hr = null,
     Dr = null;
@@ -20238,6 +20322,9 @@ const Nr = [
   }
   function Qr(e) {
     const t = To("div", "ytp-theme-card");
+    // Match cards by stored id, not by display name: custom themes can share
+    // a name and name-matching breaks after re-render.
+    t.dataset.zenThemeId = String(e && e.id ? e.id : "");
     S.themeSelected === e.id && t.classList.add("active");
     const a = To("div", "ytp-theme-swatch"),
       n = (e && e.vars) || null;
@@ -20317,17 +20404,21 @@ const Nr = [
       "themeAccentHue",
     ],
     apply(t) {
-      if ((zr(), Zr(), S.themeGlassOverhaulOn || S.themeOverhaulOn)) {
+      if ((zr(), Zr(), S.themeEngineOn && (S.themeGlassOverhaulOn || S.themeOverhaulOn))) {
         (Xr(), Yt["theme-engine"].push(Zr));
       } else {
         Zr();
       }
       if (_overhaulUnsub) { try { _overhaulUnsub(); } catch (_e) {} }
       _overhaulUnsub = So("cfg.changed", ({ key: k }) => {
+        if (!S.themeEngineOn) return;
         if (k === "themeGlassOverhaulOn" || k === "themeOverhaulOn" || k === "themeFxReducedMotion") {
           Zr();
           (S.themeGlassOverhaulOn || S.themeOverhaulOn) && Xr();
         }
+      });
+      Yt["theme-engine"].push(() => {
+        if (_overhaulUnsub) { try { _overhaulUnsub(); } catch (_e2) {} _overhaulUnsub = null; }
       });
       if (!S.themeEngineOn || "none" === S.themeSelected)
         return void (
@@ -20336,7 +20427,13 @@ const Nr = [
           (Xr(), Yt["theme-engine"].push(Zr))
         );
       const a = Nr.find((e) => e.id === S.themeSelected) || _customThemes.find((e) => e.id === S.themeSelected);
-      if (!a || !a.vars) return;
+      if (!a || !a.vars) {
+        // Selection points at a theme that no longer exists (cleared
+        // storage, pruned custom themes): fall back to Default instead of
+        // silently applying nothing.
+        Ta("themeSelected", "none");
+        return;
+      }
       const n = () => {
         try {
           !(function (t) {
@@ -20461,7 +20558,7 @@ const Nr = [
             u = t.outline,
             h = t["call-to-action"],
             m = t["call-to-action-inverse"],
-            y = (t["icon-active-other"], t["icon-inactive"]),
+            y = t["icon-active-other"] || t["icon-inactive"],
             g = t["10-percent-layer"],
             f = t.shadow,
             b = g,
@@ -20506,7 +20603,7 @@ const Nr = [
               "--yt-spec-themed-overlay-background-medium:" + r,
               "--yt-spec-call-to-action:" + h,
               "--yt-spec-call-to-action-inverse:" + m,
-              "--yt-spec-icon-active-other:" + c,
+              "--yt-spec-icon-active-other:" + y,
               "--yt-spec-icon-inactive:" + y,
               "--yt-spec-icon-disabled:" + l,
               "--yt-spec-filled-button-focus-outline:" + h,
@@ -21620,9 +21717,13 @@ const Nr = [
               };
           const genId = (dark ? "d-" : "l-") + "custom-" + Date.now().toString(36);
           _customThemes.push({ id: genId, name: "Custom (" + hex + ")", mode: dark ? "dark" : "light", vars });
+          if (_customThemes.length > 50) _customThemes.splice(0, _customThemes.length - 50);
+          try {
+            k("kv", { k: "__zen_custom_themes__", v: _customThemes.slice(-50), updatedAt: Date.now() });
+          } catch (_persistErr) {}
           Ta("themeSelected", genId);
           Ta("themeGenColor", hex);
-          genStatus.textContent = "Theme created from " + hex + " and applied. It persists for this session.";
+          genStatus.textContent = "Theme created from " + hex + " and applied. Saved for future sessions.";
           pe("Custom theme generated with culori", 1800, "success");
         } catch (err) {
           genStatus.textContent = "Could not generate theme: " + String(err && err.message ? err.message : err);
@@ -21682,25 +21783,26 @@ const Nr = [
       );
       (d.appendChild(dlf), t.appendChild(d));
       const c = To("div", "ytp-theme-card reset");
+      c.dataset.zenThemeId = "none";
       ("none" === S.themeSelected && c.classList.add("active"),
         c.appendChild(To("div", "ytp-theme-name", "Default (YouTube)")),
         c.addEventListener("click", () => Ta("themeSelected", "none")),
-        t.appendChild(c),
-        So("cfg.changed", (e) => {
-          "themeSelected" === e.key &&
-            t.querySelectorAll(".ytp-theme-card").forEach((e) => {
-              const t = e.querySelector(".ytp-theme-name");
-              if (!t) return;
-              const a = Nr.find((e) => e.name === t.textContent) || _customThemes.find((e) => e.name === t.textContent);
-              e.classList.toggle(
-                "active",
-                a
-                  ? S.themeSelected === a.id
-                  : "none" === S.themeSelected &&
-                      "Default (YouTube)" === t.textContent,
-              );
-            });
-        }));
+        t.appendChild(c));
+      // One global highlight-sync for the whole session: subscribing per
+      // settings render stacked handlers on stale detached containers.
+      if (!_themeCardSyncBound && typeof So === "function") {
+        _themeCardSyncBound = true;
+        So("cfg.changed", (ev) => {
+          if ("themeSelected" !== ev.key) return;
+          document.querySelectorAll(".ytp-theme-card").forEach((cardEl) => {
+            const id = cardEl.dataset ? cardEl.dataset.zenThemeId : "";
+            cardEl.classList.toggle(
+              "active",
+              id ? S.themeSelected === id : false,
+            );
+          });
+        });
+      }
     },
   }));
   let $r = null;
@@ -21978,10 +22080,6 @@ const Nr = [
           selector: "ytd-guide-entry-renderer:has(a[href*='LL'])",
         },
         {
-          id: "sidebar-subs-section",
-          name: "Subscriptions list section",
-          selector:
-            "ytd-guide-section-renderer:has(#guide-section-title:contains('Subscriptions'))",
         },
         {
           id: "sidebar-explore",
@@ -22107,10 +22205,6 @@ const Nr = [
           selector: "ytd-feed-filter-chip-bar-renderer, iron-selector#chips",
         },
         {
-          id: "home-chip-all",
-          name: "'All' chip",
-          selector:
-            "yt-chip-cloud-chip-renderer[chip-style='STYLE_HOME_FILTER'] yt-formatted-string:contains('All')",
         },
         {
           id: "home-rich-grid",
@@ -22389,10 +22483,6 @@ const Nr = [
             "ytd-watch-metadata yt-button-view-model:has(button[aria-label*='emix'])",
         },
         {
-          id: "watch-report",
-          name: "Report button (in menu)",
-          selector:
-            "ytd-menu-service-item-renderer:has(yt-formatted-string:contains('Report'))",
         },
         {
           id: "watch-more-actions",
@@ -22978,12 +23068,6 @@ const Nr = [
           name: "Emoji picker button",
           selector: "ytd-comment-simplebox-renderer #emoji-button",
         },
-        {
-          id: "comments-disabled-msg",
-          name: "Comments disabled message",
-          selector:
-            "ytd-message-renderer:has(yt-formatted-string:contains('Comments are turned off'))",
-        },
       ],
     },
     {
@@ -23131,10 +23215,6 @@ const Nr = [
             "ytd-c4-tabbed-header-renderer #subscriber-count, yt-page-header-renderer yt-content-metadata-view-model",
         },
         {
-          id: "channel-video-count",
-          name: "Video count",
-          selector:
-            "yt-page-header-renderer yt-content-metadata-view-model span:contains('video')",
         },
         {
           id: "channel-description-short",
@@ -23337,10 +23417,6 @@ const Nr = [
           selector: "ytd-search ytd-shelf-renderer",
         },
         {
-          id: "search-related-search",
-          name: "Related searches",
-          selector:
-            "ytd-horizontal-card-list-renderer:has(yt-formatted-string:contains('searched'))",
         },
         {
           id: "search-ads",
@@ -23746,10 +23822,6 @@ const Nr = [
           selector: "ytd-search-header-renderer",
         },
         {
-          id: "lib-history-clear",
-          name: "Clear all history button",
-          selector:
-            "ytd-button-renderer:has(yt-formatted-string:contains('Clear all watch history'))",
         },
         {
           id: "lib-history-pause",
@@ -23802,9 +23874,9 @@ const Nr = [
       name: "Minimal Clean",
       desc: "Strip clutter: no chips, no endscreen, no watermark, no cards, no ads.",
       hidden: {
-        "home-chips": !0,
+        "home-chips-bar": !0,
         "home-ads": !0,
-        "home-thumbnails-hover": !0,
+        "home-card-hover-preview": !0,
         "player-endscreen": !0,
         "player-cards": !0,
         "player-watermark": !0,
@@ -23827,10 +23899,10 @@ const Nr = [
       name: "Distraction Free",
       desc: "Watch-focused: hide right column, comments, endscreen, chat, all ads.",
       hidden: {
-        "home-chips": !0,
-        "home-shorts": !0,
+        "home-chips-bar": !0,
+        "home-shorts-shelf": !0,
         "home-ads": !0,
-        "home-thumbnails-hover": !0,
+        "home-card-hover-preview": !0,
         secondary: !0,
         comments: !0,
         "player-endscreen": !0,
@@ -23858,10 +23930,10 @@ const Nr = [
       hidden: {
         masthead: !0,
         sidebar: !0,
-        "home-chips": !0,
-        "home-shorts": !0,
+        "home-chips-bar": !0,
+        "home-shorts-shelf": !0,
         "home-ads": !0,
-        "home-thumbnails-hover": !0,
+        "home-card-hover-preview": !0,
         secondary: !0,
         comments: !0,
         "player-endscreen": !0,
@@ -23870,7 +23942,6 @@ const Nr = [
         "player-autoplay": !0,
         "player-nextbtn": !0,
         "player-miniplayer": !0,
-        "player-topbar": !0,
         "player-ad-overlay": !0,
         "player-ad-info": !0,
         livechat: !0,
@@ -23888,7 +23959,7 @@ const Nr = [
       name: "No Shorts Anywhere",
       desc: "Remove every Shorts shelf, entry, and page across the site.",
       hidden: {
-        "home-shorts": !0,
+        "home-shorts-shelf": !0,
         "sidebar-shorts-entry": !0,
         "search-shorts-shelf": !0,
         "shorts-page": !0,
@@ -23925,7 +23996,6 @@ const Nr = [
         "player-watermark": !0,
         "player-autoplay": !0,
         "player-miniplayer": !0,
-        "player-topbar": !0,
         "player-ad-overlay": !0,
         "player-ad-info": !0,
         livechat: !0,
@@ -23947,7 +24017,6 @@ const Nr = [
         "player-settings": !0,
         "player-subtitles": !0,
         "player-pip-native": !0,
-        "player-topbar": !0,
         "player-tooltip": !0,
         "player-ad-overlay": !0,
         "player-ad-info": !0,
@@ -24023,9 +24092,16 @@ const Nr = [
         a = [];
       for (const e of fo)
         for (const n of e.items) t[n.id] && a.push(n.selector);
-      a.length &&
+      // Validate each selector and emit one rule per selector: joining them
+      // into a single comma rule let one invalid selector silently kill the
+      // hiding of every other selected element.
+      const valid = [];
+      for (const sel of a) {
+        try { document.querySelector(sel); valid.push(sel); } catch (_) {}
+      }
+      valid.length &&
         e.addStyle(
-          a.join(",") + "{display:none!important;visibility:hidden!important}",
+          valid.map((sel) => sel + "{display:none!important;visibility:hidden!important}").join("\n"),
         );
     },
     settings(e) {

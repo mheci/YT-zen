@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YT-zen
 // @namespace    https://github.com/mheci/YT-zen
-// @version      3.15.1
+// @version      3.16.0
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      Unlicense
@@ -208,7 +208,7 @@
 
       if (payload && payload.ref && typeof WeakRef === "function" && _finalizer) {
         try {
-          handle._token = _finalizer.register(
+          handle._token = null; _finalizer.register(
             payload.ref,
             handle,
             handle,
@@ -1166,6 +1166,37 @@ algoBlockChannels: "",
         shortsScheduleMode: "block",
         shortsScheduleStart: "09:00",
         shortsScheduleEnd: "17:00",
+        // === v3.16 feature pack defaults ===
+        silenceSkipOn: !1, silenceSkipRate: 4,
+        chapterAutoSkipOn: !1, chapterSkipWords: "intro, outro, sponsor,",
+        videoBookmarksOn: !1,
+        timestampNotesOn: !1,
+        pauseRewindOn: !1, pauseRewindSec: 3,
+        instantReplayOn: !1, instantReplaySec: 10,
+        sleepTimerOn: !1, sleepTimerMin: 30,
+        stretchReminderOn: !1, stretchEveryMin: 45,
+        intentionLockOn: !1,
+        endWindDownOn: !1, windDownSec: 10,
+        shortsMarathonOn: !1, shortsMarathonN: 15,
+        feedFreshnessOn: !1, feedMaxAgeMonths: 6,
+        channelSnoozeOn: !1, channelSnoozeList: "",
+        dupTitleSpotterOn: !1,
+        playlistWatchedMarkerOn: !1,
+        commentFilterOn: !1, commentBlockWords: "",
+        historyLocalHideOn: !1,
+        copyLinkCleanerOn: !1,
+        nightSchedulerOn: !1, nightStart: "21:00", nightEnd: "07:00",
+        textScaleOn: !1, textScalePct: 115,
+        ambientGlowOn: !1,
+        storageDashboardOn: !1,
+        healthCheckOn: !1,
+        queueShuffleOn: !1,
+        frameStepperOn: !1, frameFps: 30,
+        playlistResumeOn: !1,
+        channelVolumeOn: !1,
+        quickCollectionSendOn: !1,
+        readerModeOn: !1,
+        zenBreatherOn: !1,
         // ── Algorithm Intelligence defaults ──
         algoIntelligenceOn: !1,
         algoAutoTrain: !1,
@@ -1411,8 +1442,12 @@ algoBlockChannels: "",
       if (null == n) t[a] = r;
       else if ("boolean" === o) t[a] = "boolean" == typeof r ? r : !!r;
       else if ("number" === o) {
+        if (r === "" || r == null) {
+        t[a] = n;
+        } else {
         const e = Number(r);
         t[a] = isFinite(e) ? e : n;
+        }
       } else
         t[a] =
           "string" === o
@@ -2122,14 +2157,20 @@ algoBlockChannels: "",
       const css = (text, id) => {
         const doc = getDocument();
         const styleId = id ? "ytp-zen-" + String(id) : "";
+        const content = String(text || "");
         if (styleId && doc) {
           const existing = doc.getElementById(styleId);
-          if (existing) return () => { try { existing.remove(); } catch (_) {} };
+          if (existing) {
+            // Re-invocation with changed rules must update the sheet, not
+            // silently keep stale styles.
+            if (existing.textContent !== content) existing.textContent = content;
+            return () => { try { existing.remove(); } catch (_) {} };
+          }
         }
         const style = doc ? doc.createElement("style") : null;
         if (!style) return () => {};
         if (styleId) style.id = styleId;
-        style.textContent = String(text || "");
+        style.textContent = content;
         (doc.head || doc.documentElement).appendChild(style);
         return () => { try { style.remove(); } catch (_) {} };
       };
@@ -2185,8 +2226,12 @@ algoBlockChannels: "",
                 ? root.querySelector(selector)
                 : doc.querySelector(selector);
               if (found) {
+                // Stop timers BEFORE flipping done: cancel() guards on done,
+                // so setting it first skipped clearInterval and left every
+                // resolved when() polling forever.
+                if (poll) { clearInterval(poll); poll = 0; }
+                if (timer) { clearTimeout(timer); timer = 0; }
                 done = true;
-                cancel();
                 resolve(found);
                 return true;
               }
@@ -3200,8 +3245,17 @@ algoBlockChannels: "",
       fetch(url, options = {}) {
         if (this._disposed) return Promise.reject(new Error("ResourceScope disposed"));
         const controller = AbortGroup.create(this._name);
-        const signal = options.signal || controller.signal;
-        const merged = Object.assign({}, options, { signal });
+        // Forward a caller-supplied signal into the scope controller so
+        // dispose()/abortAll() can still cancel the request; previously the
+        // external signal silently replaced ours and teardown became a no-op.
+        if (options.signal) {
+          const ext = options.signal;
+          if (ext.aborted) { try { controller.abort(); } catch (_) {} }
+          else {
+            try { ext.addEventListener("abort", () => { try { controller.abort(); } catch (_) {} }, { once: true }); } catch (_) {}
+          }
+        }
+        const merged = Object.assign({}, options, { signal: options.signal || controller.signal });
         const promise = fetch(url, merged).finally(() => {
           try { controller.abort(); } catch (_) {}
         });
@@ -3536,7 +3590,7 @@ algoBlockChannels: "",
         ((se = document.createElement("div")),
         (se.id = "ytp-toast"),
         document.body.appendChild(se)),
-      (se.textContent = String(e)),
+      (se.onclick = null, se.removeAttribute("title"), (se.style.cursor = ""), (se.textContent = String(e))),
       (se.className = "ytp-t-" + (a || "info") + " show"),
       clearTimeout(le),
       (le = setTimeout(() => {
@@ -3871,17 +3925,16 @@ algoBlockChannels: "",
           credentials: "omit",
           signal: a.signal,
         });
-      } finally {
-        clearTimeout(n);
-      }
-      if (!r.ok) return null;
-      const o = await r.blob();
+      } catch (_fErr) { clearTimeout(n); return null; }
+      if (!r.ok) { clearTimeout(n); return null; }
+      let o = null;
+      try { o = await r.blob(); } catch (_) { clearTimeout(n); return null; }
+      clearTimeout(n);
       return !o || o.size < 600 ? null : o;
     } catch (e) {
       return null;
     }
-  }
-  async function We(e, t) {
+  }async function We(e, t) {
     if (e)
       return Fe("put:" + e, async () => {
         try {
@@ -3905,7 +3958,7 @@ algoBlockChannels: "",
             }
           }
 
-          if (a.blob) {
+          if (a && a.blob) {
             const staleUrl = URL.createObjectURL(a.blob);
             Ve.set(e, staleUrl);
           }
@@ -4021,7 +4074,7 @@ algoBlockChannels: "",
         }));
     const n = (() => {
       try {
-        const e = location.href.match(/[?&]t=(\d+)/);
+        const e = location.href.match(/(?:[?&#])t=/);
         return e ? parseInt(e[1], 10) : 0;
       } catch (e) {
         return 0;
@@ -4255,8 +4308,7 @@ algoBlockChannels: "",
                   }, 15e3);
                 })(a, () => {
                   try {
-                    ((e.currentTime = a.lastPosition),
-                      e.play && e.play().catch(() => {}));
+                    if (ie.videoId() && a.videoId && ie.videoId() !== a.videoId) { Ze(); return; } ((e.currentTime = a.lastPosition), e.play && e.play().catch(() => {}));
                   } catch (e) {}
                   pe("Resumed at " + ce(a.lastPosition), 1800, "success");
                 });
@@ -4479,11 +4531,11 @@ algoBlockChannels: "",
   }
     function Je(e, t, a) {
     if (e) {
-      Ma.awaitingResume = !0;
-      Ma.awaitingResumeVid = e.videoId || null;
-      Ma.awaitingResumeSince = Date.now();
-    }
+      }
     if ((Qe(), !e)) return;
+    Ma.awaitingResume = !0;
+    Ma.awaitingResumeVid = e.videoId || null;
+    Ma.awaitingResumeSince = Date.now();
     const n =
       document.querySelector("#movie_player") ||
       document.querySelector(".html5-video-player") ||
@@ -4921,6 +4973,7 @@ algoBlockChannels: "",
       initPromise: null,
       initPromiseVideoId: null,
       lastInitCompletedAt: 0,
+      undoUntilTs: 0,
       // Submission Creator Editor State
       editor: {
         active: false,
@@ -5511,8 +5564,15 @@ algoBlockChannels: "",
           normalized.push(valid);
         }
         normalized.sort((a, b) => a.segment[0] - b.segment[0] || a.segment[1] - b.segment[1] || a.UUID.localeCompare(b.UUID));
+        // Overlapping categories are common in server data; the playback
+        // binary search assumes disjoint intervals and silently misses skips
+        // inside overlaps. Contain every segment within its predecessor.
+        for (let i = 0; i < normalized.length - 1; i++) {
+          const cur = normalized[i], next = normalized[i + 1];
+          if (next.segment[0] < segmentEndFor(cur)) next.segment[0] = segmentEndFor(cur);
+        }
         return {
-          segments: normalized,
+          segments: normalized.filter((s) => s.segment[1] > s.segment[0]),
           matched: extracted.matched,
           prefixed: extracted.prefixed,
           valid: extracted.valid,
@@ -5692,6 +5752,9 @@ algoBlockChannels: "",
       const postVote = async (params) => {
         const videoId = currentVideoId();
         if (!params || !params.UUID || !State.userId || !VIDEO_ID_RE.test(String(videoId || ""))) return false;
+        // Synthetic ids (idx-* fallbacks, preview-*) are local-only; posting
+        // them to the server is junk traffic keyed on unstable ordering.
+        if (/^(idx-|preview-)/.test(String(params.UUID))) return false;
         const base = Settings.getServerUrl();
         const query = new URLSearchParams(Object.assign({
           UUID: params.UUID,
@@ -5743,6 +5806,7 @@ algoBlockChannels: "",
       const reportViewed = async (uuid) => {
         const videoId = currentVideoId();
         if (!uuid || !VIDEO_ID_RE.test(String(videoId || ""))) return false;
+        if (/^(idx-|preview-)/.test(String(uuid))) return false;
         const base = Settings.getServerUrl();
         try {
           Metrics.recordViewedReport();
@@ -5788,6 +5852,9 @@ algoBlockChannels: "",
     })();
 
     // ─── Player Module ───────────────────────────────────────────────────────
+    // Shared end-time helper (module scope so both API normalization and
+    // playback can use it).
+    const segmentEndFor = (seg) => Math.max(seg.segment[1], seg.segment[0] + POINT_SEGMENT_EPSILON);
     const Player = (() => {
       const segmentEndOf = (seg) => Math.max(seg.segment[1], seg.segment[0] + POINT_SEGMENT_EPSILON);
       const isTimeInSegment = (seg, time) => time >= seg.segment[0] && time < segmentEndOf(seg);
@@ -5905,7 +5972,19 @@ algoBlockChannels: "",
 
         if (action === "skip") {
           const uuid = seg.UUID || ("idx-" + idx + "-" + seg.segment[0]);
-          const targetTime = Math.max(seg.segment[1], seg.segment[0] + POINT_SEGMENT_EPSILON);
+          let targetTime = Math.max(seg.segment[1], seg.segment[0] + POINT_SEGMENT_EPSILON);
+          // Never seek past the real video: stale/oversized segment ends
+          // previously jumped straight to EOF and ended playback.
+          try {
+            if (Number.isFinite(videoEl.duration) && videoEl.duration > 0) {
+              targetTime = Math.min(targetTime, Math.max(0, videoEl.duration - 0.25));
+            }
+          } catch (_) {}
+
+          // HUD "Undo" window: while active, the tick must not re-execute
+          // the skip it just undid (processedUUIDs + cooldown made undo
+          // mathematically unable to work before).
+          if (State.undoUntilTs && performance.now() < State.undoUntilTs) return;
 
           if (State.processedUUIDs.has(uuid) && shouldSkipGuard(targetTime)) return;
 
@@ -6186,6 +6265,12 @@ algoBlockChannels: "",
             videoEl.currentTime = seg.segment[0];
             pe("Returned to start of " + catMeta.label, 1500, "info");
           }
+          // Suppress re-execution of this skip for a few seconds so the
+          // playback tick does not immediately seek forward again.
+          try {
+            State.processedUUIDs.delete(seg.UUID);
+            State.undoUntilTs = performance.now() + 4000;
+          } catch (_) {}
           hud.className = "";
         });
 
@@ -6489,7 +6574,8 @@ algoBlockChannels: "",
         return segments;
       } catch (err) {
         if (err && err.name === "AbortError") throw err;
-        Metrics.recordApiError();
+        // fetchWithRetry already recorded the error; counting here too made
+        // every exhausted lookup inflate apiErrors 2×.
         try {
           const fallback = await Cache.get(videoId, configKey, true);
           return fallback && Array.isArray(fallback.data) ? fallback.data : [];
@@ -6689,16 +6775,20 @@ algoBlockChannels: "",
       return State.userId || "";
     };
 
-    const copyLocalUserId = async () => {
-      const userId = getLocalUserId();
-      if (!userId) return "";
-      try {
-        if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
-          await navigator.clipboard.writeText(userId);
+      const copyLocalUserId = async () => {
+        const userId = getLocalUserId();
+        if (!userId) return "";
+        try {
+          if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+            await navigator.clipboard.writeText(userId);
+          } else {
+            return ""; // No clipboard API: report honestly rather than fake success.
+          }
+        } catch (_) {
+          return "";
         }
-      } catch (_) {}
-      return userId;
-    };
+        return userId;
+      };
 
     const debugInfo = () => ({
       videoId: State.videoId,
@@ -6781,7 +6871,7 @@ algoBlockChannels: "",
     try {
       const e = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-";
       let t = "";
-      for (let a = 0; a < 11; a++) t += e.charAt(Math.floor(Math.random() * e.length));
+      for (let a = 0; a < 16; a++) t += e.charAt(Math.floor(Math.random() * e.length));
       return t;
     } catch (e) {
       return "y" + String(Date.now()).slice(-10);
@@ -6843,6 +6933,8 @@ algoBlockChannels: "",
               (clearTimeout(c), r({ ok: !1 }));
             });
         } catch (e) {
+          try { clearTimeout(c); } catch (_) {}
+
           r({ ok: !1 });
         }
       })
@@ -7695,7 +7787,7 @@ algoBlockChannels: "",
                 v2.dispatchEvent(new Event("ended", { bubbles: !0 }));
               } catch (e) {}
             };
-            if (p2 && "function" == typeof p2.then) p2.then(finish).catch(() => {});
+            if (p2 && "function" == typeof p2.then) p2.then(finish, finish);
             else finish();
           }
         }
@@ -8019,7 +8111,7 @@ algoBlockChannels: "",
                 ((oa = new MutationObserver(() => {
                   ia ||
                     (ia = requestAnimationFrame(() => {
-                      if (((ia = 0), Xt.visible))
+                      if (((ia = 0), Xt.visible && !_a()))
                         for (const e of ra)
                           try {
                             e();
@@ -8407,7 +8499,7 @@ algoBlockChannels: "",
         let _wrChain = Promise.resolve();
         const _save = () => {
           const t = ie.el();
-          if (!t) return;
+          if (!t || _isLiveStream()) return;
           const ch = Ne();
           if (!ch || !isFinite(t.playbackRate)) return;
           _wrChain = _wrChain
@@ -8522,7 +8614,7 @@ algoBlockChannels: "",
             e &&
               e.currentTime >= S.abB &&
               !_isLiveStream() &&
-              ((e.currentTime = S.abA), e.play().catch(() => {}));
+              (e.currentTime = S.abA), e.paused || e.play().catch(() => {});
           },
           a = () => {
             const a = ie.el();
@@ -8567,7 +8659,7 @@ algoBlockChannels: "",
           const e = ie.levels();
           if (!e.length) return;
           let t = S.qualityPref;
-          -1 === e.indexOf(t) && (t = e[0]);
+          { const lv = e.filter((q) => q && "auto" !== q); -1 === e.indexOf(t) && (t = lv[0] || t); }
           try {
             ie.setQuality(t);
           } catch (e) {}
@@ -8825,7 +8917,7 @@ algoBlockChannels: "",
         } catch (e) {}
       } else {
         const t = document.querySelector(".ytp-subtitles-button");
-        if (t && "false" === t.getAttribute("aria-pressed")) {
+        if (t && "true" !== t.getAttribute("aria-pressed")) {
           try {
             t.click();
           } catch (e) {}
@@ -10029,7 +10121,21 @@ algoBlockChannels: "",
       if (!selector) return null;
 
       // Check domain scope
-      const domains = domain ? domain.split(',').map(d => d.trim().toLowerCase()) : [];
+      const domains = [];
+      const excludedDomains = [];
+      if (domain) {
+        for (let d of domain.split(',')) {
+          d = d.trim().toLowerCase();
+          if (!d) continue;
+          // uBlock "~domain" negation: excluded hosts, never include-matched.
+          if (d[0] === '~') { if (d.length > 1) excludedDomains.push(d.slice(1)); }
+          else domains.push(d);
+        }
+      }
+      const hostMatches = (list) => {
+        const host = (location.hostname || '').toLowerCase();
+        return list.some((d) => host === d || host.endsWith('.' + d));
+      };
 
       // Detect procedural filters
       const hasHasText = /:has-text\(/.test(selector);
@@ -10043,12 +10149,20 @@ algoBlockChannels: "",
         if (pathMatch) {
           try {
             const parts = pathMatch[1].match(/^\/(.+)\/([gimsuy]*)$/);
-            if (parts) pathRegex = new RegExp(parts[1], parts[2]);
+            if (parts) {
+            // test() is reused across navigations; stateful g/y flags make
+            // matching alternate true/false.
+            pathRegex = new RegExp(parts[1], parts[2].replace(/[gy]/g, ""));
+          }
           } catch (_) {}
         }
-        // Remove :matches-path() from selector, leaving the target element
-        selector = selector.replace(/:matches-path\([^)]*\)/g, '').trim();
-        if (!selector) selector = '*';
+        if (!pathRegex) {
+        // Unparseable :matches-path token: stripping it would turn a scoped
+        // filter into an every-page hide; reject the line instead.
+        return null;
+      }
+      selector = selector.replace(/:matches-path\((\/.+?\/[a-z]*|[^)]*)\)/i, "").trim();
+      if (!selector) selector = '*';
       }
 
       // Extract :has-text() patterns
@@ -10063,22 +10177,30 @@ algoBlockChannels: "",
             const lastSlash = inner.lastIndexOf('/');
             const pattern = inner.slice(1, lastSlash);
             const flags = inner.slice(lastSlash + 1);
-            try { hasTextPatterns.push(new RegExp(pattern, flags)); } catch (_) {}
+            try { hasTextPatterns.push(new RegExp(pattern, flags.replace(/[gy]/g, ""))); } catch (_) {}
           } else {
             // Plain string: convert to case-insensitive regex
             try { hasTextPatterns.push(new RegExp(escapeRegex(inner), 'i')); } catch (_) {}
           }
         }
-        // Remove :has-text() from selector for the CSS part
-        // We need to find the element selector that :has-text() applies to
-        // Pattern: selector:has-text(...) → we keep selector and apply text check in JS
-        selector = selector.replace(/:has-text\([^)]*\)/g, '').trim();
+        // Strip :has-text(...) using the exec match ranges: a [^)]* stripper
+        // corrupts patterns containing ')'.
+        const stripped = [];
+        let last = 0;
+        regex.lastIndex = 0;
+        while ((match = regex.exec(selector)) !== null) {
+          stripped.push(selector.slice(last, match.index));
+          last = match.index + match[0].length;
+        }
+        stripped.push(selector.slice(last));
+        selector = stripped.join('').trim();
         if (!selector) selector = '*';
       }
 
       return {
         raw,
         domains,
+        excludedDomains,
         selector,
         isProcedural,
         hasTextPatterns,
@@ -10088,6 +10210,11 @@ algoBlockChannels: "",
     };
 
     // Escape special regex characters in a string
+    const hostMatches = (list) => {
+      const host = (location.hostname || '').toLowerCase();
+      return list.some((d) => host === d || host.endsWith('.' + d));
+    };
+
     const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
     // ─── Filter List Parser ──────────────────────────────────────────────────
@@ -10128,11 +10255,8 @@ algoBlockChannels: "",
       const rules = [];
       for (const f of cssFilters) {
         // Check domain scope
-        if (f.domains.length > 0) {
-          const host = (location.hostname || '').toLowerCase();
-          const matches = f.domains.some(d => host === d || host.endsWith('.' + d));
-          if (!matches) continue;
-        }
+        if (f.domains.length > 0 && !hostMatches(f.domains)) continue;
+        if (f.excludedDomains.length > 0 && hostMatches(f.excludedDomains)) continue;
 
         // Check path regex for path-scoped CSS filters
         if (f.pathRegex) {
@@ -10155,14 +10279,15 @@ algoBlockChannels: "",
 
       for (const f of procFilters) {
         // Check domain scope
-        if (f.domains.length > 0) {
-          const host = (location.hostname || '').toLowerCase();
-          const matches = f.domains.some(d => host === d || host.endsWith('.' + d));
-          if (!matches) continue;
-        }
+        if (f.domains.length > 0 && !hostMatches(f.domains)) continue;
+        if (f.excludedDomains.length > 0 && hostMatches(f.excludedDomains)) continue;
 
         // Check path regex
         if (f.pathRegex && !f.pathRegex.test(path)) continue;
+
+        // Whole-page procedural filters ('*' selector) would serialize the textContent
+        // of every node; page-wide blocking is handled by the path-class mechanism.
+        if (!f.selector || f.selector === '*') continue;
 
         // Find candidate elements
         let candidates;
@@ -10187,12 +10312,9 @@ algoBlockChannels: "",
       // Apply path-based hiding
       for (const f of pathFilters) {
         if (!f.pathRegex || !f.pathRegex.test(path)) continue;
-        if (f.domains.length > 0) {
-          const host = (location.hostname || '').toLowerCase();
-          const matches = f.domains.some(d => host === d || host.endsWith('.' + d));
-          if (!matches) continue;
-        }
-        if (f.selector && !f.hasTextPatterns.length) {
+        if (f.domains.length > 0 && !hostMatches(f.domains)) continue;
+        if (f.excludedDomains.length > 0 && hostMatches(f.excludedDomains)) continue;
+        if (f.selector && f.selector !== '*' && !f.hasTextPatterns.length) {
           try {
             const els = document.querySelectorAll(f.selector);
             for (const el of els) {
@@ -12510,7 +12632,7 @@ algoBlockChannels: "",
           try {
             const r = new URL(n);
             const o = r.pathname.replace(/^\//, "");
-            const i = o + (r.searchParams.get("t") ? "?t=" + r.searchParams.get("t") : "");
+            const keep = ["t", "list", "index", "start", "pp"];            const qs = keep.map((k2) => { const v2 = r.searchParams.get(k2); return v2 === null ? null : k2 + "=" + v2; }).filter(Boolean).join("&");            const i = o + (qs ? "?" + qs : "");
             a.setAttribute("href", "https://youtu.be/" + i);
             a.setAttribute("data-shortened", "1");
           } catch (e) {}
@@ -12984,7 +13106,7 @@ algoBlockChannels: "",
                 const tx = db2.transaction("replay", "readwrite");
                 const store = tx.objectStore("replay");
                 let kept = 0;
-                const cursorReq = store.openCursor();
+                const cursorReq = store.openCursor(null, "prev");
                 cursorReq.onsuccess = () => {
                   const cursor = cursorReq.result;
                   if (!cursor) return;
@@ -13632,7 +13754,7 @@ algoBlockChannels: "",
                       !e &&
                         this.response &&
                         ("string" == typeof this.response
-                          ? (e = this.response.length)
+                          ? (e = new Blob([this.response]).size)
                           : this.response.byteLength
                             ? (e = this.response.byteLength)
                             : this.response.size && (e = this.response.size)));
@@ -17164,7 +17286,7 @@ const Nr = [
     },
     {
       id: "l-graphite",
-      name: "Graphite",
+      name: "Graphite Light",
       mode: "light",
       vars: {
         "base-background": "#eef0f2",
@@ -20428,10 +20550,12 @@ const Nr = [
         );
       const a = Nr.find((e) => e.id === S.themeSelected) || _customThemes.find((e) => e.id === S.themeSelected);
       if (!a || !a.vars) {
-        // Selection points at a theme that no longer exists (cleared
-        // storage, pruned custom themes): fall back to Default instead of
-        // silently applying nothing.
-        Ta("themeSelected", "none");
+        // Persisted custom themes hydrate async; give them one tick before
+        // declaring the selection stale.
+        setTimeout(() => {
+          const retry = Nr.find((e2) => e2.id === S.themeSelected) || _customThemes.find((e2) => e2.id === S.themeSelected);
+          if (!retry || !retry.vars) Ta("themeSelected", "none");
+        }, 1500);
         return;
       }
       const n = () => {
@@ -24426,7 +24550,7 @@ const Nr = [
     i.dataset.key = t;
     i.style.cssText = "width:28px;height:28px;border-radius:6px;border:1px solid rgba(255,255,255,.18);flex-shrink:0;background:" + o.value;
     const _updateSwatch = (val) => {
-      if (/^#?[0-9a-fA-F]{3,6}$/.test((val || "").trim())) {
+      if (/^#?([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test((val || "").trim())) {
         i.style.background = val;
         o.value = "#" + _toHex6(val);
       } else {
@@ -25195,9 +25319,7 @@ const Nr = [
           Co[e]();
         } catch (e) {}
       ((Co.length = 0),
-        setTimeout(() => {
-          wo && (wo.remove(), (wo = null));
-        }, 250));
+        setTimeout(((w) => () => { try { w && w.remove(); } catch (_) {} })(wo), 250), wo = nullull);
     }
   }
   function Yo() {
@@ -26589,7 +26711,9 @@ const Nr = [
       return Math.min(99, Math.max(1, score));
     };
     const setStatus = (panel, text) => {
-      const el = panel && panel.querySelector("[id$=\"-status\"]");
+      // Status nodes carry only a class; the old [id$="-status"] query
+      // never matched anything.
+      const el = panel && panel.querySelector(".zen-status");
       if (el) el.textContent = String(text || "");
     };
     // Shared compact discovery widget: one slim card in the right sidebar on
@@ -26809,6 +26933,10 @@ const Nr = [
           // reconnect to the destination or the video goes silent.
           analyser.connect(ctx.destination);
         }
+        // The resume-on-play listener below only covers FUTURE play events;
+        // a context created while autoplay-blocked during active playback
+        // stayed suspended forever (silent output + zeroed analysis).
+        try { if (ctx.state === "suspended") ctx.resume(); } catch (_) {}
         // One reusable frequency buffer per analyser: readEnergy() runs on a
         // cadence and allocating a fresh Uint8Array per read churned GC.
         const entry = { ctx, source, analyser, stream, rerouted, buf: new Uint8Array(analyser.frequencyBinCount) };
@@ -26833,7 +26961,9 @@ const Nr = [
       let sum = 0, speechBand = 0;
       for (let i = 0; i < buf.length; i++) { sum += buf[i]; if (i > 10 && i < 80) speechBand += buf[i]; }
       const avg = sum / buf.length;
-      const speech = speechBand / 70;
+      // Bins 11..79 inclusive = 69 samples; dividing by 70 skewed the
+      // speech metric ~1.4% below the energy scale it is thresholded on.
+      const speech = speechBand / Math.max(1, Math.min(69, buf.length - 11));
       return {
         energy: avg,
         speech,
@@ -26969,8 +27099,11 @@ const Nr = [
       return videos;
     };
     const search = async (query, sp) => {
-      const params = sp ? { sp } : {};
-      const response = await ZenEngine.innerTube("search", Object.assign({ context: Mt(), query }, params));
+      // InnerTube expects duration/date filters under the `params` body key
+      // as RAW base64; the stored templates are percent-encoded for URLs, so
+      // decode here. Sending `sp:` (the old shape) made every filter a no-op.
+      const p = sp ? { params: decodeURIComponent(String(sp)) } : {};
+      const response = await ZenEngine.innerTube("search", Object.assign({ context: Mt(), query }, p));
       if (!response || !response.ok || !response.json) return [];
       return parseSearchVideos(response.json);
     };
@@ -27441,7 +27574,7 @@ const Nr = [
             shouldMerge: false,
           });
           if (result && result.ok) {
-            SignalTracker.trackFeedback(feedbackToken.slice(0, 20), action || "feedback");
+            SignalTracker.trackFeedback(feedbackToken, action || "feedback");
             return true;
           }
         } catch (_) {}
@@ -27551,7 +27684,10 @@ const Nr = [
 
       // Search for a topic (signals interest in the topic)
       const searchTopic = async (query) => {
-        if (!query || !RateLimiter.canProceed("browse")) return false;
+        // Draw from the dedicated "search" bucket: sharing "browse" with
+        // channel boosts drained both budgets and left stats().search
+        // permanently reporting a bucket nothing consumed.
+        if (!query || !RateLimiter.canProceed("search")) return false;
         try {
           const result = await Ot("search", {
             context: Mt(),
@@ -27581,8 +27717,11 @@ const Nr = [
         if (!source) return empty;
         const dataStr = typeof source === "string" ? source : JSON.stringify(source);
         if (!dataStr) return empty;
-        const niMatch = dataStr.match(/notInterested.*?feedbackToken.*?"([^"]+)"/);
-        const drMatch = dataStr.match(/dontRecommend.*?feedbackToken.*?"([^"]+)"/);
+        // Anchor tokens to their intent marker within a bounded window; the
+        // previous lazy pattern captured ":" between quotes on real payloads
+        // and missed case variants entirely.
+        const niMatch = dataStr.match(/[Nn]ot[Ii]nterested[\s\S]{0,240}?"feedbackToken":"([^"]+)"/);
+        const drMatch = dataStr.match(/[Dd]ont[Rr]ecommend[\s\S]{0,240}?"feedbackToken":"([^"]+)"/);
         return {
           notInterestedToken: niMatch ? niMatch[1] : "",
           dontRecommendToken: drMatch ? drMatch[1] : "",
@@ -27691,7 +27830,10 @@ const Nr = [
 
         // 2. Send negative signals for unwanted topics on homepage
         const mismatches = ProfileAnalyzer.findMismatches();
-        for (const mismatch of mismatches.slice(0, opts.maxNegative || 10)) {
+        // Number.isFinite so an explicit maxNegative:0 (disable the negative
+        // phase) is honored instead of coerced to the default 10.
+        const negLimit = Number.isFinite(opts.maxNegative) ? opts.maxNegative : 10;
+        for (const mismatch of mismatches.slice(0, negLimit)) {
           if (mismatch.notInterestedToken) {
             actions.push({ type: "notInterested", token: mismatch.notInterestedToken, videoId: mismatch.videoId });
           }
@@ -27792,6 +27934,7 @@ const Nr = [
       let monitoring = false;
       let tickerId = 0;
       let skipSignals = 0;
+      const skipLatched = new Set();
 
       const start = () => {
         if (monitoring) return;
@@ -27827,8 +27970,11 @@ const Nr = [
           // Track the watch event
           SignalTracker.trackWatch(videoId, currentTime, duration);
 
-          // If unwanted content and we've watched enough to register a skip signal
-          if (unwantedScore > wantedScore && currentTime > 5 && currentTime < duration * 0.3) {
+          // If unwanted content and we've watched enough to register a skip
+          // signal. Latch per video: the 10s ticker otherwise counts one
+          // partial view as ~dozens of "skips".
+          if (!skipLatched.has(videoId) && unwantedScore > wantedScore && currentTime > 5 && currentTime < duration * 0.3) {
+            skipLatched.add(videoId);
             skipSignals++;
           }
 
@@ -27872,7 +28018,10 @@ const Nr = [
           if (done >= max || !RateLimiter.canProceed("browse")) break;
           try {
             const ok = await SignalInjector.browseChannel(ch.channelId);
-            if (ok) { done++; SignalTracker.trackWatch(ch.channelId, 1, 1); }
+            // Deliberately NOT recorded via trackWatch: channel ids are not
+            // video ids, and a fabricated 100%-watch row poisoned the topic
+            // profile and watch statistics.
+            if (ok) done++;
           } catch (_) {}
           await new Promise(r => setTimeout(r, 900 + Math.random() * 900));
         }
@@ -28225,6 +28374,7 @@ const Nr = [
       // Lookups run in small parallel batches: one IDB round-trip per
       // candidate in series stalled every topic load noticeably.
       const HISTORY_BATCH = 12;
+      const seen = new Set();
       const isWatched = async (videoId) => {
         try { return !!(await v("history", videoId)); } catch (_) { return false; }
       };
@@ -28247,7 +28397,6 @@ const Nr = [
         const spec = DISCOVER_CATEGORIES[category];
         if (!spec) return [];
         const fresh = [];
-        const seen = new Set();
         for (const sp of DISCOVER_SEARCH_SP) {
           if (fresh.length >= DISCOVER_MIN_VIDEOS) break;
           let list = [];
@@ -28802,12 +28951,19 @@ const Nr = [
         maximum: { containment: 1, lazyThumbs: 1, lazyComments: 1, preconnect: 1, prefetch: 1, memory: 1, paint: 1, bgThrottle: 1, killAnim: 1, killBlur: 1, thumbQuality: 1, disablePreviews: 1, qualityCap: 1, maxPaint: 1 },
       };
       const tier = TIERS[LEVEL] || TIERS.balanced;
-      const on = (k) => !!S["perf" + k] || !!tier[k];
+      // on() is called with display-case keys ("MemoryTrim") but TIERS use
+      // camelCase — normalize so tier contributions actually resolve
+      // instead of always reading undefined.
+      const on = (k) => !!S["perf" + k] || !!tier[k[0].toLowerCase() + k.slice(1)];
 
       // Level ⇄ toggle sync: writing the level writes the granular keys so the
       // settings checkboxes always reflect exactly what the level enables.
-      const syncLevelToggles = () => {
+      // Gated by a persisted per-level marker: syncing unconditionally on
+      // every apply snapped the user's granular overrides back to the preset.
+      const syncLevelToggles = (force) => {
         const lvl = S.perfModeLevel || "balanced";
+        if (!force && S.perfLevelSyncedFor === lvl) return;
+        S.perfLevelSyncedFor = lvl;
         const t = TIERS[lvl] || TIERS.balanced;
         const map = [
           ["perfContainment", "containment"],
@@ -28835,7 +28991,7 @@ const Nr = [
       syncLevelToggles();
       const levelUnsub = So("cfg.changed", ({ key: k }) => {
         if (k === "perfModeLevel") {
-          syncLevelToggles();
+          syncLevelToggles(true);
           try { xa.apply("perf-mode"); } catch (_) {}
         }
       });
@@ -29147,7 +29303,7 @@ const Nr = [
           const widgets = document.querySelectorAll(ADOPT_SELECTOR);
           let count = 0;
           for (const w of widgets) {
-            if (w.closest("#" + CONTAINER_ID)) { count++; continue; }
+            if (w.closest("#" + CONTAINER_ID)) continue;
             const hub = getHub();
             if (!hub) return count;
             hub.appendChild(w);
@@ -29181,6 +29337,11 @@ const Nr = [
       // direct adopt() call (toggle/nav paths) restores fast sweeping. The
       // early-out is counter-only, so idling creates no timers and no
       // teardown entries.
+      const wakeSweep = () => {
+        quietScans = 0;
+        idleTicks = 0;
+        return adopt();
+      };
       let quietScans = 0;
       let idleTicks = 0;
       ctx.addInterval(() => {
@@ -29193,10 +29354,10 @@ const Nr = [
         if (found > 0) { quietScans = 0; idleTicks = 0; }
         else if (quietScans < 6) quietScans += 1;
       }, 500);
-      ctx.onNav(() => ctx.addTimeout(adopt, 600));
+      ctx.onNav(() => ctx.addTimeout(wakeSweep, 600));
 
       const unsub = So("cfg.changed", ({ key: k }) => {
-        if (k === "overlayHubOn") adopt();
+        if (k === "overlayHubOn") wakeSweep();
         if (k === "overlayHubPos") position();
       });
       Yt["overlay-hub"].push(() => {
@@ -29414,6 +29575,12 @@ const Nr = [
       const windowText = () => String(S.shortsScheduleStart || "??:??") + " to " + String(S.shortsScheduleEnd || "??:??");
       const blockedNow = () => {
         if (overrideUntil && Date.now() < overrideUntil) return false;
+        // Malformed/unset times deactivate the gate in BOTH modes: the old
+        // `!active` made "allow" mode block Shorts 24/7 when the window was
+        // missing or typo'd, contradicting the documented contract.
+        if (!S.shortsScheduleStart || !S.shortsScheduleEnd) return false;
+        if (ZenResources.TimeWindow.parseHHMM(S.shortsScheduleStart) === null) return false;
+        if (ZenResources.TimeWindow.parseHHMM(S.shortsScheduleEnd) === null) return false;
         const active = ZenResources.TimeWindow.containsHHMM(S.shortsScheduleStart, S.shortsScheduleEnd);
         return mode() === "block" ? active : !active;
       };
@@ -29483,6 +29650,1360 @@ const Nr = [
       info.textContent = "Times use your local clock and may cross midnight (22:00 to 07:00). Malformed times keep the gate off rather than guessing.";
       en.appendChild(info);
     },
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  //  FEATURE PACK v3.16 — 30 new advanced features
+  // ---------------------------------------------------------------------------
+  //  Domains: playback intelligence, study tools, wellbeing, privacy,
+  //  accessibility, diagnostics. Every feature follows the registry contract:
+  //  masterKey gate, ctx-managed timers/listeners, Yt[id] teardown, and an
+  //  explicit settings panel.
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // Shared pack helpers ─────────────────────────────────────────────────────
+  const ZenPack = (() => {
+    // Bind a listener to the persistent media element exactly once per
+    // element per apply-lifetime (registry is not cleared on SPA nav).
+    const elBinder = () => {
+      const bound = new WeakSet();
+      return (ctx, ev, fn, opts) => {
+        const el = ie.el();
+        if (!el || bound.has(el)) return;
+        bound.add(el);
+        ctx.addListener(el, ev, fn, opts);
+      };
+    };
+    const guardKey = (ev) => {
+      const t = ev.target;
+      const tag = t && t.tagName ? String(t.tagName).toUpperCase() : "";
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+      return !!(t && t.isContentEditable);
+    };
+    const fmtTs = (sec) => {
+      const s = Math.max(0, Math.floor(sec || 0));
+      const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = s % 60;
+      return (h ? h + ":" + String(m).padStart(2, "0") : String(m)) + ":" + String(ss).padStart(2, "0");
+    };
+        const exportHooks = [];
+    const settingsExportHook = { push(f) { if (typeof f === 'function') exportHooks.push(f); }, fire() { for (const f of exportHooks) { try { f(); } catch (_) {} } } };
+    return { elBinder, guardKey, fmtTs, settingsExportHook };
+  })();
+
+  // ─── 1. Silence Skipper ──────────────────────────────────────────────────
+  // Uses the shared audio graph: sustained quiet stretches fast-forward at a
+  // configurable rate until sound returns. Never touches live streams or
+  // Smart-Speed-managed playback.
+  xa.register({
+    id: "silence-skipper", name: "Silence Fast-Forward",
+    summary: "Detects silent stretches through the audio analyser and quietly speeds through them.",
+    masterKey: "silenceSkipOn", keys: ["silenceSkipOn", "silenceSkipRate"],
+    apply(ctx) {
+      if (!S.silenceSkipOn) return;
+      ZenEngine.injectCSS();
+      let boosted = false, prevRate = 1, quietMs = 0;
+      const targetRate = () => Math.max(2, Math.min(8, Number(S.silenceSkipRate) || 4));
+      const tick = () => {
+        const vid = ie.el();
+        if (!vid || vid.paused || vid.ended || _isLiveStream() || S.smartSpeedOn) {
+          if (boosted && vid) { try { vid.playbackRate = prevRate; } catch (_) {} }
+          boosted = false; quietMs = 0; return;
+        }
+        let energy = 128;
+        try { energy = ZenPlayback.readEnergy(vid).energy; } catch (_) {}
+        if (energy < 4) quietMs += 500; else quietMs = 0;
+        if (quietMs >= 1500 && !boosted) { try { prevRate = vid.playbackRate || 1; vid.playbackRate = targetRate(); boosted = true; } catch (_) {} }
+        else if (energy >= 4 && boosted) { try { vid.playbackRate = prevRate; } catch (_) {} boosted = false; quietMs = 0; }
+      };
+      const id = ZenResources.SharedTicker.add(tick, 500, { pauseHidden: true, label: "zen-silence-skip" });
+      Yt["silence-skipper"].push(() => {
+        ZenResources.SharedTicker.remove(id);
+        const vid = ie.el();
+        if (boosted && vid) { try { vid.playbackRate = prevRate; } catch (_) {} }
+      });
+    },
+    settings(en) {
+      en.appendChild(Io("Fast-forward silent stretches", "silenceSkipOn"));
+      en.appendChild(Ro("Skip speed", "silenceSkipRate", { 2: "2× gentle", 4: "4× (recommended)", 6: "6× brisk", 8: "8× aggressive" }));
+    },
+  });
+
+  // ─── 2. Chapter Auto-Skip ────────────────────────────────────────────────
+  // Skips chapters whose titles match user keywords, using YouTube's own
+  // chapter markers extracted from ytInitialData.
+  xa.register({
+    id: "chapter-auto-skip", name: "Chapter Auto-Skip",
+    summary: "Automatically skips chapters titled intro, outro, sponsor, and your own keywords.",
+    masterKey: "chapterAutoSkipOn", keys: ["chapterAutoSkipOn", "chapterSkipWords"],
+    apply(ctx) {
+      if (!S.chapterAutoSkipOn) return;
+      const words = () => String(S.chapterSkipWords || "").split(/[,;\n]+/).map(w => w.trim().toLowerCase()).filter(Boolean);
+      let chapters = null, chVid = "";
+      const loadChapters = () => {
+        try {
+          const vid = ie.videoId(); if (!vid || vid === chVid) return; chVid = vid;
+          chapters = null;
+          const pr = e.ytInitialPlayerResponse || {};
+          const bar = pr.playerOverlays && pr.playerOverlays.playerOverlayRenderer &&
+            pr.playerOverlays.playerOverlayRenderer.decoratedPlayerBarRenderer;
+          const map = bar && bar.decoratedPlayerBarRenderer && bar.decoratedPlayerBarRenderer.playerBar &&
+            bar.decoratedPlayerBarRenderer.playerBar.multiMarkersPlayerBarRenderer;
+          const entries = map && map.markersMap && map.markersMap[0] && map.markersMap[0].value;
+          const list = entries && entries.chapters;
+          if (!Array.isArray(list)) return;
+          chapters = list.map(c => ({
+            t: (c.chapterRenderer && c.chapterRenderer.timeRangeStartMillis || 0) / 1000,
+            title: (c.chapterRenderer && c.chapterRenderer.title && c.chapterRenderer.title.simpleText ||
+              ((c.chapterRenderer.title.runs || []).map(r => r.text).join("")) || "").toLowerCase(),
+          })).filter(c => c.title);
+        } catch (_) { chapters = null; }
+      };
+      const binder = ZenPack.elBinder();
+      const check = () => {
+        loadChapters();
+        if (!chapters || !chapters.length) return;
+        const vid = ie.el(); if (!vid || vid.paused || _isLiveStream()) return;
+        const kw = words(); if (!kw.length) return;
+        const t = vid.currentTime;
+        for (const c of chapters) {
+          if (Math.abs(t - c.t) < 1.5 && kw.some(w => c.title.includes(w))) {
+            const idx = chapters.indexOf(c);
+            const next = chapters[idx + 1];
+            if (next) { vid.currentTime = next.t + 0.5; pe("Zen skipped chapter: " + c.title.slice(0, 40), 1800, "info"); }
+            break;
+          }
+        }
+      };
+      binder(ctx, "timeupdate", ZenResources.DeferredTask.debounce.bind(null, "zen-chskip", check, 400));
+      ctx.addInterval(check, 2000);
+      Yt["chapter-auto-skip"].push(() => { chapters = null; chVid = ""; });
+    },
+    settings(en) {
+      en.appendChild(Io("Auto-skip matching chapters", "chapterAutoSkipOn"));
+      en.appendChild(Ho("Skip keywords (comma-separated)", "chapterSkipWords", "intro, outro, sponsor, thanks"));
+    },
+  });
+
+  // ─── 3. Video Bookmarks ──────────────────────────────────────────────────
+  // Timestamped bookmarks persisted per video with a jumpable dashboard list.
+  xa.register({
+    id: "video-bookmarks", name: "Timestamp Bookmarks",
+    summary: "Drop named bookmarks at timestamps (Alt+B), stored locally and jumpable anytime.",
+    masterKey: "videoBookmarksOn", keys: ["videoBookmarksOn"],
+    apply(ctx) {
+      if (!S.videoBookmarksOn) return;
+      ZenEngine.injectCSS();
+      const marks = ZenEngine.createStore("__zen_bookmarks__", {});
+      const cur = () => ie.videoId() || "";
+      const add = async () => {
+        const vid = cur(), el = ie.el(); if (!vid || !el) return;
+        const row = { t: el.currentTime, note: "", at: Date.now() };
+        marks.update(d => { (d[vid] = d[vid] || []).push(row); });
+        pe("Bookmark at " + ZenPack.fmtTs(row.t), 1400, "success");
+      };
+      ctx.addListener(document, "keydown", (ev) => {
+        if (ev.altKey && !ev.ctrlKey && !ev.metaKey && ev.code === "KeyB" && !ZenPack.guardKey(ev)) {
+          ev.preventDefault(); add();
+        }
+      });
+      // Jump list lives under the description area.
+      const panel = document.createElement("div");
+      panel.id = "ytp-zen-bm";
+      panel.style.cssText = "display:none;margin:8px 0;font-size:12px;color:#eee";
+      const render = () => {
+        const vid = cur(); const list = marks.get()[vid] || [];
+        panel.replaceChildren();
+        const head = document.createElement("div");
+        head.textContent = "Bookmarks (" + list.length + ") — Alt+B to add";
+        head.style.cssText = "font-weight:600;margin-bottom:4px";
+        panel.appendChild(head);
+        list.forEach((row, i) => {
+          const b = document.createElement("button");
+          b.className = "zen-btn"; b.style.marginRight = "6px"; b.style.marginBottom = "4px";
+          b.textContent = ZenPack.fmtTs(row.t);
+          b.addEventListener("click", () => { const el = ie.el(); if (el) el.currentTime = row.t; });
+          panel.appendChild(b);
+        });
+        panel.style.display = list.length ? "block" : "none";
+      };
+      marks.onChange(render);
+      ZenEngine.scheduleOnReady(ctx, () => {
+        const below = document.querySelector("#below") || document.querySelector("#description");
+        if (!below) return false;
+        if (!panel.parentNode) below.appendChild(panel);
+        render(); return true;
+      }, { attempts: 8, delayMs: 500 });
+      ctx.onNav(render);
+      Yt["video-bookmarks"].push(() => { if (panel.parentNode) panel.remove(); });
+    },
+    settings(en) { en.appendChild(Io("Enable timestamp bookmarks (Alt+B)", "videoBookmarksOn")); },
+  });
+
+  // ─── 4. Timestamped Notes ────────────────────────────────────────────────
+  // Quick capture pad while watching; notes carry timestamps and export as
+  // Markdown via download.
+  xa.register({
+    id: "timestamp-notes", name: "Study Notes",
+    summary: "Jot timestamped notes while watching (Alt+N); export everything as Markdown.",
+    masterKey: "timestampNotesOn", keys: ["timestampNotesOn"],
+    apply(ctx) {
+      if (!S.timestampNotesOn) return;
+      ZenEngine.injectCSS();
+      const notesStore = ZenEngine.createStore("__zen_notes__", {});
+      let box = null;
+      const cur = () => ie.videoId() || "";
+      const capture = () => {
+        const text = box && box.value.trim();
+        if (!text) return;
+        const el = ie.el();
+        const row = { t: el ? el.currentTime : 0, text, at: Date.now() };
+        notesStore.update(d => { (d[cur()] = d[cur()] || []).push(row); });
+        if (box) box.value = "";
+        pe("Note captured at " + ZenPack.fmtTs(row.t), 1200, "success");
+      };
+      const build = () => {
+        if (box || !document.body) return false;
+        box = document.createElement("textarea");
+        box.id = "ytp-zen-notes";
+        box.placeholder = "Quick note… (Ctrl+Enter to save)";
+        box.style.cssText = "position:fixed;right:14px;bottom:52px;z-index:2147483639;width:260px;height:70px;" +
+          "background:rgba(16,18,24,.95);color:#eee;border:1px solid rgba(255,255,255,.16);" +
+          "border-radius:10px;padding:8px;font:12px system-ui;display:none;resize:vertical";
+        box.addEventListener("keydown", (ev) => {
+          if (ev.key === "Escape") { box.style.display = "none"; }
+          if ((ev.ctrlKey || ev.metaKey) && ev.key === "Enter") capture();
+        });
+        document.body.appendChild(box);
+        return true;
+      };
+      ctx.addListener(document, "keydown", (ev) => {
+        if (ev.altKey && !ev.ctrlKey && !ev.metaKey && ev.code === "KeyN" && !ZenPack.guardKey(ev)) {
+          ev.preventDefault();
+          if (build()) box.style.display = box.style.display === "none" ? "block" : "none";
+        }
+      });
+      ctx.onNav(() => { if (box) box.style.display = "none"; });
+      // Markdown export button in settings panel.
+      ZenEngine.scheduleOnReady(ctx, () => !!document.body, { attempts: 1, delayMs: 50 });
+      ZenPack.settingsExportHook.push(async () => {
+        const d = notesStore.get(); const lines = ["# YT-zen notes", ""];
+        for (const [vid, rows] of Object.entries(d)) {
+          lines.push("## https://youtu.be/" + vid);
+          for (const r of rows) lines.push("- `" + ZenPack.fmtTs(r.t) + "` " + r.text.replace(/\n/g, " "));
+          lines.push("");
+        }
+        const blob = new Blob([lines.join("\n")], { type: "text/markdown" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a"); a.href = url; a.download = "yt-zen-notes.md"; a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 4000);
+      });
+      Yt["timestamp-notes"].push(() => { if (box) { box.remove(); box = null; } });
+    },
+    settings(en) {
+      en.appendChild(Io("Enable study notes (Alt+N)", "timestampNotesOn"));
+      en.appendChild(Eo([Oo("Export notes as Markdown", () => { try { ZenPack.settingsExportHook.fire(); } catch (_) {} })]));
+    },
+  });
+
+  // ─── 5. Pause Auto-Rewind ────────────────────────────────────────────────
+  // Replays a few seconds whenever you pause — ideal for note-takers.
+  xa.register({
+    id: "pause-auto-rewind", name: "Pause Rewind",
+    summary: "Hops back a configurable number of seconds each time you pause.",
+    masterKey: "pauseRewindOn", keys: ["pauseRewindOn", "pauseRewindSec"],
+    apply(ctx) {
+      if (!S.pauseRewindOn) return;
+      const secs = () => Math.max(1, Math.min(30, Number(S.pauseRewindSec) || 3));
+      const binder = ZenPack.elBinder();
+      binder(ctx, "pause", () => {
+        const el = ie.el();
+        if (!el || el.ended || _isLiveStream()) return;
+        try { el.currentTime = Math.max(0, el.currentTime - secs()); } catch (_) {}
+      });
+    },
+    settings(en) {
+      en.appendChild(Io("Rewind slightly on every pause", "pauseRewindOn"));
+      en.appendChild(No("Seconds back", "pauseRewindSec", 1, 30, 1, v => v + "s"));
+    },
+  });
+
+  // ─── 6. Instant Replay Hotkey ────────────────────────────────────────────
+  xa.register({
+    id: "instant-replay", name: "Instant Replay",
+    summary: "Alt+J replays the last few seconds instantly — perfect for missed lines.",
+    masterKey: "instantReplayOn", keys: ["instantReplayOn", "instantReplaySec"],
+    apply(ctx) {
+      if (!S.instantReplayOn) return;
+      ctx.addListener(document, "keydown", (ev) => {
+        if (ev.altKey && !ev.ctrlKey && !ev.metaKey && ev.code === "KeyJ" && !ZenPack.guardKey(ev)) {
+          ev.preventDefault();
+          const el = ie.el(); if (!el) return;
+          const back = Math.max(2, Math.min(60, Number(S.instantReplaySec) || 10));
+          try { el.currentTime = Math.max(0, el.currentTime - back); } catch (_) {}
+        }
+      });
+    },
+    settings(en) {
+      en.appendChild(Io("Enable instant replay (Alt+J)", "instantReplayOn"));
+      en.appendChild(No("Replay length", "instantReplaySec", 2, 60, 1, v => v + "s"));
+    },
+  });
+
+  // ─── 7. Sleep Timer with Fade ────────────────────────────────────────────
+  // Alt+O arms a timer; volume fades over the final minute, then playback
+  // pauses and volume is restored.
+  xa.register({
+    id: "sleep-timer", name: "Sleep Timer",
+    summary: "Alt+O cycles 30 → 60 → 90 → off minutes; volume fades out before pausing.",
+    masterKey: "sleepTimerOn", keys: ["sleepTimerOn", "sleepTimerMin"],
+    apply(ctx) {
+      if (!S.sleepTimerOn) return;
+      let deadline = 0, armed = 0, origVol = null, fadeTask = 0;
+      const mins = () => Math.max(5, Math.min(240, Number(S.sleepTimerMin) || 30));
+      const disarm = (restoreVol) => {
+        if (fadeTask) { ZenResources.DeferredTask.cancel(fadeTask); fadeTask = 0; }
+        deadline = 0;
+        if (restoreVol && origVol !== null) {
+          const el = ie.el(); if (el) { try { el.volume = origVol; } catch (_) {} }
+        }
+        origVol = null;
+      };
+      const stopPlayback = () => {
+        const el = ie.el(); if (!el) return;
+        try { el.pause(); } catch (_) {}
+        disarm(true);
+        pe("Sleep timer: paused. Good night.", 2500, "info");
+      };
+      ctx.addListener(document, "keydown", (ev) => {
+        if (ev.altKey && !ev.ctrlKey && !ev.metaKey && ev.code === "KeyO" && !ZenPack.guardKey(ev)) {
+          ev.preventDefault();
+          const cycle = [0, 30, 60, 90];
+          armed = cycle[(cycle.indexOf(armed) + 1) % cycle.length];
+          disarm(false);
+          if (!armed) { pe("Sleep timer off", 1400, "info"); return; }
+          deadline = Date.now() + armed * 60000;
+          origVol = (ie.el() || {}).volume ?? 1;
+          pe("Sleep timer armed: " + armed + " min", 2200, "success");
+        }
+      });
+      const id = ZenResources.SharedTicker.add(() => {
+        if (!deadline) return;
+        const left = deadline - Date.now();
+        const el = ie.el(); if (!el) return;
+        if (left <= 0) { stopPlayback(); return; }
+        if (left <= 60000 && origVol !== null) {
+          try { el.volume = Math.max(0, origVol * (left / 60000)); } catch (_) {}
+        }
+      }, 1000, { pauseHidden: false, label: "zen-sleep-timer" });
+      Yt["sleep-timer"].push(() => { ZenResources.SharedTicker.remove(id); disarm(true); });
+    },
+    settings(en) {
+      en.appendChild(Io("Enable sleep timer (Alt+O cycles)", "sleepTimerOn"));
+      en.appendChild(No("Default duration (minutes)", "sleepTimerMin", 5, 240, 5, v => v + "m"));
+    },
+  });
+
+  // ─── 8. Stretch Reminder ─────────────────────────────────────────────────
+  // Nudges you to move after continuous watching; resets when you pause away.
+  xa.register({
+    id: "stretch-reminder", name: "Stretch Reminder",
+    summary: "A calm nudge after uninterrupted watching so marathons don't glue you to the chair.",
+    masterKey: "stretchReminderOn", keys: ["stretchReminderOn", "stretchEveryMin"],
+    apply(ctx) {
+      if (!S.stretchReminderOn) return;
+      let watched = 0, lastPauseAt = Date.now();
+      const every = () => Math.max(15, Math.min(120, Number(S.stretchEveryMin) || 45)) * 60000;
+      const binder = ZenPack.elBinder();
+      binder(ctx, "pause", () => { lastPauseAt = Date.now(); });
+      const id = ZenResources.SharedTicker.add(() => {
+        const el = ie.el();
+        if (!el || el.paused || document.hidden) { lastPauseAt = Date.now(); return; }
+        if (Date.now() - lastPauseAt > 300000) { lastPauseAt = Date.now(); watched = 0; }
+        watched += 1000;
+        if (watched >= every()) {
+          watched = 0;
+          pe("You have been watching a while — stand up and stretch?", 4200, "info");
+        }
+      }, 1000, { pauseHidden: true, label: "zen-stretch" });
+      Yt["stretch-reminder"].push(() => ZenResources.SharedTicker.remove(id));
+    },
+    settings(en) {
+      en.appendChild(Io("Remind me to stretch", "stretchReminderOn"));
+      en.appendChild(No("Every (minutes)", "stretchEveryMin", 15, 120, 5, v => v + "m"));
+    },
+  });
+
+  // ─── 9. Session Intention Lock ───────────────────────────────────────────
+  // One optional prompt per session: "What are you here for?" — the answer
+  // floats quietly in the corner while you watch. Purely local.
+  xa.register({
+    id: "intention-lock", name: "Session Intention",
+    summary: "Ask yourself what you came for; your intention stays visible while you watch.",
+    masterKey: "intentionLockOn", keys: ["intentionLockOn"],
+    apply(ctx) {
+      if (!S.intentionLockOn) return;
+      ZenEngine.injectCSS();
+      let chip = null;
+      const show = () => {
+        if (!document.body || document.getElementById("ytp-zen-intent")) return;
+        const card = document.createElement("div");
+        card.id = "ytp-zen-intent";
+        card.style.cssText = "position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:2147483638;" +
+          "background:rgba(16,18,24,.96);border:1px solid rgba(255,255,255,.14);border-radius:12px;" +
+          "padding:10px 12px;font:12px system-ui;color:#eee;display:flex;gap:8px;align-items:center;" +
+          "box-shadow:0 12px 34px rgba(0,0,0,.5)";
+        const label = document.createElement("span"); label.textContent = "What are you here for?";
+        const input = document.createElement("input");
+        input.maxLength = 80;
+        input.style.cssText = "background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.16);color:#fff;border-radius:8px;padding:5px 9px;width:220px;outline:none";
+        const go = document.createElement("button");
+        go.className = "zen-btn primary"; go.textContent = "Set";
+        const done = (val) => {
+          card.remove();
+          if (!val) return;
+          chip = document.createElement("div");
+          chip.id = "ytp-zen-intent-chip";
+          chip.textContent = "🎯 " + val;
+          chip.title = "Click to clear. Your session intention.";
+          chip.style.cssText = "position:fixed;left:12px;bottom:44px;z-index:2147483637;background:rgba(16,18,24,.85);" +
+            "border:1px solid rgba(255,255,255,.12);border-radius:999px;padding:4px 11px;font:600 11px system-ui;color:#ffd7e3";
+          chip.addEventListener("click", () => { chip.remove(); chip = null; });
+          document.body.appendChild(chip);
+        };
+        go.addEventListener("click", () => done(input.value.trim()));
+        input.addEventListener("keydown", (ev) => { if (ev.key === "Enter") done(input.value.trim()); if (ev.key === "Escape") card.remove(); });
+        card.append(label, input, go);
+        document.body.appendChild(card);
+        try { input.focus(); } catch (_) {}
+      };
+      ctx.addTimeout(show, 1200);
+      Yt["intention-lock"].push(() => {
+        const c1 = document.getElementById("ytp-zen-intent"); if (c1) c1.remove();
+        if (chip) { chip.remove(); chip = null; }
+      });
+    },
+    settings(en) { en.appendChild(Io("Ask my intention once per session", "intentionLockOn")); },
+  });
+
+  // ─── 10. End-of-Video Wind-Down ──────────────────────────────────────────
+  // When a video ends, a calm interstitial with a short breathing pause stands
+  // between you and autoplay. Continue is a decision, not a reflex.
+  xa.register({
+    id: "end-winddown", name: "End-of-Video Wind-Down",
+    summary: "A calm pause between videos: autoplay waits behind a gentle screen until you continue.",
+    masterKey: "endWindDownOn", keys: ["endWindDownOn", "windDownSec"],
+    apply(ctx) {
+      if (!S.endWindDownOn) return;
+      ZenEngine.injectCSS();
+      let gateActive = false, overlay = null;
+      const secs = () => Math.max(3, Math.min(60, Number(S.windDownSec) || 10));
+      const showGate = () => {
+        if (!document.body || overlay) return;
+        gateActive = true;
+        overlay = document.createElement("div");
+        overlay.id = "ytp-zen-winddown";
+        overlay.setAttribute("role", "dialog");
+        overlay.style.cssText = "position:fixed;inset:0;z-index:2147483641;background:rgba(8,9,12,.82);" +
+          "display:flex;align-items:center;justify-content:center;backdrop-filter:blur(10px)";
+        const card = document.createElement("div");
+        card.className = "zen-focus-card";
+        const title = document.createElement("div"); title.className = "zen-focus-title"; title.textContent = "That's the end.";
+        const body = document.createElement("p"); body.className = "zen-focus-body";
+        body.textContent = "Autoplay is held for a moment. Breathe — continue only if you mean it.";
+        const row = document.createElement("div"); row.className = "zen-focus-row";
+        const cont = document.createElement("button"); cont.className = "zen-btn primary"; cont.textContent = "Continue (" + secs() + "s)";
+        const stop = document.createElement("button"); stop.className = "zen-btn"; stop.textContent = "Stop here";
+        cont.addEventListener("click", () => dismiss(true));
+        stop.addEventListener("click", () => dismiss(false));
+        row.append(cont, stop); card.append(title, body, row); overlay.appendChild(card);
+        document.body.appendChild(overlay);
+        let left = secs();
+        cont.textContent = "Continue (" + left + "s)";
+        const iv = setInterval(() => {
+          left -= 1;
+          if (left <= 0) { clearInterval(iv); cont.disabled = false; cont.textContent = "Continue"; }
+          else cont.textContent = "Continue (" + left + "s)";
+        }, 1000);
+        cont.disabled = true;
+      };
+      const releasePlay = () => { gateActive = false; };
+      const dismiss = (allowNext) => {
+        if (overlay) { overlay.remove(); overlay = null; }
+        if (allowNext) { releasePlay(); }
+        else {
+          // Block exactly one upcoming play attempt (autoplay), then yield.
+          gateActive = true;
+          setTimeout(() => { gateActive = false; }, 8000);
+        }
+      };
+      const protoPlay = HTMLMediaElement.prototype.play;
+      let patched = false;
+      const patch = () => {
+        if (patched) return; patched = true;
+        HTMLMediaElement.prototype.play = function (...args) {
+          if (gateActive) { return Promise.resolve(); }
+          return protoPlay.apply(this, args);
+        };
+      };
+      const unpatch = () => { if (patched) { try { HTMLMediaElement.prototype.play = protoPlay; } catch (_) {} patched = false; } };
+      patch();
+      const binder = ZenPack.elBinder();
+      binder(ctx, "ended", () => { if (!overlay) showGate(); });
+      ctx.onNav(() => { if (overlay) { overlay.remove(); overlay = null; } gateActive = false; });
+      ctx.addListener(document, "keydown", (ev) => {
+        if (ev.key === "Escape" && overlay) dismiss(false);
+      });
+      Yt["end-winddown"].push(() => { unpatch(); if (overlay) { overlay.remove(); overlay = null; } gateActive = false; });
+    },
+    settings(en) {
+      en.appendChild(Io("Hold autoplay behind a calm pause", "endWindDownOn"));
+      en.appendChild(No("Continue button unlocks after (seconds)", "windDownSec", 3, 60, 1, v => v + "s"));
+    },
+  });
+
+  // ─── 11. Shorts Marathon Guard ───────────────────────────────────────────
+  // Counts consecutive Shorts; past the limit, a single calm toast suggests
+  // moving on. No gates, no blocking — just awareness.
+  xa.register({
+    id: "shorts-marathon-guard", name: "Shorts Marathon Guard",
+    summary: "After N Shorts in a row, one quiet nudge reminds you the reel has no bottom.",
+    masterKey: "shortsMarathonOn", keys: ["shortsMarathonOn", "shortsMarathonN"],
+    apply(ctx) {
+      if (!S.shortsMarathonOn) return;
+      let count = 0, lastVid = "", nudgedAt = 0;
+      ctx.onNav(() => {
+        if (!location.pathname.startsWith("/shorts")) { count = 0; lastVid = ""; return; }
+        const vid = ie.videoId() || location.pathname.split("/").pop() || "";
+        if (vid && vid !== lastVid) {
+          lastVid = vid; count += 1;
+          const limit = Math.max(3, Math.min(100, Number(S.shortsMarathonN) || 15));
+          if (count > 0 && count % limit === 0 && Date.now() - nudgedAt > 120000) {
+            nudgedAt = Date.now();
+            pe(count + " Shorts in a row. The feed never ends — but you can.", 4000, "info");
+          }
+        }
+      });
+    },
+    settings(en) {
+      en.appendChild(Io("Count my Shorts streak", "shortsMarathonOn"));
+      en.appendChild(No("Nudge every N Shorts", "shortsMarathonN", 3, 100, 1, v => v + ""));
+    },
+  });
+
+  // ─── 12. Feed Freshness Filter ───────────────────────────────────────────
+  // Hides home-feed videos older than the chosen age using the metadata line.
+  xa.register({
+    id: "feed-freshness", name: "Feed Freshness Filter",
+    summary: "Keeps the home feed recent by hiding uploads older than your chosen age.",
+    masterKey: "feedFreshnessOn", keys: ["feedFreshnessOn", "feedMaxAgeMonths"],
+    apply(ctx) {
+      if (!S.feedFreshnessOn || !location.pathname.startsWith("/")) return;
+      ZenEngine.injectCSS();
+      const months = () => Math.max(1, Math.min(60, Number(S.feedMaxAgeMonths) || 6));
+      const parseAgeDays = (text) => {
+        const m = String(text || "").match(/(\d+)\s*(year|month|week|day|hour)/i);
+        if (!m) return -1;
+        const v = parseInt(m[1], 10) || 0;
+        const f = { year: 365, month: 30, week: 7, day: 1, hour: 0.04 }[m[2].toLowerCase()];
+        return v * f;
+      };
+      const scan = () => {
+        if (!location.pathname.startsWith("/")) return;
+        document.querySelectorAll("ytd-rich-item-renderer ytd-video-meta-block #metadata-line").forEach((meta) => {
+          const item = meta.closest("ytd-rich-item-renderer");
+          if (!item) return;
+          const age = parseAgeDays(meta.textContent);
+          if (age < 0) return;
+          const stale = age > months() * 30;
+          if (stale && !item.dataset.zenStale) {
+            item.dataset.zenStale = "1"; item.style.display = "none";
+          } else if (!stale && item.dataset.zenStale) {
+            delete item.dataset.zenStale; item.style.display = "";
+          }
+        });
+      };
+      ctx.addObserver(document.body, ZenResources.DeferredTask.debounce.bind(null, "zen-fresh", scan, 300), { childList: true, subtree: true });
+      ctx.addInterval(scan, 5000);
+      ctx.onNav(scan);
+      Yt["feed-freshness"].push(() => {
+        document.querySelectorAll("[data-zen-stale]").forEach((el) => { el.style.display = ""; delete el.dataset.zenStale; });
+      });
+    },
+    settings(en) {
+      en.appendChild(Io("Hide old uploads on the home feed", "feedFreshnessOn"));
+      en.appendChild(No("Older than (months)", "feedMaxAgeMonths", 1, 60, 1, v => v + "mo"));
+    },
+  });
+
+  // ─── 13. Channel Snooze ──────────────────────────────────────────────────
+  // Mutes chosen channels in feeds/subscriptions until the snooze expires.
+  xa.register({
+    id: "channel-snooze", name: "Channel Snooze",
+    summary: "Mute specific channels from feeds and subscriptions for a set number of days.",
+    masterKey: "channelSnoozeOn", keys: ["channelSnoozeOn", "channelSnoozeList"],
+    apply(ctx) {
+      if (!S.channelSnoozeOn) return;
+      ZenEngine.injectCSS();
+      const list = () => String(S.channelSnoozeList || "").split(/[,;\n]+/).map(s => s.trim().toLowerCase()).filter(Boolean);
+      const match = (nameText) => {
+        const nm = String(nameText || "").normalize("NFC").toLowerCase();
+        return list().some((c) => nm.includes(c));
+      };
+      const scan = () => {
+        document.querySelectorAll("ytd-video-renderer, ytd-compact-video-renderer, ytd-rich-item-renderer").forEach((card) => {
+          const owner = card.querySelector("ytd-channel-name a, #owner-name a, ytd-video-owner-renderer a");
+          if (!owner) return;
+          const hit = match(owner.textContent);
+          if (hit && !card.dataset.zenSnoozed) { card.dataset.zenSnoozed = "1"; card.style.display = "none"; }
+          else if (!hit && card.dataset.zenSnoozed) { delete card.dataset.zenSnoozed; card.style.display = ""; }
+        });
+      };
+      ctx.addObserver(document.body, ZenResources.DeferredTask.debounce.bind(null, "zen-snooze", scan, 350), { childList: true, subtree: true });
+      ctx.onNav(scan);
+      Yt["channel-snooze"].push(() => {
+        document.querySelectorAll("[data-zen-snoozed]").forEach((el) => { el.style.display = ""; delete el.dataset.zenSnoozed; });
+      });
+    },
+    settings(en) {
+      en.appendChild(Io("Snooze channels I list", "channelSnoozeOn"));
+      en.appendChild(Ho("Channels to snooze (comma-separated)", "channelSnoozeList", "example channel, another one"));
+    },
+  });
+
+  // ─── 14. Duplicate Title Spotter ─────────────────────────────────────────
+  // On search pages, badges near-duplicate uploads (reuploads, spam waves).
+  xa.register({
+    id: "dup-title-spotter", name: "Duplicate Title Spotter",
+    summary: "Highlights search results whose normalized titles repeat — reuploads stand out.",
+    masterKey: "dupTitleSpotterOn", keys: ["dupTitleSpotterOn"],
+    apply(ctx) {
+      if (!S.dupTitleSpotterOn) return;
+      ZenEngine.injectCSS();
+      const norm = (t) => String(t || "").normalize("NFC").toLowerCase().replace(/[^a-z0-9]+/g, "");
+      const scan = () => {
+        if (!location.pathname.startsWith("/results")) return;
+        const rows = [...document.querySelectorAll("ytd-video-renderer")];
+        const seen = new Map();
+        rows.forEach((row) => {
+          const t = row.querySelector("#video-title");
+          if (!t) return;
+          const key = norm(t.textContent).slice(0, 90);
+          const badge = row.querySelector(".zen-dup-badge");
+          if (!key || key.length < 12) { if (badge) badge.remove(); return; }
+          if (seen.has(key)) {
+            if (!badge) {
+              const b = document.createElement("span");
+              b.className = "zen-dup-badge zen-velocity";
+              b.textContent = "dup title";
+              t.parentNode && t.parentNode.appendChild(b);
+            }
+          } else if (badge) badge.remove();
+          seen.set(key, true);
+        });
+      };
+      ctx.addObserver(document.body, ZenResources.DeferredTask.debounce.bind(null, "zen-dup", scan, 350), { childList: true, subtree: true });
+      ctx.onNav(() => ctx.addTimeout(scan, 700));
+      Yt["dup-title-spotter"].push(() => {
+        document.querySelectorAll(".zen-dup-badge").forEach((b) => b.remove());
+      });
+    },
+    settings(en) { en.appendChild(Io("Flag duplicate titles on search", "dupTitleSpotterOn")); },
+  });
+
+  // ─── 15. Playlist Watched Marker ─────────────────────────────────────────
+  // On any playlist page, checks each entry against local history and marks
+  // already-watched ones — instant orientation on long courses.
+  xa.register({
+    id: "playlist-watched-marker", name: "Playlist Watch-Marks",
+    summary: "Dims playlist entries you have already watched, straight from local history.",
+    masterKey: "playlistWatchedMarkerOn", keys: ["playlistWatchedMarkerOn"],
+    apply(ctx) {
+      if (!S.playlistWatchedMarkerOn) return;
+      ZenEngine.injectCSS();
+      const scan = async () => {
+        if (!location.pathname.startsWith("/playlist") && !location.search.includes("list=")) return;
+        const rows = [...document.querySelectorAll("ytd-playlist-panel-video-renderer, ytd-playlist-video-renderer")];
+        const ids = [];
+        rows.forEach((r) => {
+          const a = r.querySelector("a#wc-endpoint, a[href*='/watch']");
+          const m = a && (a.getAttribute("href") || "").match(/[?&]v=([A-Za-z0-9_-]{11})/);
+          ids.push(m ? m[1] : null);
+        });
+        const flags = await Promise.all(ids.map((id) => id ? v("history", id).then(Boolean).catch(() => false) : false));
+        rows.forEach((r, i) => {
+          const title = r.querySelector("#video-title") || r;
+          if (flags[i]) {
+            title.style.opacity = ".45";
+            if (!title.dataset.zenWatched) {
+              title.dataset.zenWatched = "1";
+              title.setAttribute("title", (title.getAttribute("title") || "") + " ✓ watched");
+            }
+          } else {
+            title.style.opacity = "";
+            delete title.dataset.zenWatched;
+          }
+        });
+      };
+      ctx.addObserver(document.body, ZenResources.DeferredTask.debounce.bind(null, "zen-plmark", scan, 400), { childList: true, subtree: true });
+      ctx.onNav(() => ctx.addTimeout(scan, 800));
+      Yt["playlist-watched-marker"].push(() => {
+        document.querySelectorAll("[data-zen-watched]").forEach((t) => { t.style.opacity = ""; delete t.dataset.zenWatched; });
+      });
+    },
+    settings(en) { en.appendChild(Io("Mark watched entries in playlists", "playlistWatchedMarkerOn")); },
+  });
+
+  // ─── 16. Comment Keyword Filter ──────────────────────────────────────────
+  xa.register({
+    id: "comment-filter", name: "Comment Filter",
+    summary: "Hides comments whose text matches your keyword list — same zen as the video filter.",
+    masterKey: "commentFilterOn", keys: ["commentFilterOn", "commentBlockWords"],
+    apply(ctx) {
+      if (!S.commentFilterOn) return;
+      ZenEngine.injectCSS();
+      const words = () => String(S.commentBlockWords || "").split(/[,;\n]+/).map(w => w.trim().toLowerCase()).filter(Boolean);
+      const scan = () => {
+        const kw = words(); if (!kw.length) return;
+        document.querySelectorAll("ytd-comment-thread-renderer").forEach((thread) => {
+          const body = thread.querySelector("#content-text");
+          if (!body) return;
+          const hit = kw.some((k) => body.textContent.toLowerCase().includes(k));
+          if (hit && !thread.dataset.zenCf) { thread.dataset.zenCf = "1"; thread.style.display = "none"; }
+          else if (!hit && thread.dataset.zenCf) { delete thread.dataset.zenCf; thread.style.display = ""; }
+        });
+      };
+      ctx.addObserver(document.body, ZenResources.DeferredTask.debounce.bind(null, "zen-cf", scan, 400), { childList: true, subtree: true });
+      ctx.onNav(() => ctx.addTimeout(scan, 900));
+      Yt["comment-filter"].push(() => {
+        document.querySelectorAll("[data-zen-cf]").forEach((el) => { el.style.display = ""; delete el.dataset.zenCf; });
+      });
+    },
+    settings(en) {
+      en.appendChild(Io("Filter comments by keywords", "commentFilterOn"));
+      en.appendChild(Ho("Hide comments containing", "commentBlockWords", "first, giveaway, subscribe"));
+    },
+  });
+
+  // ─── 17. History Local Hide ──────────────────────────────────────────────
+  // Masks rows in YouTube's history feed without touching their servers.
+  xa.register({
+    id: "history-local-hide", name: "History Local Hide",
+    summary: "Keep select videos out of your history view locally — nothing is deleted upstream.",
+    masterKey: "historyLocalHideOn", keys: ["historyLocalHideOn"],
+    apply(ctx) {
+      if (!S.historyLocalHideOn || !location.pathname.startsWith("/feed/history")) return;
+      ZenEngine.injectCSS();
+      const hidden = ZenEngine.createStore("__zen_hist_hide__", []);
+      const isHidden = (id) => hidden.get().indexOf(id) !== -1;
+      const scan = async () => {
+        const rows = [...document.querySelectorAll("ytd-video-renderer, ytd-compact-video-renderer")];
+        const ids = rows.map((r) => {
+          const a = r.querySelector("a[href*='/watch']");
+          const m = a && (a.getAttribute("href") || "").match(/[?&]v=([A-Za-z0-9_-]{11})/);
+          return m ? m[1] : null;
+        });
+        for (let i = 0; i < rows.length; i++) {
+          const id = ids[i]; if (!id) continue;
+          const hide = await isHidden(id);
+          if (hide && !rows[i].dataset.zenHistHidden) { rows[i].dataset.zenHistHidden = "1"; rows[i].style.display = "none"; }
+          else if (!hide && rows[i].dataset.zenHistHidden) { delete rows[i].dataset.zenHistHidden; rows[i].style.display = ""; }
+        }
+      };
+      // Shift+click a row's thumbnail to toggle local hiding.
+      ctx.addListener(document.body, "click", (ev) => {
+        if (!ev.shiftKey) return;
+        const row = ev.target.closest("ytd-video-renderer, ytd-compact-video-renderer");
+        if (!row) return;
+        const a = row.querySelector("a[href*='/watch']");
+        const m = a && (a.getAttribute("href") || "").match(/[?&]v=([A-Za-z0-9_-]{11})/);
+        if (!m) return;
+        ev.preventDefault(); ev.stopPropagation();
+        hidden.update((d) => {
+          const at = d.indexOf(m[1]);
+          if (at === -1) { d.push(m[1]); pe("Hidden from history view.", 1500, "success"); }
+          else { d.splice(at, 1); pe("Restored to history view.", 1500, "info"); }
+        });
+      }, true);
+      ctx.addObserver(document.body, ZenResources.DeferredTask.debounce.bind(null, "zen-hlh", scan, 350), { childList: true, subtree: true });
+      ctx.onNav(() => ctx.addTimeout(scan, 700));
+      Yt["history-local-hide"].push(() => {
+        document.querySelectorAll("[data-zen-hist-hidden]").forEach((el) => { el.style.display = ""; delete el.dataset.zenHistHidden; });
+      });
+    },
+    settings(en) {
+      en.appendChild(Io("Enable local history hiding (Shift+click)", "historyLocalHideOn"));
+    },
+  });
+
+  // ─── 18. Copy Link Cleaner ───────────────────────────────────────────────
+  // Strips tracking parameters from YouTube URLs you copy.
+  xa.register({
+    id: "copy-link-cleaner", name: "Copy Link Cleaner",
+    summary: "YouTube links you copy lose si/feature/utm tracking baggage automatically.",
+    masterKey: "copyLinkCleanerOn", keys: ["copyLinkCleanerOn"],
+    apply(ctx) {
+      if (!S.copyLinkCleanerOn) return;
+      const clean = (urlText) => {
+        try {
+          const u = new URL(urlText);
+          if (!/(^|\.)youtube\.com$|(^|\.)youtu\.be$/.test(u.hostname)) return null;
+          const junk = ["si", "feature", "utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term", "gclid", "fbclid"];
+          let touched = false;
+          junk.forEach((k) => { if (u.searchParams.has(k)) { u.searchParams.delete(k); touched = true; } });
+          return touched ? u.toString() : null;
+        } catch (_) { return null; }
+      };
+      ctx.addListener(document.body, "copy", (ev) => {
+        try {
+          const txt = (ev.clipboardData || window.clipboardData).getData("text");
+          if (!txt) return;
+          const cleaned = clean(txt.trim());
+          if (cleaned && cleaned !== txt.trim()) {
+            ev.clipboardData.setData("text/plain", cleaned);
+            ev.preventDefault();
+            pe("Link cleaned before copying.", 1200, "info");
+          }
+        } catch (_) {}
+      }, true);
+    },
+    settings(en) { en.appendChild(Io("Strip tracking params on copy", "copyLinkCleanerOn")); },
+  });
+
+  // ─── 19. Night Theme Scheduler ───────────────────────────────────────────
+  // Applies YouTube's dark attribute inside your evening window and restores
+  // it after — built on the pure TimeWindow primitive.
+  xa.register({
+    id: "night-scheduler", name: "Night Theme Scheduler",
+    summary: "Dark theme after hours, light theme after sunrise — automatic, on your clock.",
+    masterKey: "nightSchedulerOn", keys: ["nightSchedulerOn", "nightStart", "nightEnd"],
+    apply(ctx) {
+      if (!S.nightSchedulerOn) return;
+      const valid = () => ZenResources.TimeWindow.parseHHMM(S.nightStart) !== null &&
+                          ZenResources.TimeWindow.parseHHMM(S.nightEnd) !== null;
+      const wantDark = () => !valid() ? null : ZenResources.TimeWindow.containsHHMM(S.nightStart, S.nightEnd);
+      const enforce = () => {
+        const w = wantDark(); if (w === null) return;
+        const app = document.querySelector("ytd-app");
+        if (!app) return;
+        const isDark = document.documentElement.hasAttribute("dark") || app.hasAttribute("dark");
+        if (w && !isDark) { document.documentElement.setAttribute("dark", ""); app.setAttribute("dark", ""); }
+        else if (!w && isDark) { document.documentElement.removeAttribute("dark"); app.removeAttribute("dark"); }
+      };
+      ctx.addInterval(enforce, 60000);
+      ctx.onNav(() => ctx.addTimeout(enforce, 800));
+      ctx.addTimeout(enforce, 1500);
+      Yt["night-scheduler"].push(() => {});
+    },
+    settings(en) {
+      en.appendChild(Io("Schedule dark theme by clock", "nightSchedulerOn"));
+      en.appendChild(_o("Dark from (HH:MM)", "nightStart"));
+      en.appendChild(_o("Light from (HH:MM)", "nightEnd"));
+    },
+  });
+
+  // ─── 20. Text Scale Booster ──────────────────────────────────────────────
+  xa.register({
+    id: "text-scale", name: "Reading Size Boost",
+    summary: "Larger description and comment text without zooming the whole page.",
+    masterKey: "textScaleOn", keys: ["textScaleOn", "textScalePct"],
+    apply(ctx) {
+      if (!S.textScaleOn) return;
+      const pct = Math.max(100, Math.min(180, Number(S.textScalePct) || 115));
+      const css = "#description-inline-expander, ytd-text-inline-expander, #description {" +
+        "font-size:" + pct + "% !important;line-height:1.5 !important}" +
+        "ytd-comment-view-model #content-text, ytd-comment-thread-renderer #content-text {" +
+        "font-size:" + pct + "% !important}";
+      const undo = ZenResources.Dom.css(css, "zen-textscale");
+      Yt["text-scale"].push(undo);
+    },
+    settings(en) {
+      en.appendChild(Io("Bigger reading text", "textScaleOn"));
+      en.appendChild(No("Size", "textScalePct", 100, 180, 5, v => v + "%"));
+    },
+  });
+
+  // ─── 21. Ambient Glow ────────────────────────────────────────────────────
+  // Samples the video into a 16×9 canvas twice a second while playing and
+  // tints a soft box-shadow around the player — bias lighting, no add-ons.
+  xa.register({
+    id: "ambient-glow", name: "Ambient Glow",
+    summary: "Bias lighting for the player: its edges breathe with the colors on screen.",
+    masterKey: "ambientGlowOn", keys: ["ambientGlowOn"],
+    apply(ctx) {
+      if (!S.ambientGlowOn) return;
+      const glow = document.createElement("div");
+      glow.id = "ytp-zen-glow";
+      glow.style.cssText = "position:fixed;pointer-events:none;z-index:5;border-radius:14px;display:none";
+      const sample = document.createElement("canvas");
+      sample.width = 16; sample.height = 9;
+      const sctx = sample.getContext("2d", { willReadFrequently: true });
+      let last = 0;
+      const tick = () => {
+        const vid = ie.el();
+        const player = document.getElementById("movie_player") || document.querySelector(".html5-video-player");
+        if (!vid || !player || vid.paused || document.hidden || vid.readyState < 2) {
+          glow.style.display = "none"; return;
+        }
+        const rect = player.getBoundingClientRect();
+        if (rect.width < 40) { glow.style.display = "none"; return; }
+        Object.assign(glow.style, {
+          display: "block",
+          left: rect.left - 10 + "px", top: rect.top - 10 + "px",
+          width: rect.width + 20 + "px", height: rect.height + 20 + "px",
+          boxShadow: glow.style.boxShadow || "0 0 90px 12px rgba(80,80,120,.35)",
+        });
+        const now = Date.now();
+        if (now - last < 500) return;
+        last = now;
+        try {
+          sctx.drawImage(vid, 0, 0, 16, 9);
+          const d = sctx.getImageData(0, 0, 16, 9).data;
+          let r = 0, g = 0, b = 0;
+          for (let i = 0; i < d.length; i += 4) { r += d[i]; g += d[i + 1]; b += d[i + 2]; }
+          const px = d.length / 4;
+          r /= px; g /= px; b /= px;
+          glow.style.boxShadow = "0 0 110px 18px rgba(" + (r | 0) + "," + (g | 0) + "," + (b | 0) + ",.42)";
+        } catch (_) {}
+      };
+      const mount = () => {
+        if (!document.body || glow.parentNode) return !!glow.parentNode;
+        document.body.appendChild(glow); return true;
+      };
+      ZenEngine.scheduleOnReady(ctx, mount, { attempts: 6, delayMs: 500 });
+      const id = ZenResources.SharedTicker.add(tick, 250, { pauseHidden: true, label: "zen-glow" });
+      ctx.addListener(window, "resize", tick, { passive: true });
+      Yt["ambient-glow"].push(() => {
+        ZenResources.SharedTicker.remove(id);
+        glow.remove();
+      });
+    },
+    settings(en) { en.appendChild(Io("Enable ambient bias lighting", "ambientGlowOn")); },
+  });
+
+  // ─── 22. Storage Dashboard ───────────────────────────────────────────────
+  // Shows YT-zen's IndexedDB footprint per store plus browser quota, with a
+  // one-click trim.
+  xa.register({
+    id: "storage-dashboard", name: "Storage Dashboard",
+    summary: "See exactly how much local space YT-zen uses — per store — and trim it.",
+    masterKey: "storageDashboardOn", keys: ["storageDashboardOn"],
+    apply(ctx) { /* panel renders through settings() */ },
+    settings(en) {
+      en.appendChild(Io("Show storage overview", "storageDashboardOn"));
+      const out = document.createElement("div");
+      out.className = "ytp-hist-note"; out.style.marginTop = "8px";
+      en.appendChild(out);
+      const fmtBytes = (n) => n > 1073741824 ? (n / 1073741824).toFixed(2) + " GB"
+        : n > 1048576 ? (n / 1048576).toFixed(1) + " MB" : (n / 1024).toFixed(0) + " KB";
+      const render = async () => {
+        out.textContent = "Counting…";
+        const lines = [];
+        try { const est = await navigator.storage.estimate(); if (est) lines.push("Browser quota used: ~" + fmtBytes(est.usage || 0) + " of " + fmtBytes(est.quota || 0)); } catch (_) {}
+        for (const storeName of ["kv", "history", "thumbCache", "replay"]) {
+          try {
+            const rows = await w(storeName);
+            let bytes = 0;
+            for (const r of (rows || [])) { try { bytes += JSON.stringify(r).length; } catch (_) {} }
+            lines.push(storeName + ": " + (rows ? rows.length : 0) + " rows ≈ " + fmtBytes(bytes));
+          } catch (_) { lines.push(storeName + ": unavailable"); }
+        }
+        out.innerHTML = "";
+        const pre = document.createElement("div");
+        pre.style.whiteSpace = "pre-line";
+        pre.textContent = lines.join("\n");
+        out.appendChild(pre);
+        const trim = Oo("Trim old caches now", () => {
+          try {
+            if (typeof YtpCache !== "undefined" && YtpCache.cleanup) YtpCache.cleanup();
+            ZenResources.TrackedBlobURL.revokeOlderThan(30000);
+            pe("Cache trim requested.", 1600, "success");
+          } catch (_) { pe("Trim failed.", 1600, "error"); }
+        });
+        out.appendChild(trim);
+      };
+      render();
+    },
+  });
+
+  // ─── 23. Health Check Panel ──────────────────────────────────────────────
+  // One-glance self-diagnostics: engine stats, SponsorBlock counters,
+  // quarantined features, selector sanity probes.
+  xa.register({
+    id: "health-check", name: "Health Check",
+    summary: "Self-diagnostics board: subsystem stats, quarantines, and live DOM probes.",
+    masterKey: "healthCheckOn", keys: ["healthCheckOn"],
+    apply(ctx) { },
+    settings(en) {
+      en.appendChild(Io("Show health check", "healthCheckOn"));
+      const box = document.createElement("div");
+      box.className = "ytp-hist-note"; box.style.marginTop = "8px";
+      box.style.whiteSpace = "pre-line";
+      en.appendChild(box);
+      const render = () => {
+        const L = [];
+        try {
+          const rs = ZenResources.stats();
+          L.push("Observers: " + rs.sharedObserver.subscribers + " subs (" + (rs.sharedObserver.active ? "active" : "idle") + ")");
+          L.push("Tickers: " + rs.sharedTicker.tasks + " tasks");
+          L.push("Blob URLs alive: " + rs.blobURLs.active);
+          L.push("Deferred tasks: " + rs.deferred.pending);
+          L.push("Abort groups: " + rs.abortGroups.groups);
+        } catch (_) { L.push("ZenResources: unavailable"); }
+        try {
+          const sb = SponsorBlockEngine.stats();
+          L.push("SponsorBlock: " + sb.skips + " skips all-time, cache hit " + sb.hitRate + "%");
+        } catch (_) { L.push("SponsorBlock: off"); }
+        try {
+          const q = xa.list().filter((f) => xa.isQuarantined(f.id));
+          L.push(q.length ? "Quarantined features: " + q.map((f) => f.id).join(", ") : "No quarantined features ✓");
+        } catch (_) {}
+        // Live DOM probes against current YouTube selectors.
+        for (const probe of [
+          ["video element", "video.html5-main-video"],
+          ["player shell", "#movie_player"],
+          ["home grid", "ytd-rich-grid-renderer #contents"],
+        ]) {
+          let ok = false;
+          try { ok = !!document.querySelector(probe[1]); } catch (_) {}
+          L.push("Probe " + probe[0] + ": " + (ok ? "found ✓" : "not on this page"));
+        }
+        box.textContent = L.join("\n");
+      };
+      render();
+      const btn = Oo("Re-run checks", render); en.appendChild(btn);
+    },
+  });
+
+  // ─── 24. Queue Shuffle ───────────────────────────────────────────────────
+  // Fisher-Yates shuffle over the local queue with Alt+U anywhere.
+  xa.register({
+    id: "queue-shuffle", name: "Queue Shuffle",
+    summary: "Shuffle your local watch queue instantly with Alt+U.",
+    masterKey: "queueShuffleOn", keys: ["queueShuffleOn"],
+    apply(ctx) {
+      if (!S.queueShuffleOn) return;
+      const shuffle = () => {
+        const list = ZenQueue.getList();
+        if (list.length < 2) { pe("Queue too small to shuffle.", 1400, "info"); return; }
+        for (let i = list.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [list[i], list[j]] = [list[j], list[i]];
+        }
+        ZenQueue.clear();
+        list.forEach((v) => ZenQueue.add(v));
+        g.emit("zen.queue.shuffled", { size: list.length });
+        pe("Queue shuffled (" + list.length + ").", 1600, "success");
+      };
+      ctx.addListener(document, "keydown", (ev) => {
+        if (ev.altKey && !ev.ctrlKey && !ev.metaKey && ev.code === "KeyU" && !ZenPack.guardKey(ev)) {
+          ev.preventDefault(); shuffle();
+        }
+      });
+      ZenEngine.scheduleOnReady(ctx, () => {
+        const host = document.querySelector("#ytp-zen-queue");
+        if (!host) return false;
+        if (host.querySelector(".zen-q-shuffle")) return true;
+        const b = document.createElement("button");
+        b.className = "zen-btn zen-q-shuffle"; b.textContent = "Shuffle";
+        b.style.marginTop = "6px";
+        b.addEventListener("click", shuffle);
+        host.appendChild(b);
+        return true;
+      }, { attempts: 6, delayMs: 600 });
+    },
+    settings(en) { en.appendChild(Io("Enable queue shuffle (Alt+U)", "queueShuffleOn")); },
+  });
+
+  // ─── 25. Frame Stepper ───────────────────────────────────────────────────
+  // Player buttons + hotkeys that nudge by exactly one frame at your FPS.
+  xa.register({
+    id: "frame-stepper", name: "Frame Stepper",
+    summary: "Precise frame-by-frame nudges (‹ › buttons and Alt+, / Alt+.) at any FPS.",
+    masterKey: "frameStepperOn", keys: ["frameStepperOn", "frameFps"],
+    apply(ctx) {
+      if (!S.frameStepperOn) return;
+      ZenEngine.injectCSS();
+      const fps = () => Math.max(12, Math.min(120, Number(S.frameFps) || 30));
+      const step = (dir) => {
+        const el = ie.el(); if (!el) return;
+        try { el.pause(); el.currentTime += dir / fps(); } catch (_) {}
+      };
+      ctx.addListener(document, "keydown", (ev) => {
+        if (!ev.altKey || ev.ctrlKey || ev.metaKey || ZenPack.guardKey(ev)) return;
+        if (ev.code === "Comma") { ev.preventDefault(); step(-1); }
+        if (ev.code === "Period") { ev.preventDefault(); step(1); }
+      });
+      ZenEngine.scheduleOnReady(ctx, () => {
+        const bar = document.querySelector(".ytp-right-controls");
+        if (!bar || bar.querySelector("#ytp-zen-frameback")) return !!bar.querySelector("#ytp-zen-frameback");
+        const mk = (id, label, dir) => {
+          const b = document.createElement("button");
+          b.id = id; b.className = "ytp-button"; b.title = label; b.textContent = dir < 0 ? "‹·" : "·›";
+          b.addEventListener("click", (ev) => { ev.stopPropagation(); step(dir); });
+          bar.prepend(b);
+          return b;
+        };
+        mk("ytp-zen-frameback", "Back one frame (Alt+,)", -1);
+        mk("ytp-zen-framefwd", "Forward one frame (Alt+.)", 1);
+        return true;
+      }, { attempts: 8, delayMs: 500 });
+      Yt["frame-stepper"].push(() => {
+        ["ytp-zen-frameback", "ytp-zen-framefwd"].forEach((id) => {
+          const b = document.getElementById(id); if (b) b.remove();
+        });
+      });
+    },
+    settings(en) {
+      en.appendChild(Io("Enable frame stepping", "frameStepperOn"));
+      en.appendChild(No("Assumed FPS", "frameFps", 12, 120, 1, v => v + " fps"));
+    },
+  });
+
+  // ─── 26. Playlist Position Memory ────────────────────────────────────────
+  // Long course playlist? Reopening it offers to resume exactly where the
+  // playlist left off — index and timestamp.
+  xa.register({
+    id: "playlist-resume", name: "Playlist Resume",
+    summary: "Remembers where each playlist stopped and offers one-click resumption.",
+    masterKey: "playlistResumeOn", keys: ["playlistResumeOn"],
+    apply(ctx) {
+      if (!S.playlistResumeOn) return;
+      ZenEngine.injectCSS();
+      const store = ZenEngine.createStore("__zen_pl_resume__", {});
+      const plId = () => { try { return new URL(location.href).searchParams.get("list"); } catch (_) { return null; } };
+      let saveTick = 0;
+      const binder = ZenPack.elBinder();
+      binder(ctx, "timeupdate", () => {
+        const p = plId(), el = ie.el();
+        if (!p || !el || !Number.isFinite(el.currentTime)) return;
+        const now = Date.now();
+        if (now - saveTick < 5000) return;
+        saveTick = now;
+        let idx = null;
+        try {
+          const api = ie.api();
+          idx = api && typeof api.getPlaylistIndex === "function" ? api.getPlaylistIndex() : null;
+        } catch (_) {}
+        store.update(d => { d[p] = { v: ie.videoId(), i: idx, t: el.currentTime, at: now }; });
+      });
+      const offer = () => {
+        const p = plId(); if (!p) return;
+        const rec = store.get()[p];
+        if (!rec || !rec.v || rec.t < 15) return;
+        const curVid = ie.videoId();
+        if (curVid === rec.v) return; // already there
+        const toastHost = document.getElementById("ytp-zen-plresume") || document.createElement("button");
+        toastHost.id = "ytp-zen-plresume";
+        toastHost.className = "zen-btn primary";
+        toastHost.style.cssText = "position:fixed;left:50%;transform:translateX(-50%);bottom:52px;z-index:2147483636;padding:8px 16px";
+        toastHost.textContent = "↩ Resume this playlist at " + ZenPack.fmtTs(rec.t);
+        toastHost.onclick = () => {
+          try { e.location.href = "/watch?v=" + rec.v + "&list=" + p + (rec.i != null ? "&index=" + (rec.i + 1) : "") + "&t=" + Math.floor(rec.t); } catch (_) {}
+          toastHost.remove();
+        };
+        if (!toastHost.parentNode) document.body.appendChild(toastHost);
+        setTimeout(() => { if (toastHost.parentNode) toastHost.remove(); }, 12000);
+      };
+      ctx.onNav(() => ctx.addTimeout(offer, 1200));
+      Yt["playlist-resume"].push(() => {
+        const b = document.getElementById("ytp-zen-plresume"); if (b) b.remove();
+      });
+    },
+    settings(en) { en.appendChild(Io("Offer playlist resume points", "playlistResumeOn")); },
+  });
+
+  // ─── 27. Per-Channel Volume Memory ───────────────────────────────────────
+  // Some channels are whisper-quiet, others deafening. Remember volume per
+  // channel and restore it automatically.
+  xa.register({
+    id: "channel-volume", name: "Per-Channel Volume",
+    summary: "Remembers your preferred loudness for every channel and applies it quietly.",
+    masterKey: "channelVolumeOn", keys: ["channelVolumeOn"],
+    apply(ctx) {
+      if (!S.channelVolumeOn) return;
+      const store = ZenEngine.createStore("__zen_ch_vol__", {});
+      let appliedFor = "";
+      const binder = ZenPack.elBinder();
+      binder(ctx, "loadedmetadata", tryApply);
+      binder(ctx, "play", tryApply);
+      function tryApply() {
+        const el = ie.el(), ch = ie.channel();
+        if (!el || !ch || ch === appliedFor) return;
+        const pref = store.get()[ch];
+        if (pref && Number.isFinite(pref.v)) {
+          try { el.volume = Math.max(0, Math.min(1, pref.v)); } catch (_) {}
+          appliedFor = ch;
+        }
+      }
+      // Learn: remember volume 3s after user adjusts it.
+      const binder2 = ZenPack.elBinder();
+      binder2(ctx, "volumechange", () => {
+        const el = ie.el(), ch = ie.channel();
+        if (!el || !ch) return;
+        clearTimeout(tryApply._t);
+        tryApply._t = setTimeout(() => {
+          const cur = ie.el();
+          if (!cur || cur !== el) return;
+          store.update(d => { d[ch] = { v: el.volume, at: Date.now() }; });
+        }, 3000);
+      });
+      Yt["channel-volume"].push(() => { clearTimeout(tryApply._t); });
+    },
+    settings(en) { en.appendChild(Io("Remember volume per channel", "channelVolumeOn")); },
+  });
+
+  // ─── 28. Quick Collection Send ───────────────────────────────────────────
+  // One click under the player sends the current video into any collection.
+  xa.register({
+    id: "quick-collection-send", name: "Quick Save to Collection",
+    summary: "A small ▤ menu under the player drops the current video into any collection.",
+    masterKey: "quickCollectionSendOn", keys: ["quickCollectionSendOn"],
+    apply(ctx) {
+      if (!S.quickCollectionSendOn) return;
+      ZenEngine.injectCSS();
+      const mount = () => {
+        const below = document.querySelector("#below #owner, #below ytd-watch-metadata #actions");
+        if (!below || below.querySelector(".zen-qsend")) return !!below;
+        const wrap = document.createElement("div");
+        wrap.className = "zen-qsend";
+        wrap.style.cssText = "margin:8px 0;display:inline-flex;gap:6px;align-items:center";
+        const btn = document.createElement("button");
+        btn.className = "zen-btn"; btn.textContent = "▤ Save to…";
+        const sel = document.createElement("select");
+        sel.style.cssText = "display:none;background:#16181f;color:#eee;border:1px solid rgba(255,255,255,.2);border-radius:8px;padding:4px 8px;font-size:12px";
+        const fill = () => {
+          sel.replaceChildren();
+          const cols = ZenSession.collections.list();
+          if (!cols.length) { const o = document.createElement("option"); o.textContent = "(no collections yet)"; sel.appendChild(o); return; }
+          cols.forEach((c) => { const o = document.createElement("option"); o.value = c.id; o.textContent = c.name + " (" + c.videos.length + ")"; sel.appendChild(o); });
+        };
+        btn.addEventListener("click", () => { fill(); sel.style.display = sel.style.display === "none" ? "inline-block" : "none"; });
+        sel.addEventListener("change", () => {
+          const vid = ie.videoId(); if (!vid || !sel.value) return;
+          ZenSession.collections.addVideo(sel.value, { videoId: vid, title: ie.title() || vid });
+          pe("Saved to collection.", 1500, "success");
+          sel.style.display = "none";
+        });
+        wrap.append(btn, sel);
+        below.appendChild(wrap);
+        return true;
+      };
+      ZenEngine.scheduleOnReady(ctx, mount, { attempts: 10, delayMs: 500 });
+      Yt["quick-collection-send"].push(() => {
+        document.querySelectorAll(".zen-qsend").forEach((w) => w.remove());
+      });
+    },
+    settings(en) { en.appendChild(Io("Show quick-save under the player", "quickCollectionSendOn")); },
+  });
+
+  // ─── 29. Reader Mode ─────────────────────────────────────────────────────
+  // Expands the description into a clean overlay: big type, zero clutter.
+  xa.register({
+    id: "reader-mode", name: "Description Reader",
+    summary: "Open long descriptions in a calm reader panel — large type, no chrome.",
+    masterKey: "readerModeOn", keys: ["readerModeOn"],
+    apply(ctx) {
+      if (!S.readerModeOn) return;
+      ZenEngine.injectCSS();
+      let overlay = null;
+      const open = () => {
+        const descEl = document.querySelector("#description-inline-expander, #description, ytd-text-inline-expander");
+        if (!descEl || !document.body) return;
+        close();
+        overlay = document.createElement("div");
+        overlay.id = "ytp-zen-reader";
+        overlay.setAttribute("role", "dialog");
+        overlay.style.cssText = "position:fixed;inset:0;z-index:2147483640;background:rgba(10,11,15,.94);" +
+          "display:flex;align-items:center;justify-content:center;padding:24px;overflow:auto";
+        const inner = document.createElement("div");
+        inner.style.cssText = "max-width:720px;width:100%;background:rgba(18,20,27,.98);border-radius:14px;" +
+          "padding:26px 30px;border:1px solid rgba(255,255,255,.1);color:#e8e8ee;" +
+          "font:15px/1.65 system-ui;white-space:pre-wrap;max-height:86vh;overflow:auto";
+        inner.textContent = descEl.innerText || descEl.textContent || "";
+        const closeBtn = document.createElement("button");
+        closeBtn.textContent = "× Close";
+        closeBtn.className = "zen-btn";
+        closeBtn.style.cssText = "float:right;margin-left:12px";
+        closeBtn.addEventListener("click", close);
+        inner.prepend(closeBtn);
+        overlay.appendChild(inner);
+        overlay.addEventListener("click", (ev) => { if (ev.target === overlay) close(); });
+        document.body.appendChild(overlay);
+      };
+      const close = () => { if (overlay) { overlay.remove(); overlay = null; } };
+      const mount = () => {
+        const meta = document.querySelector("#description-inline-expander, ytd-text-inline-expander");
+        if (!meta || meta.querySelector(".zen-reader-open")) return !!meta;
+        const b = document.createElement("button");
+        b.className = "zen-btn zen-reader-open";
+        b.style.cssText = "margin-top:6px";
+        b.textContent = "📖 Reader mode";
+        b.addEventListener("click", open);
+        meta.appendChild(b);
+        return true;
+      };
+      ZenEngine.scheduleOnReady(ctx, mount, { attempts: 10, delayMs: 500 });
+      ctx.addListener(document, "keydown", (ev) => { if (ev.key === "Escape") close(); });
+      ctx.onNav(close);
+      Yt["reader-mode"].push(close);
+    },
+    settings(en) { en.appendChild(Io("Add reader mode to descriptions", "readerModeOn")); },
+  });
+
+  // ─── 30. Zen Breather ────────────────────────────────────────────────────
+  // Alt+G opens a 60-second guided breathing overlay — a hard reset for doom-
+  // scroll fingers. Esc exits anytime.
+  xa.register({
+    id: "zen-breather", name: "Zen Breather",
+    summary: "Alt+G dims everything for a one-minute breathing circle. Esc leaves anytime.",
+    masterKey: "zenBreatherOn", keys: ["zenBreatherOn"],
+    apply(ctx) {
+      if (!S.zenBreatherOn) return;
+      ZenEngine.injectCSS();
+      let ov = null, raf = 0;
+      const close = () => {
+        if (raf) { cancelAnimationFrame(raf); raf = 0; }
+        if (ov) { ov.remove(); ov = null; }
+      };
+      const open = () => {
+        if (!document.body || ov) return;
+        ov = document.createElement("div");
+        ov.id = "ytp-zen-breather";
+        ov.style.cssText = "position:fixed;inset:0;z-index:2147483643;background:rgba(6,7,10,.93);" +
+          "display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px";
+        const circle = document.createElement("div");
+        circle.style.cssText = "width:130px;height:130px;border-radius:50%;border:2px solid rgba(255,138,165,.75);" +
+          "transition:transform 4s ease-in-out, opacity 4s ease-in-out;opacity:.55";
+        const label = document.createElement("div");
+        label.style.cssText = "font:600 13px system-ui;color:#ffd7e3;letter-spacing:.08em;text-transform:uppercase";
+        label.textContent = "in";
+        const hint = document.createElement("div");
+        hint.style.cssText = "font:11px system-ui;color:#889";
+        hint.textContent = "Esc to finish · 4s in, 4s out";
+        ov.append(circle, label, hint);
+        ov.addEventListener("click", close);
+        document.body.appendChild(ov);
+        let phase = 0, t0 = performance.now();
+        const anim = (now) => {
+          if (!ov) return;
+          const el = (now - t0) / 1000;
+          const cycle = Math.floor(el / 4) % 2;
+          const k = Math.min(1, (el % 4) / 4);
+          if (cycle === 0) { circle.style.transform = "scale(" + (0.72 + 0.38 * k) + ")"; circle.style.opacity = String(0.55 + 0.45 * k); label.textContent = "in"; }
+          else { circle.style.transform = "scale(" + (1.1 - 0.38 * k) + ")"; circle.style.opacity = String(1 - 0.45 * k); label.textContent = "out"; }
+          raf = requestAnimationFrame(anim);
+        };
+        raf = requestAnimationFrame(anim);
+      };
+      ctx.addListener(document, "keydown", (ev) => {
+        if (ev.altKey && !ev.ctrlKey && !ev.metaKey && ev.code === "KeyG" && !ZenPack.guardKey(ev)) {
+          ev.preventDefault(); ov ? close() : open();
+        }
+        if (ev.key === "Escape") close();
+      });
+      Yt["zen-breather"].push(close);
+    },
+    settings(en) { en.appendChild(Io("Enable breather (Alt+G)", "zenBreatherOn")); },
   });
   (async function () {
     try {

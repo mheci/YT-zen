@@ -37,7 +37,21 @@
       if (!selector) return null;
 
       // Check domain scope
-      const domains = domain ? domain.split(',').map(d => d.trim().toLowerCase()) : [];
+      const domains = [];
+      const excludedDomains = [];
+      if (domain) {
+        for (let d of domain.split(',')) {
+          d = d.trim().toLowerCase();
+          if (!d) continue;
+          // uBlock "~domain" negation: excluded hosts, never include-matched.
+          if (d[0] === '~') { if (d.length > 1) excludedDomains.push(d.slice(1)); }
+          else domains.push(d);
+        }
+      }
+      const hostMatches = (list) => {
+        const host = (location.hostname || '').toLowerCase();
+        return list.some((d) => host === d || host.endsWith('.' + d));
+      };
 
       // Detect procedural filters
       const hasHasText = /:has-text\(/.test(selector);
@@ -51,12 +65,20 @@
         if (pathMatch) {
           try {
             const parts = pathMatch[1].match(/^\/(.+)\/([gimsuy]*)$/);
-            if (parts) pathRegex = new RegExp(parts[1], parts[2]);
+            if (parts) {
+            // test() is reused across navigations; stateful g/y flags make
+            // matching alternate true/false.
+            pathRegex = new RegExp(parts[1], parts[2].replace(/[gy]/g, ""));
+          }
           } catch (_) {}
         }
-        // Remove :matches-path() from selector, leaving the target element
-        selector = selector.replace(/:matches-path\([^)]*\)/g, '').trim();
-        if (!selector) selector = '*';
+        if (!pathRegex) {
+        // Unparseable :matches-path token: stripping it would turn a scoped
+        // filter into an every-page hide; reject the line instead.
+        return null;
+      }
+      selector = selector.replace(/:matches-path\((\/.+?\/[a-z]*|[^)]*)\)/i, "").trim();
+      if (!selector) selector = '*';
       }
 
       // Extract :has-text() patterns
@@ -71,22 +93,30 @@
             const lastSlash = inner.lastIndexOf('/');
             const pattern = inner.slice(1, lastSlash);
             const flags = inner.slice(lastSlash + 1);
-            try { hasTextPatterns.push(new RegExp(pattern, flags)); } catch (_) {}
+            try { hasTextPatterns.push(new RegExp(pattern, flags.replace(/[gy]/g, ""))); } catch (_) {}
           } else {
             // Plain string: convert to case-insensitive regex
             try { hasTextPatterns.push(new RegExp(escapeRegex(inner), 'i')); } catch (_) {}
           }
         }
-        // Remove :has-text() from selector for the CSS part
-        // We need to find the element selector that :has-text() applies to
-        // Pattern: selector:has-text(...) → we keep selector and apply text check in JS
-        selector = selector.replace(/:has-text\([^)]*\)/g, '').trim();
+        // Strip :has-text(...) using the exec match ranges: a [^)]* stripper
+        // corrupts patterns containing ')'.
+        const stripped = [];
+        let last = 0;
+        regex.lastIndex = 0;
+        while ((match = regex.exec(selector)) !== null) {
+          stripped.push(selector.slice(last, match.index));
+          last = match.index + match[0].length;
+        }
+        stripped.push(selector.slice(last));
+        selector = stripped.join('').trim();
         if (!selector) selector = '*';
       }
 
       return {
         raw,
         domains,
+        excludedDomains,
         selector,
         isProcedural,
         hasTextPatterns,
@@ -96,6 +126,11 @@
     };
 
     // Escape special regex characters in a string
+    const hostMatches = (list) => {
+      const host = (location.hostname || '').toLowerCase();
+      return list.some((d) => host === d || host.endsWith('.' + d));
+    };
+
     const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
     // ─── Filter List Parser ──────────────────────────────────────────────────
@@ -136,11 +171,8 @@
       const rules = [];
       for (const f of cssFilters) {
         // Check domain scope
-        if (f.domains.length > 0) {
-          const host = (location.hostname || '').toLowerCase();
-          const matches = f.domains.some(d => host === d || host.endsWith('.' + d));
-          if (!matches) continue;
-        }
+        if (f.domains.length > 0 && !hostMatches(f.domains)) continue;
+        if (f.excludedDomains.length > 0 && hostMatches(f.excludedDomains)) continue;
 
         // Check path regex for path-scoped CSS filters
         if (f.pathRegex) {
@@ -163,14 +195,15 @@
 
       for (const f of procFilters) {
         // Check domain scope
-        if (f.domains.length > 0) {
-          const host = (location.hostname || '').toLowerCase();
-          const matches = f.domains.some(d => host === d || host.endsWith('.' + d));
-          if (!matches) continue;
-        }
+        if (f.domains.length > 0 && !hostMatches(f.domains)) continue;
+        if (f.excludedDomains.length > 0 && hostMatches(f.excludedDomains)) continue;
 
         // Check path regex
         if (f.pathRegex && !f.pathRegex.test(path)) continue;
+
+        // Whole-page procedural filters ('*' selector) would serialize the textContent
+        // of every node; page-wide blocking is handled by the path-class mechanism.
+        if (!f.selector || f.selector === '*') continue;
 
         // Find candidate elements
         let candidates;
@@ -195,12 +228,9 @@
       // Apply path-based hiding
       for (const f of pathFilters) {
         if (!f.pathRegex || !f.pathRegex.test(path)) continue;
-        if (f.domains.length > 0) {
-          const host = (location.hostname || '').toLowerCase();
-          const matches = f.domains.some(d => host === d || host.endsWith('.' + d));
-          if (!matches) continue;
-        }
-        if (f.selector && !f.hasTextPatterns.length) {
+        if (f.domains.length > 0 && !hostMatches(f.domains)) continue;
+        if (f.excludedDomains.length > 0 && hostMatches(f.excludedDomains)) continue;
+        if (f.selector && f.selector !== '*' && !f.hasTextPatterns.length) {
           try {
             const els = document.querySelectorAll(f.selector);
             for (const el of els) {

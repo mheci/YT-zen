@@ -93,6 +93,7 @@
       initPromise: null,
       initPromiseVideoId: null,
       lastInitCompletedAt: 0,
+      undoUntilTs: 0,
       // Submission Creator Editor State
       editor: {
         active: false,
@@ -683,8 +684,15 @@
           normalized.push(valid);
         }
         normalized.sort((a, b) => a.segment[0] - b.segment[0] || a.segment[1] - b.segment[1] || a.UUID.localeCompare(b.UUID));
+        // Overlapping categories are common in server data; the playback
+        // binary search assumes disjoint intervals and silently misses skips
+        // inside overlaps. Contain every segment within its predecessor.
+        for (let i = 0; i < normalized.length - 1; i++) {
+          const cur = normalized[i], next = normalized[i + 1];
+          if (next.segment[0] < segmentEndFor(cur)) next.segment[0] = segmentEndFor(cur);
+        }
         return {
-          segments: normalized,
+          segments: normalized.filter((s) => s.segment[1] > s.segment[0]),
           matched: extracted.matched,
           prefixed: extracted.prefixed,
           valid: extracted.valid,
@@ -864,6 +872,9 @@
       const postVote = async (params) => {
         const videoId = currentVideoId();
         if (!params || !params.UUID || !State.userId || !VIDEO_ID_RE.test(String(videoId || ""))) return false;
+        // Synthetic ids (idx-* fallbacks, preview-*) are local-only; posting
+        // them to the server is junk traffic keyed on unstable ordering.
+        if (/^(idx-|preview-)/.test(String(params.UUID))) return false;
         const base = Settings.getServerUrl();
         const query = new URLSearchParams(Object.assign({
           UUID: params.UUID,
@@ -915,6 +926,7 @@
       const reportViewed = async (uuid) => {
         const videoId = currentVideoId();
         if (!uuid || !VIDEO_ID_RE.test(String(videoId || ""))) return false;
+        if (/^(idx-|preview-)/.test(String(uuid))) return false;
         const base = Settings.getServerUrl();
         try {
           Metrics.recordViewedReport();
@@ -960,6 +972,9 @@
     })();
 
     // ─── Player Module ───────────────────────────────────────────────────────
+    // Shared end-time helper (module scope so both API normalization and
+    // playback can use it).
+    const segmentEndFor = (seg) => Math.max(seg.segment[1], seg.segment[0] + POINT_SEGMENT_EPSILON);
     const Player = (() => {
       const segmentEndOf = (seg) => Math.max(seg.segment[1], seg.segment[0] + POINT_SEGMENT_EPSILON);
       const isTimeInSegment = (seg, time) => time >= seg.segment[0] && time < segmentEndOf(seg);
@@ -1077,7 +1092,19 @@
 
         if (action === "skip") {
           const uuid = seg.UUID || ("idx-" + idx + "-" + seg.segment[0]);
-          const targetTime = Math.max(seg.segment[1], seg.segment[0] + POINT_SEGMENT_EPSILON);
+          let targetTime = Math.max(seg.segment[1], seg.segment[0] + POINT_SEGMENT_EPSILON);
+          // Never seek past the real video: stale/oversized segment ends
+          // previously jumped straight to EOF and ended playback.
+          try {
+            if (Number.isFinite(videoEl.duration) && videoEl.duration > 0) {
+              targetTime = Math.min(targetTime, Math.max(0, videoEl.duration - 0.25));
+            }
+          } catch (_) {}
+
+          // HUD "Undo" window: while active, the tick must not re-execute
+          // the skip it just undid (processedUUIDs + cooldown made undo
+          // mathematically unable to work before).
+          if (State.undoUntilTs && performance.now() < State.undoUntilTs) return;
 
           if (State.processedUUIDs.has(uuid) && shouldSkipGuard(targetTime)) return;
 
@@ -1358,6 +1385,12 @@
             videoEl.currentTime = seg.segment[0];
             pe("Returned to start of " + catMeta.label, 1500, "info");
           }
+          // Suppress re-execution of this skip for a few seconds so the
+          // playback tick does not immediately seek forward again.
+          try {
+            State.processedUUIDs.delete(seg.UUID);
+            State.undoUntilTs = performance.now() + 4000;
+          } catch (_) {}
           hud.className = "";
         });
 
@@ -1661,7 +1694,8 @@
         return segments;
       } catch (err) {
         if (err && err.name === "AbortError") throw err;
-        Metrics.recordApiError();
+        // fetchWithRetry already recorded the error; counting here too made
+        // every exhausted lookup inflate apiErrors 2×.
         try {
           const fallback = await Cache.get(videoId, configKey, true);
           return fallback && Array.isArray(fallback.data) ? fallback.data : [];
@@ -1861,16 +1895,20 @@
       return State.userId || "";
     };
 
-    const copyLocalUserId = async () => {
-      const userId = getLocalUserId();
-      if (!userId) return "";
-      try {
-        if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
-          await navigator.clipboard.writeText(userId);
+      const copyLocalUserId = async () => {
+        const userId = getLocalUserId();
+        if (!userId) return "";
+        try {
+          if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+            await navigator.clipboard.writeText(userId);
+          } else {
+            return ""; // No clipboard API: report honestly rather than fake success.
+          }
+        } catch (_) {
+          return "";
         }
-      } catch (_) {}
-      return userId;
-    };
+        return userId;
+      };
 
     const debugInfo = () => ({
       videoId: State.videoId,

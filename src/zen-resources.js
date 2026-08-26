@@ -270,14 +270,20 @@
       const css = (text, id) => {
         const doc = getDocument();
         const styleId = id ? "ytp-zen-" + String(id) : "";
+        const content = String(text || "");
         if (styleId && doc) {
           const existing = doc.getElementById(styleId);
-          if (existing) return () => { try { existing.remove(); } catch (_) {} };
+          if (existing) {
+            // Re-invocation with changed rules must update the sheet, not
+            // silently keep stale styles.
+            if (existing.textContent !== content) existing.textContent = content;
+            return () => { try { existing.remove(); } catch (_) {} };
+          }
         }
         const style = doc ? doc.createElement("style") : null;
         if (!style) return () => {};
         if (styleId) style.id = styleId;
-        style.textContent = String(text || "");
+        style.textContent = content;
         (doc.head || doc.documentElement).appendChild(style);
         return () => { try { style.remove(); } catch (_) {} };
       };
@@ -333,8 +339,12 @@
                 ? root.querySelector(selector)
                 : doc.querySelector(selector);
               if (found) {
+                // Stop timers BEFORE flipping done: cancel() guards on done,
+                // so setting it first skipped clearInterval and left every
+                // resolved when() polling forever.
+                if (poll) { clearInterval(poll); poll = 0; }
+                if (timer) { clearTimeout(timer); timer = 0; }
                 done = true;
-                cancel();
                 resolve(found);
                 return true;
               }
@@ -1348,8 +1358,17 @@
       fetch(url, options = {}) {
         if (this._disposed) return Promise.reject(new Error("ResourceScope disposed"));
         const controller = AbortGroup.create(this._name);
-        const signal = options.signal || controller.signal;
-        const merged = Object.assign({}, options, { signal });
+        // Forward a caller-supplied signal into the scope controller so
+        // dispose()/abortAll() can still cancel the request; previously the
+        // external signal silently replaced ours and teardown became a no-op.
+        if (options.signal) {
+          const ext = options.signal;
+          if (ext.aborted) { try { controller.abort(); } catch (_) {} }
+          else {
+            try { ext.addEventListener("abort", () => { try { controller.abort(); } catch (_) {} }, { once: true }); } catch (_) {}
+          }
+        }
+        const merged = Object.assign({}, options, { signal: options.signal || controller.signal });
         const promise = fetch(url, merged).finally(() => {
           try { controller.abort(); } catch (_) {}
         });

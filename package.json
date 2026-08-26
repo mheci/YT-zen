@@ -1,7 +1,7 @@
 {
   "name": "yt-zen",
   "private": true,
-  "version": "3.15.1",
+  "version": "3.16.0",
   "description": "Userscript-first YouTube customization with a resilient SponsorBlock integration",
   "license": "Unlicense",
   "scripts": {

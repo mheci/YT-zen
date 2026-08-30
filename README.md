@@ -7,6 +7,8 @@ The installable artifacts are:
 - `yt-zen.user.js` — the complete userscript;
 - `yt-zen.meta.js` — update metadata for script managers.
 
+> Personal project, experimental. Anything can change or break without notice.
+
 ## Install
 
 ### 1. Add a userscript manager
@@ -67,7 +69,7 @@ The integration:
 - lets each category be disabled or assigned a playback action;
 - retains timeline marks, skip notifications, local hide/unhide, voting, user information, and manual segment submission.
 
-The API contract is documented in [`docs/SPONSORBLOCK_API_CONTRACT.md`](docs/SPONSORBLOCK_API_CONTRACT.md). Manual submissions remain explicitly user initiated; YT-zen never submits segments automatically.
+Manual submissions remain explicitly user initiated; YT-zen never submits segments automatically.
 
 ## Architecture
 
@@ -77,8 +79,7 @@ The userscript is the canonical distribution. Every subsystem under `src/` is th
 - `src/zen-engine-v3.js` — the Zen feature ecosystem: ZenEngine core, discovery host and tabs, playback (shared audio graph for adaptive-speed analysis), search, session/genome, queue, the AlgoEngine, and all feature registrations;
 - `src/sponsorblock-engine-v2.js` — SponsorBlock state, API, cache, playback, UI, and lifecycle orchestration;
 - `src/ublock-filter-engine.js` — the uBlock Origin cosmetic-filter interpreter used by channel blocking;
-- `scripts/` — build, release checks, deterministic tests, and the live SponsorBlock harness;
-- `docs/` — current architecture, API, performance, testing, and contributor documentation.
+- `scripts/` — build, release checks, deterministic tests, and the live SponsorBlock harness.
 
 `npm run build` regenerates `yt-zen.user.js` from the sources; the build is idempotent and byte-stable, so a rebuild of an unchanged tree produces no diff.
 

@@ -31338,6 +31338,47 @@ const Nr = [
       m("applySilentClass", e);
     }
     _applyOnce();
+    try {
+      // Safety: a one-time, non-blocking notice when synthetic watch-time /
+      // youtubei signaling (Force Watched account-history, Algorithm
+      // Intelligence) is enabled. Those features impersonate a real watch
+      // session to the signed-in account and carry account/ToS risk.
+      const _riskyAckKey = "ytp_risky_warn_v1";
+      const _riskyActive =
+        !!S.forceWatchedAccountHistory ||
+        !!(S.algoIntelligenceOn || S.algoAutoTrain || S.algoBoostOn);
+      const _riskyAcked =
+        (typeof GM_getValue === "function" && GM_getValue(_riskyAckKey)) ||
+        (typeof localStorage !== "undefined" &&
+          localStorage.getItem(_riskyAckKey));
+      if (_riskyActive && !_riskyAcked) {
+        try {
+          const _flag = () => {
+            try {
+              GM_setValue && GM_setValue(_riskyAckKey, 1);
+            } catch (e) {}
+            try {
+              localStorage.setItem(_riskyAckKey, "1");
+            } catch (e) {}
+          };
+          try {
+            pe(
+              "YT-zen: Force Watched / Algorithm Intelligence sends synthetic watch signals to YouTube. Use only on your own account. (click to dismiss)",
+              6000,
+              "info",
+            );
+            const _t = document.getElementById("ytp-toast");
+            if (_t && !_t._riskyBound) {
+              _t._riskyBound = true;
+              _t.addEventListener("click", _flag, { once: true });
+            }
+            setTimeout(_flag, 9000);
+          } catch (e) {
+            _flag();
+          }
+        } catch (e) {}
+      }
+    } catch (e) {}
     ae(() => {
       try {
         S.sessionRestoreOn && Ge();

@@ -7180,6 +7180,14 @@ algoBlockChannels: "",
     );
   }
   function Dt(e) {
+    // Only ever beacon to http(s) endpoints. A relative, empty, data: or
+    // file: target makes Firefox log "CORS request not http" / "may not load
+    // or link to file:///" and is never a valid watchtime beacon.
+    try {
+      if (!/^https?:/i.test(String(e || ""))) return;
+    } catch (e) {
+      return;
+    }
     try {
       navigator.sendBeacon && navigator.sendBeacon(e);
     } catch (e) {}
@@ -31250,28 +31258,31 @@ const Nr = [
     try {
       S.geoOverrideOn && Mn();
     } catch (e) {}
-    try {
-      await (document.body
-        ? Promise.resolve()
-        : new Promise((e) => {
-            const t = setInterval(() => {
-              document.body && (clearInterval(t), e());
-            }, 20);
-            document.addEventListener(
-              "DOMContentLoaded",
-              () => {
-                (clearInterval(t), e());
-              },
-              { once: !0 },
-            );
-          }));
-    } catch (e) {}
-    try {
-      ue();
-    } catch (e) {
-      m("applySilentClass", e);
-    }
-    const t = () => {
+    // ------------------------------------------------------------------
+    // Robust first mount.
+    //
+    // YouTube is an SPA: its app shell (<ytd-app> + page manager) is created
+    // by YouTube's own bundle, which loads *after* this document-start IIFE.
+    // Applying the whole feature set the moment <body> exists races that
+    // mount — on a cold load YouTube frequently re-renders over the bare
+    // loading template and wipes our DOM work, and if even one early feature
+    // managed to drop a <style> marker the old watchdog assumed "applied"
+    // and never repaired the rest (hence "works only after a hard refresh").
+    // Fix: wait for the actual app shell (hard cap so we never hang), then
+    // apply. Late-mounting content is handled by each feature's own observer
+    // / onNav / scheduleOnReady hooks; the watchdog below is a backstop.
+    const _ytShellReady = () => {
+      try {
+        if (!document.body) return !1;
+        if (document.querySelector("ytd-app, ytmusic-app")) return !0;
+        return !!document.querySelector(
+          "yt-page-manager, ytd-page-manager, #page-manager, #contents",
+        );
+      } catch (_) {
+        return !!document.body;
+      }
+    };
+    const _applyOnce = () => {
       try {
         xa.applyAll();
       } catch (e) {
@@ -31281,13 +31292,29 @@ const Nr = [
         ft();
       } catch (e) {}
     };
-    if ("function" == typeof e.requestIdleCallback)
-      try {
-        e.requestIdleCallback(t, { timeout: 1500 });
-      } catch (e) {
-        setTimeout(t, 50);
-      }
-    else setTimeout(t, 50);
+    await new Promise((resolve) => {
+      let _settled = !1;
+      const _done = () => {
+        if (_settled) return;
+        _settled = !0;
+        clearTimeout(_to);
+        clearInterval(_iv);
+        resolve();
+      };
+      const _check = () => {
+        if (_ytShellReady()) _done();
+      };
+      const _to = setTimeout(_done, 8000);
+      const _iv = setInterval(_check, 60);
+      document.addEventListener("DOMContentLoaded", _check, { once: !0 });
+      _check();
+    });
+    try {
+      ue();
+    } catch (e) {
+      m("applySilentClass", e);
+    }
+    _applyOnce();
     ae(() => {
       try {
         S.sessionRestoreOn && Ge();
@@ -31327,13 +31354,29 @@ const Nr = [
       setInterval(() => {
         try {
           if (!Xt.visible) return;
+          if (va.size === 0) return;
+          // Never force-reapply if every registered feature was quarantined.
           if (ga.size > 0 && ga.size === va.size) return;
-          !document.querySelector('style[id^="ytp-style-"],style[id^="ytp-zen-"]') &&
-            va.size > 0 &&
-            (h("watchdog: re-applying features (no style markers found)"),
-            xa.applyAll());
+          // Only act once YouTube's SPA shell is actually present.
+          const _shell =
+            document.querySelector("ytd-app, ytmusic-app") ||
+            document.querySelector("yt-page-manager, ytd-page-manager");
+          if (!_shell) return;
+          const _markers = document.querySelector(
+            'style[id^="ytp-style-"],style[id^="ytp-zen-"]',
+          );
+          // Repair path: the page is up but zero YT-zen markers survived.
+          if (!_markers) {
+            h("watchdog: no YT-zen markers found, re-applying features");
+            try {
+              xa.applyAll();
+            } catch (e) {}
+            try {
+              ft();
+            } catch (e) {}
+          }
         } catch (e) {}
-      }, 3e4);
+      }, 2e4);
     } catch (e) {}
   })().catch((e) => {
 

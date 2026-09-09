@@ -82,6 +82,26 @@ YT-zen runs at `document-start` on every matched YouTube surface and applies aft
 
 ## Changelog
 
+### 3.16.4
+
+Feature unification:
+
+- New all-in-one toggles: **Player Tools AIO** (copy link/info, transcript, video/channel notes, chapter buttons + hotkeys) and **Shorts Cleanup AIO** (redirect to player, auto-mute, hide comments). Members stay individually adjustable.
+- All 120 feature descriptions rewritten to short, plain language.
+
+SponsorBlock — full official API surface:
+
+- Added the three remaining endpoints: `GET /api/lockCategories` (pre-submit guard explains and blocks VIP-locked categories), `GET /api/userStats` (account impact in the editor), `DELETE /api/skipSegments/{uuid}` (delete your own submissions, tracked locally).
+- Already covered: all 12 categories × 5 action types, hashed k-anonymity fetch, up/down/undo/category votes, chapter titles, submission, user info.
+
+Theming:
+
+- Performance: the ~60KB theme stylesheet is memoized per resolved theme and identical mounts are skipped entirely.
+- New compact layer (`themeCompactOn`, on by default): tighter masthead, guide, chips, and grid rhythm.
+- Fix: tinted boxes behind comment text under custom themes.
+- Fix: dark border/shadow behind every home-grid video container under custom themes.
+- Dense grid now adapts 6/8/10 columns by viewport width with tighter margins.
+
 ### 3.16.3
 
 Boot & launch reliability (the "only works after a hard refresh" class):

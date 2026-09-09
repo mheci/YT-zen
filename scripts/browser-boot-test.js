@@ -1,8 +1,4 @@
 #!/usr/bin/env node
-// Browser boot regression harness (puppeteer-core + system Chromium).
-// Usage: npm i puppeteer-core@23 && YTZ_CFG_JSON=<json-preset> node scripts/browser-boot-test.js
-// Steps: cold home apply, SPA watch nav, back-navigation, synthetic persisted
-// pageshow. Asserts feature styles mount and zero data:/CSP/file: signatures.
 /*
  * Real-browser boot reliability harness for YT-zen.
  * Loads youtube.com in headless Chromium with the userscript injected at
@@ -94,6 +90,10 @@ const GM_SHIM = `
     styleIds: Array.from(document.querySelectorAll('style[id^="ytp-style-"],style[id^="ytp-zen-"]')).map((s) => s.id).slice(0, 8),
     presetSeen: typeof window.__YTZ_PRESET_CFG_JSON === "string" && window.__YTZ_PRESET_CFG_JSON.length > 0,
     bfcacheReapplied: !!window.__zenBfcacheReapplied,
+    themeStyleMounted: !!document.getElementById("ytp-theme-engine-style"),
+    themeCssHasFixes: (() => { const st = document.getElementById("ytp-theme-engine-style"); if (!st) return null; const t = st.textContent || ""; return { commentFix: t.includes("#comment-content"), gridFix: t.includes("#dismissible.ytd-rich-grid-media"), compact: t.includes("ytd-masthead#masthead{height:48px"), themeVars: t.includes("--yt-spec-base-background") }; })(),
+    richItemStyle: (() => { const el = document.querySelector("ytd-rich-item-renderer, ytd-rich-grid-media"); if (!el) return null; const cs = getComputedStyle(el); return { border: cs.borderTopWidth + " " + cs.borderTopColor, shadow: cs.boxShadow.slice(0, 40), bg: cs.backgroundColor }; })(),
+    commentBg: (() => { const el = document.querySelector("ytd-comment-thread-renderer, #comment-content, ytd-comment-text"); if (!el) return null; return getComputedStyle(el).backgroundColor; })(),
     gmCfg: (() => { try { return !!localStorage.getItem("gm:ytp.cfg"); } catch (e) { return "err"; } })(),
     toast: !!document.getElementById("ytp-toast"),
     url: location.href,

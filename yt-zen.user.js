@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YT-zen
 // @namespace    https://github.com/mheci/YT-zen
-// @version      3.16.8
+// @version      3.16.9
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      Unlicense
@@ -25394,7 +25394,16 @@ const Nr = [
     zo(Yp_clampRect(e.left, e.top, e.width, e.height));
   }
   function Uo() {
-    wo ||
+    // Self-healing open: if a previous build threw midway, `wo` is left
+    // holding a half-built dashboard and the `wo ||` guard below would
+    // skip rebuilding forever — every later open then throws on the
+    // missing pieces (the "dashboard permanently broken" report class).
+    // On failure: tear down, clear, retry once, and surface the real
+    // error as a toast.
+    let _dashAttempted = false;
+    const _dashBuild = () => {
+      _dashAttempted = true;
+      wo = wo || null;
       (function () {
         (!(function () {
           if (document.getElementById("ytp-dash-style")) return;
@@ -25684,6 +25693,24 @@ const Nr = [
             wo && wo.classList.add("open");
           }));
       })();
+    };
+    try {
+      if (!wo) _dashBuild();
+    } catch (_dashErr1) {
+      try { wo && wo.remove(); } catch (_) {}
+      wo = null;
+      Co.length = 0;
+      try { m("dashboard build", _dashErr1); } catch (_) {}
+      try { console.error("[YT-zen] dashboard build failed, retrying:", _dashErr1); } catch (_) {}
+      try {
+        if (!_dashAttempted || true) _dashBuild();
+      } catch (_dashErr2) {
+        try { wo && wo.remove(); } catch (_) {}
+        wo = null;
+        Co.length = 0;
+        pe("Dashboard failed to open: " + (_dashErr2 && _dashErr2.message ? _dashErr2.message : _dashErr2) + " — please report this message", 6000, "error");
+      }
+    }
   }
   function Ko() {
     if (wo) {

@@ -131,6 +131,15 @@ Testing & tooling:
 - jsdom boot harness (plain + hung-IDB scenarios), CDP browser harness (cold load, SPA nav, bfcache, synthetic persisted restore) with feature-style and signature assertions.
 - Build gates: structural validation of the 201-theme color table; release check that the `@sandbox` header survives the build.
 
+## Update channel
+
+Updates are served from GitHub's CDN, not the REST API:
+
+- `@updateURL` / `@downloadURL` point at `releases/latest/download/yt-zen.meta.js` / `yt-zen.user.js` — permanent URLs that always resolve to the newest release. Your userscript manager polls the ~1.6 KB meta file on its own schedule; a new `@version` triggers a full download only then.
+- The in-script checker (dashboard toasts + update banner) fetches the same meta file via `GM_xmlhttpRequest` at most every 24 h (`updateCheckHours` clamps 6–168; set `updateCheckOn: false` to disable), adds up to ±20 min of jitter so clients don't poll in sync, notices each new version exactly once, and backs off 1 h → 24 h on network failures.
+- No call ever touches `api.github.com`, whose unauthenticated 60 req/h limit is shared by every visitor behind one IP.
+- Manual check anytime: userscript-manager menu → "Check for updates now".
+
 ## Architecture
 
 The userscript is the canonical distribution. Every subsystem under `src/` is the canonical source and is synchronized into the bundle by `scripts/build-userscript.js` using marker replacement; edits belong in `src/`, never in `yt-zen.user.js` directly.

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YT-zen
 // @namespace    https://github.com/mheci/YT-zen
-// @version      3.16.4
+// @version      3.16.5
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      Unlicense
@@ -28,6 +28,7 @@
 // @connect      ytimg.com
 // @connect      ggpht.com
 // @connect      api.github.com
+// @connect      github.com
 // @connect      cdn.jsdelivr.net
 // @require      https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js
 // @require      https://cdn.jsdelivr.net/npm/culori@3.2.0/bundled/culori.min.js
@@ -1577,9 +1578,17 @@ algoBlockChannels: "",
   const _GITHUB_RELEASES = "https://github.com/mheci/YT-zen/releases";
   const _GITHUB_LATEST_USERJS =
     "https://github.com/mheci/YT-zen/releases/latest/download/yt-zen.user.js";
-  const _GITHUB_API_LATEST =
-    "https://api.github.com/repos/mheci/YT-zen/releases/latest";
+  // Update channel: the release-attached meta.js (~1.6KB) served by GitHub's
+  // CDN. api.github.com is capped at 60 unauthenticated requests per hour
+  // SHARED across every visitor of an IP (NAT/office/school => 403 storms)
+  // and costs ~20KB per poll; this endpoint has no such quota and is the
+  // exact URL the userscript manager's own @updateURL check already uses.
+  const _GITHUB_LATEST_META =
+    "https://github.com/mheci/YT-zen/releases/latest/download/yt-zen.meta.js";
   const _CHECK_CACHE_KEY = "ytp_update_check_ts";
+  const _CHECK_SEEN_KEY = "ytp_update_seen_tag";
+  const _CHECK_FAILS_KEY = "ytp_update_fails";
+  const _CHECK_BACKOFF_KEY = "ytp_update_backoff_until";
 
   function Fu(force) {
 
@@ -1680,29 +1689,42 @@ algoBlockChannels: "",
         }
       } catch (_) {}
     };
-    const showResult = (latestTag) => {
-      const latest = a(latestTag);
-      const cmp = o(latest, a(installed));
-      if (cmp <= 0) {
-        force && showUpToDate(latestTag);
-      } else {
-
-        showUpdateAvailable(latestTag, _GITHUB_LATEST_USERJS);
-      }
-    };
     const onDone = (ok, payload, errMsg) => {
       if (!ok) {
+        // Exponential backoff: 1h, 2h, ... capped at 24h, so an offline
+        // spell or CDN hiccup never turns into per-session hammering.
+        try {
+          const fails = (Number(GM_getValue && GM_getValue(_CHECK_FAILS_KEY, 0)) || 0) + 1;
+          GM_setValue && GM_setValue(_CHECK_FAILS_KEY, fails);
+          GM_setValue && GM_setValue(_CHECK_BACKOFF_KEY, Date.now() + Math.min(24, fails) * 3600e3);
+        } catch (_) {}
         showCheckFailed(errMsg);
-
         return;
       }
       try {
-        const j = (typeof payload === "string") ? JSON.parse(payload) : payload;
-        if (j && j.tag_name) {
-
-          try { GM_setValue && GM_setValue(_CHECK_CACHE_KEY, Date.now()); } catch (_) {}
-      try { GM_setValue && GM_setValue("ytp_latest_release", JSON.stringify({ tag: j.tag_name, ts: Date.now() })); } catch (_) {}
-          showResult(j.tag_name);
+        GM_setValue && GM_setValue(_CHECK_FAILS_KEY, 0);
+        GM_setValue && GM_setValue(_CHECK_BACKOFF_KEY, 0);
+      } catch (_) {}
+      try {
+        // meta.js format: "// @version    X.Y.Z" — no JSON, no API.
+        const m = /@version\s+(\S+)/.exec(String(payload || ""));
+        if (m && m[1]) {
+          const latestTag = m[1].replace(/^v/i, "");
+          try {
+            GM_setValue && GM_setValue(_CHECK_CACHE_KEY, Date.now());
+            GM_setValue && GM_setValue("ytp_latest_release", JSON.stringify({ tag: latestTag, ts: Date.now() }));
+          } catch (_) {}
+          if (o(latestTag, a(installed)) > 0) {
+            // Notify once per released version, not once per tab.
+            let seen = "";
+            try { seen = String(GM_getValue && GM_getValue(_CHECK_SEEN_KEY, "")); } catch (_) {}
+            if (seen !== latestTag) {
+              try { GM_setValue && GM_setValue(_CHECK_SEEN_KEY, latestTag); } catch (_) {}
+              showUpdateAvailable(latestTag, _GITHUB_LATEST_USERJS);
+            }
+          } else {
+            force && showUpToDate(latestTag);
+          }
           return;
         }
         force && showCheckFailed("no release found");
@@ -1715,22 +1737,30 @@ algoBlockChannels: "",
 
       const now = Date.now();
       if (!force) {
+        try { if (S.updateCheckOn === false) return; } catch (_) {}
+        // Default cadence: 24h (S.updateCheckHours clamps 6..168) plus up to
+        // ±20min jitter so many clients never poll in the same second.
+        // A failure backoff window is honored before touching the network.
         const last = Number(GM_getValue && GM_getValue(_CHECK_CACHE_KEY, 0)) || 0;
-        if (now - last < 10 * 60 * 1e3) return;
+        const hours = Math.min(168, Math.max(6, Number(S.updateCheckHours) || 24));
+        const jitter = Math.floor(Math.random() * 40 - 20) * 60000;
+        if (now - last < hours * 3600e3 + jitter) return;
+        const backoff = Number(GM_getValue && GM_getValue(_CHECK_BACKOFF_KEY, 0)) || 0;
+        if (now < backoff) return;
       }
       if (typeof GM_xmlhttpRequest === "function") {
         GM_xmlhttpRequest({
           method: "GET",
-          url: _GITHUB_API_LATEST,
-          headers: { "Accept": "application/vnd.github+json" },
+          url: _GITHUB_LATEST_META,
+          timeout: 15000,
           onload: (r) => onDone(r && r.status >= 200 && r.status < 300, r && r.responseText, r && r.statusText),
           onerror: (r) => onDone(false, null, (r && r.error) || "network error"),
           ontimeout: () => onDone(false, null, "timeout"),
         });
       } else if (typeof fetch === "function") {
-        fetch(_GITHUB_API_LATEST, { headers: { "Accept": "application/vnd.github+json" } })
-          .then((r) => r.ok ? r.json() : Promise.reject(new Error("HTTP " + r.status)))
-          .then((j) => onDone(true, j))
+        fetch(_GITHUB_LATEST_META)
+          .then((r) => r.ok ? r.text() : Promise.reject(new Error("HTTP " + r.status)))
+          .then((t) => onDone(true, t))
           .catch((e2) => onDone(false, null, e2 && e2.message));
       } else {
         force && pe("Update check unavailable (no HTTP API).", 2200, "info");
@@ -31432,6 +31462,16 @@ const Nr = [
                 if (xa && xa.clearQuarantine) xa.clearQuarantine();
                 pe(_n ? "Cleared " + _n + " quarantined feature(s)." : "No features were quarantined.", 2000, "success");
               } catch (e) {}
+            });
+          } catch (e) {}
+          try {
+            GM_registerMenuCommand("Check for updates now", () => {
+              try { typeof Fu === "function" && Fu(true); } catch (e) {}
+            });
+          } catch (e) {}
+          try {
+            GM_registerMenuCommand("Open releases page", () => {
+              try { window.open("https://github.com/mheci/YT-zen/releases", "_blank", "noopener"); } catch (e) {}
             });
           } catch (e) {}
         }

@@ -3310,7 +3310,7 @@
         else if (reading.energy < 4) quietMs += 500;
         else quietMs = 0;
         if (quietMs >= 1500 && !boosted) { try { prevRate = vid.playbackRate || 1; vid.playbackRate = targetRate(); boosted = true; } catch (_) {} }
-        else if (energy >= 4 && boosted) { try { vid.playbackRate = prevRate; } catch (_) {} boosted = false; quietMs = 0; }
+        else if (reading && reading.energy >= 4 && boosted) { try { vid.playbackRate = prevRate; } catch (_) {} boosted = false; quietMs = 0; }
       };
       const id = ZenResources.SharedTicker.add(tick, 500, { pauseHidden: true, label: "zen-silence-skip" });
       Yt["silence-skipper"].push(() => {

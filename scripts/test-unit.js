@@ -579,6 +579,11 @@ let keepAlive;
   assert.ok(bundle.includes("_r.catch((t) => fa(e, t))"), "async failures count toward feature quarantine");
   assert.ok(bundle.includes("_ytShellReady"), "boot waits for the YouTube SPA shell");
 
+
+  // --- Group 11: silence-skipper must reference reading.energy (not the
+  // undeclared `energy`) so boosting is restored when sound resumes. ---
+  assert.ok(bundle.includes("reading.energy >= 4 && boosted"),
+    "silence-skipper de-boost uses the declared reading.energy");
   console.log("Unit tests passed.");
 })().catch((error) => {
   console.error(error);

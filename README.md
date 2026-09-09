@@ -80,6 +80,37 @@ YT-zen runs at `document-start` on every matched YouTube surface and applies aft
 - bfcache restores (`pageshow`, persisted) re-arm ZenResources and re-apply features, so back/forward navigation never leaves dead features.
 - `window.__zen_last_apply` + a `ytzen:applied` event mark the completed first apply; `scripts/harness-boot.js` asserts both a plain boot and a boot with a permanently-hung `indexedDB.open` still apply.
 
+## Changelog
+
+### 3.16.3
+
+Boot & launch reliability (the "only works after a hard refresh" class):
+
+- `@sandbox JavaScript` header — Tampermonkey now runs the script in its JS sandbox instead of injecting a page-context inline `<script>` that YouTube's CSP blocks on cold navigations.
+- IndexedDB can no longer wedge the boot: opens raced with a 3s stall guard, `onblocked`/`onerror` resolve to null, config load capped at 1.5s with a late-merge re-apply of touched feature groups.
+- bfcache restores re-arm shared resources and re-apply features (`pageshow`/persisted), with a `__zenBfcacheReapplied` diagnostics marker.
+- The watchdog's shell-detection selector set now matches the boot's (adds `#page-manager`, `#contents`) so repair fires on mobile/late mounts.
+
+Safety & stability:
+
+- `end-winddown` teardown restores `HTMLMediaElement.prototype.play` only while it still owns the slot (was ripping out a later gate's wrapper).
+- Style teardown ownership: `addStyle` tracks created ids; partial style wipes trigger repair instead of orphaned styles.
+- AB-repeat loops guard against null/live-stream videos; seek+resume only on wrap.
+- Cookie Control rejects `;`/CR/LF/>4096-char values.
+- Settings import caps history writes at the newest 5000 entries; theme generator pins its base color to a strict `#rrggbb` literal.
+- Custom-theme generator base color validated against config-import tampering.
+
+Performance:
+
+- The shared player-button MutationObserver now disconnects when no player buttons are registered (was a session-long body-subtree observer).
+- The privileged fetch allowlist no longer expands to a dead vestigial defaults host on every request.
+- redirect-shorts nav retries use context-tracked timeouts.
+
+Testing & tooling:
+
+- jsdom boot harness (plain + hung-IDB scenarios), CDP browser harness (cold load, SPA nav, bfcache, synthetic persisted restore) with feature-style and signature assertions.
+- Build gates: structural validation of the 201-theme color table; release check that the `@sandbox` header survives the build.
+
 ## Architecture
 
 The userscript is the canonical distribution. Every subsystem under `src/` is the canonical source and is synchronized into the bundle by `scripts/build-userscript.js` using marker replacement; edits belong in `src/`, never in `yt-zen.user.js` directly.

@@ -417,7 +417,7 @@ let keepAlive;
       // finally block because a live SharedTicker task would keep the
       // process alive after a failed assertion.
       let mode = 1; // 1 = scan reports work, 0 = quiet scan
-      const schedBackoff = ScanScheduler.create(() => (mode ? 1 : 0), { intervalMs: 2000, minGapMs: 40, maxBackoffMs: 8000 });
+      const schedBackoff = ScanScheduler.create(() => (mode ? 1 : 0), { intervalMs: 2000, minGapMs: 1, maxBackoffMs: 8000 });
       schedulers.push(schedBackoff);
       schedBackoff.request({ priority: true });
       assert.strictEqual(schedBackoff.stats().delayMs, 2000, "a scan that reports work keeps the base cadence");
@@ -437,7 +437,7 @@ let keepAlive;
       assert.strictEqual(schedBackoff.stats().delayMs, 2000, "a scan that reports work restores the base cadence");
 
       let runs = 0;
-      const schedGap = ScanScheduler.create(() => ++runs, { intervalMs: 200, minGapMs: 60, maxBackoffMs: 400 });
+      const schedGap = ScanScheduler.create(() => ++runs, { intervalMs: 200, minGapMs: 25, maxBackoffMs: 400 });
       schedulers.push(schedGap);
       schedGap.request({ priority: true });
       assert.strictEqual(runs, 1, "ScanScheduler runs an initial priority nudge");

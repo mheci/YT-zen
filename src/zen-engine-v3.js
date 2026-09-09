@@ -1915,7 +1915,7 @@
   xa.register({
     id: "discover",
     name: "Discover",
-    summary: "Replaces algorithmic traps with a clean, topic-filtered video discovery engine cross-checked against your history.",
+    summary: "Clean search-based discovery instead of the algorithm.",
     masterKey: "discoverOn",
     keys: ["discoverOn"],
     apply(ctx) {
@@ -2102,7 +2102,7 @@
         "One toggle for discovery. Browse 8+ categories inside or outside your niche; every pick is filtered against your watch history and never repeats a video you have already seen."));
     } });
 
-  xa.register({ id: "credibility-layer", name: "Credibility Layer", summary: "Adds informational metadata badges including upload age, reach tiers, and historical consistency to video cards.", masterKey: "credLayerOn", keys: ["credLayerOn"],
+  xa.register({ id: "credibility-layer", name: "Credibility Layer", summary: "Shows upload age and channel trust badges on cards.", masterKey: "credLayerOn", keys: ["credLayerOn"],
     apply(ctx) {
       if (!S.credLayerOn) return;
       ZenEngine.injectCSS();
@@ -2163,7 +2163,7 @@
     },
     settings(en) { en.appendChild(Io("Enable Credibility Layer", "credLayerOn")); } });
 
-  xa.register({ id: "dead-link-detector", name: "Outdated Content Detector", summary: "Flags outdated videos and stale technical tutorials with visible age warning indicators on search thumbnails.", masterKey: "deadLinkOn", keys: ["deadLinkOn"],
+  xa.register({ id: "dead-link-detector", name: "Outdated Content Detector", summary: "Warns when search results are outdated.", masterKey: "deadLinkOn", keys: ["deadLinkOn"],
     apply(ctx) {
       if (!S.deadLinkOn) return;
       ZenEngine.injectCSS();
@@ -2192,7 +2192,7 @@
     },
     settings(en) { en.appendChild(Io("Enable Outdated Content Detector", "deadLinkOn")); } });
 
-  xa.register({ id: "curated-collections", name: "Curated Collections", summary: "Organize your saved videos into custom-themed collections with progress tracking and exportable playlists.", masterKey: "collectionsOn", keys: ["collectionsOn"],
+  xa.register({ id: "curated-collections", name: "Curated Collections", summary: "Organize saved videos into collections.", masterKey: "collectionsOn", keys: ["collectionsOn"],
     apply(ctx) {
       if (!S.collectionsOn) return;
       ZenEngine.injectCSS();
@@ -2255,7 +2255,7 @@
   xa.register({
     id: "algo-intelligence",
     name: "Algorithm Intelligence",
-    summary: "Advanced algorithmic feed shaping: organic interest boosting, recency decay control, and diversity enforcement.",
+    summary: "Shape your feed: fresher, more varied, interest-first.",
     masterKey: "algoIntelligenceOn",
     keys: ["algoIntelligenceOn", "algoAutoTrain", "algoBlockTopics", "algoBlockKeywords", "algoBlockChannels", "algoScanInterval", "algoStrength", "algoBoostOn", "algoBoostInterval", "algoDiversityOn", "algoDiversityMax", "algoAutoLikeOn", "algoAutoLikePct", "algoAutoDislikeOn", "algoShortsOn"],
     apply(ctx) {
@@ -2496,7 +2496,7 @@
   // -- DeArrow: clickbait-free titles & thumbnails (community-sourced) --
   // -- Return YouTube Dislike: like/dislike ratio + rating --
   // -- Keep Screen Awake (Wake Lock API) --
-  xa.register({ id: "screen-wake", name: "Keep Screen Awake", summary: "Prevents system sleep, screensavers, and display timeouts during active video playback via the Wake Lock API.", masterKey: "screenWakeOn", keys: ["screenWakeOn"],
+  xa.register({ id: "screen-wake", name: "Keep Screen Awake", summary: "Keeps your screen awake while watching.", masterKey: "screenWakeOn", keys: ["screenWakeOn"],
     apply(ctx) {
       if (!S.screenWakeOn) return;
       if (!navigator.wakeLock || typeof navigator.wakeLock.request !== "function") return;
@@ -2531,7 +2531,7 @@
   xa.register({
     id: "perf-mode",
     name: "Performance Mode",
-    summary: "Five comprehensive optimization presets (light to maximum) with DOM containment and lazy-loading virtualization.",
+    summary: "Five performance presets from light to maximum.",
     masterKey: "perfModeOn",
     keys: ["perfModeOn", "perfModeLevel", "perfModeAuto", "perfContainment", "perfLazyThumbs", "perfLazyComments", "perfKillAnim", "perfKillBlur", "perfThumbQuality", "perfDisablePreviews", "perfMemoryTrim", "perfPrefetch", "perfPreconnect", "perfBgThrottle", "perfPaintReduction", "perfQualityCap"],
     apply(ctx) {
@@ -2832,7 +2832,7 @@
   xa.register({
     id: "overlay-hub",
     name: "Monolith Overlay Hub",
-    summary: "Consolidates all floating performance monitors, counters, and diagnostic tools into a single docked glass HUD.",
+    summary: "All performance meters docked into one HUD.",
     masterKey: "overlayHubOn",
     keys: ["overlayHubOn", "overlayHubPos"],
     apply(ctx) {
@@ -3003,7 +3003,7 @@
   xa.register({
     id: "watch-budget",
     name: "Watch-Budget Focus Mode",
-    summary: "Sets a gentle daily watch budget with soft nudges and a calm stop screen; only visible playback counts toward it.",
+    summary: "A gentle daily watch limit with soft nudges.",
     masterKey: "watchBudgetOn",
     keys: ["watchBudgetOn", "watchBudgetMinutes"],
     apply(ctx) {
@@ -3167,7 +3167,7 @@
   xa.register({
     id: "shorts-policy",
     name: "Shorts Policy Schedule",
-    summary: "Time-window based Shorts handling: block Shorts during chosen hours, or allow them only within a wind-down window.",
+    summary: "Allow or block Shorts during chosen hours.",
     masterKey: "shortsScheduleOn",
     keys: ["shortsScheduleOn", "shortsScheduleMode", "shortsScheduleStart", "shortsScheduleEnd"],
     apply(ctx) {
@@ -3310,7 +3310,7 @@
   // Smart-Speed-managed playback.
   xa.register({
     id: "silence-skipper", name: "Silence Fast-Forward",
-    summary: "Detects silent stretches through the audio analyser and quietly speeds through them.",
+    summary: "Speeds through silent stretches.",
     masterKey: "silenceSkipOn", keys: ["silenceSkipOn", "silenceSkipRate"],
     apply(ctx) {
       if (!S.silenceSkipOn) return;
@@ -3355,7 +3355,7 @@
   // chapter markers extracted from ytInitialData.
   xa.register({
     id: "chapter-auto-skip", name: "Chapter Auto-Skip",
-    summary: "Automatically skips chapters titled intro, outro, sponsor, and your own keywords.",
+    summary: "Skips chapters titled intro, outro, sponsor, or custom words.",
     masterKey: "chapterAutoSkipOn", keys: ["chapterAutoSkipOn", "chapterSkipWords"],
     apply(ctx) {
       if (!S.chapterAutoSkipOn) return;
@@ -3415,7 +3415,7 @@
   // Timestamped bookmarks persisted per video with a jumpable dashboard list.
   xa.register({
     id: "video-bookmarks", name: "Timestamp Bookmarks",
-    summary: "Drop named bookmarks at timestamps (Alt+B), stored locally and jumpable anytime.",
+    summary: "Timestamp bookmarks (Alt+B), stored locally.",
     masterKey: "videoBookmarksOn", keys: ["videoBookmarksOn"],
     apply(ctx) {
       if (!S.videoBookmarksOn) return;
@@ -3471,7 +3471,7 @@
   // Markdown via download.
   xa.register({
     id: "timestamp-notes", name: "Study Notes",
-    summary: "Jot timestamped notes while watching (Alt+N); export everything as Markdown.",
+    summary: "Timestamped notes while watching (Alt+N).",
     masterKey: "timestampNotesOn", keys: ["timestampNotesOn"],
     apply(ctx) {
       if (!S.timestampNotesOn) return;
@@ -3537,7 +3537,7 @@
   // Replays a few seconds whenever you pause — ideal for note-takers.
   xa.register({
     id: "pause-auto-rewind", name: "Pause Rewind",
-    summary: "Hops back a configurable number of seconds each time you pause.",
+    summary: "Rewinds a few seconds every time you pause.",
     masterKey: "pauseRewindOn", keys: ["pauseRewindOn", "pauseRewindSec"],
     apply(ctx) {
       if (!S.pauseRewindOn) return;
@@ -3558,7 +3558,7 @@
   // ─── 6. Instant Replay Hotkey ────────────────────────────────────────────
   xa.register({
     id: "instant-replay", name: "Instant Replay",
-    summary: "Alt+J replays the last few seconds instantly — perfect for missed lines.",
+    summary: "Alt+J replays the last few seconds.",
     masterKey: "instantReplayOn", keys: ["instantReplayOn", "instantReplaySec"],
     apply(ctx) {
       if (!S.instantReplayOn) return;
@@ -3582,7 +3582,7 @@
   // pauses and volume is restored.
   xa.register({
     id: "sleep-timer", name: "Sleep Timer",
-    summary: "Alt+O cycles 30 → 60 → 90 → off minutes; volume fades out before pausing.",
+    summary: "Alt+O sets a sleep timer; volume fades before pause.",
     masterKey: "sleepTimerOn", keys: ["sleepTimerOn", "sleepTimerMin"],
     apply(ctx) {
       if (!S.sleepTimerOn) return;
@@ -3638,7 +3638,7 @@
   // Nudges you to move after continuous watching; resets when you pause away.
   xa.register({
     id: "stretch-reminder", name: "Stretch Reminder",
-    summary: "A calm nudge after uninterrupted watching so marathons don't glue you to the chair.",
+    summary: "Gentle reminder after long non-stop watching.",
     masterKey: "stretchReminderOn", keys: ["stretchReminderOn", "stretchEveryMin"],
     apply(ctx) {
       if (!S.stretchReminderOn) return;
@@ -3677,7 +3677,7 @@
   // floats quietly in the corner while you watch. Purely local.
   xa.register({
     id: "intention-lock", name: "Session Intention",
-    summary: "Ask yourself what you came for; your intention stays visible while you watch.",
+    summary: "Write your intention before watching; it stays visible.",
     masterKey: "intentionLockOn", keys: ["intentionLockOn"],
     apply(ctx) {
       if (!S.intentionLockOn) return;
@@ -3729,7 +3729,7 @@
   // between you and autoplay. Continue is a decision, not a reflex.
   xa.register({
     id: "end-winddown", name: "End-of-Video Wind-Down",
-    summary: "A calm pause between videos: autoplay waits behind a gentle screen until you continue.",
+    summary: "Autoplay waits behind a calm continue screen.",
     masterKey: "endWindDownOn", keys: ["endWindDownOn", "windDownSec"],
     apply(ctx) {
       if (!S.endWindDownOn) return;
@@ -3816,7 +3816,7 @@
   // moving on. No gates, no blocking — just awareness.
   xa.register({
     id: "shorts-marathon-guard", name: "Shorts Marathon Guard",
-    summary: "After N Shorts in a row, one quiet nudge reminds you the reel has no bottom.",
+    summary: "Nudges you after N Shorts in a row.",
     masterKey: "shortsMarathonOn", keys: ["shortsMarathonOn", "shortsMarathonN"],
     apply(ctx) {
       if (!S.shortsMarathonOn) return;
@@ -3844,7 +3844,7 @@
   // Hides home-feed videos older than the chosen age using the metadata line.
   xa.register({
     id: "feed-freshness", name: "Feed Freshness Filter",
-    summary: "Keeps the home feed recent by hiding uploads older than your chosen age.",
+    summary: "Hides home-feed videos older than you like.",
     masterKey: "feedFreshnessOn", keys: ["feedFreshnessOn", "feedMaxAgeMonths"],
     apply(ctx) {
       if (!S.feedFreshnessOn || location.pathname !== "/") return;
@@ -3889,7 +3889,7 @@
   // Mutes chosen channels in feeds/subscriptions until the snooze expires.
   xa.register({
     id: "channel-snooze", name: "Channel Snooze",
-    summary: "Mute specific channels from feeds and subscriptions for a set number of days.",
+    summary: "Snooze channels from your feeds for days.",
     masterKey: "channelSnoozeOn", keys: ["channelSnoozeOn", "channelSnoozeList"],
     apply(ctx) {
       if (!S.channelSnoozeOn) return;
@@ -3924,7 +3924,7 @@
   // On search pages, badges near-duplicate uploads (reuploads, spam waves).
   xa.register({
     id: "dup-title-spotter", name: "Duplicate Title Spotter",
-    summary: "Highlights search results whose normalized titles repeat — reuploads stand out.",
+    summary: "Flags repeated titles in search (reuploads).",
     masterKey: "dupTitleSpotterOn", keys: ["dupTitleSpotterOn"],
     apply(ctx) {
       if (!S.dupTitleSpotterOn) return;
@@ -3965,7 +3965,7 @@
   // already-watched ones — instant orientation on long courses.
   xa.register({
     id: "playlist-watched-marker", name: "Playlist Watch-Marks",
-    summary: "Dims playlist entries you have already watched, straight from local history.",
+    summary: "Dims playlist videos you already watched.",
     masterKey: "playlistWatchedMarkerOn", keys: ["playlistWatchedMarkerOn"],
     apply(ctx) {
       if (!S.playlistWatchedMarkerOn) return;
@@ -4012,7 +4012,7 @@
   // ─── 16. Comment Keyword Filter ──────────────────────────────────────────
   xa.register({
     id: "comment-filter", name: "Comment Filter",
-    summary: "Hides comments whose text matches your keyword list — same zen as the video filter.",
+    summary: "Hides comments matching your keyword list.",
     masterKey: "commentFilterOn", keys: ["commentFilterOn", "commentBlockWords"],
     apply(ctx) {
       if (!S.commentFilterOn) return;
@@ -4044,7 +4044,7 @@
   // Masks rows in YouTube's history feed without touching their servers.
   xa.register({
     id: "history-local-hide", name: "History Local Hide",
-    summary: "Keep select videos out of your history view locally — nothing is deleted upstream.",
+    summary: "Hide videos from your history, locally only.",
     masterKey: "historyLocalHideOn", keys: ["historyLocalHideOn"],
     apply(ctx) {
       if (!S.historyLocalHideOn || !location.pathname.startsWith("/feed/history")) return;
@@ -4096,7 +4096,7 @@
   // Strips tracking parameters from YouTube URLs you copy.
   xa.register({
     id: "copy-link-cleaner", name: "Copy Link Cleaner",
-    summary: "YouTube links you copy lose si/feature/utm tracking baggage automatically.",
+    summary: "Copied links lose tracking baggage.",
     masterKey: "copyLinkCleanerOn", keys: ["copyLinkCleanerOn"],
     apply(ctx) {
       if (!S.copyLinkCleanerOn) return;
@@ -4131,7 +4131,7 @@
   // it after — built on the pure TimeWindow primitive.
   xa.register({
     id: "night-scheduler", name: "Night Theme Scheduler",
-    summary: "Dark theme after hours, light theme after sunrise — automatic, on your clock.",
+    summary: "Dark theme at night, light theme by day.",
     masterKey: "nightSchedulerOn", keys: ["nightSchedulerOn", "nightStart", "nightEnd"],
     apply(ctx) {
       if (!S.nightSchedulerOn) return;
@@ -4177,7 +4177,7 @@
   // ─── 20. Text Scale Booster ──────────────────────────────────────────────
   xa.register({
     id: "text-scale", name: "Reading Size Boost",
-    summary: "Larger description and comment text without zooming the whole page.",
+    summary: "Bigger text for descriptions and comments.",
     masterKey: "textScaleOn", keys: ["textScaleOn", "textScalePct"],
     apply(ctx) {
       if (!S.textScaleOn) return;
@@ -4200,7 +4200,7 @@
   // tints a soft box-shadow around the player — bias lighting, no add-ons.
   xa.register({
     id: "ambient-glow", name: "Ambient Glow",
-    summary: "Bias lighting for the player: its edges breathe with the colors on screen.",
+    summary: "Soft glow around the player matching the video.",
     masterKey: "ambientGlowOn", keys: ["ambientGlowOn"],
     apply(ctx) {
       if (!S.ambientGlowOn) return;
@@ -4258,7 +4258,7 @@
   // one-click trim.
   xa.register({
     id: "storage-dashboard", name: "Storage Dashboard",
-    summary: "See exactly how much local space YT-zen uses — per store — and trim it.",
+    summary: "See and trim YT-zen's local storage use.",
     masterKey: "storageDashboardOn", keys: ["storageDashboardOn"],
     apply(ctx) { /* panel renders through settings() */ },
     settings(en) {
@@ -4303,7 +4303,7 @@
   // quarantined features, selector sanity probes.
   xa.register({
     id: "health-check", name: "Health Check",
-    summary: "Self-diagnostics board: subsystem stats, quarantines, and live DOM probes.",
+    summary: "Diagnostics: stats, quarantines, live probes.",
     masterKey: "healthCheckOn", keys: ["healthCheckOn"],
     apply(ctx) { },
     settings(en) {
@@ -4351,7 +4351,7 @@
   // Player buttons + hotkeys that nudge by exactly one frame at your FPS.
   xa.register({
     id: "frame-stepper", name: "Frame Stepper",
-    summary: "Precise frame-by-frame nudges (‹ › buttons and Alt+, / Alt+.) at any FPS.",
+    summary: "Step frame by frame with buttons or Alt+, / Alt+..",
     masterKey: "frameStepperOn", keys: ["frameStepperOn", "frameFps"],
     apply(ctx) {
       if (!S.frameStepperOn) return;
@@ -4397,7 +4397,7 @@
   // playlist left off — index and timestamp.
   xa.register({
     id: "playlist-resume", name: "Playlist Resume",
-    summary: "Remembers where each playlist stopped and offers one-click resumption.",
+    summary: "Resumes playlists where you stopped.",
     masterKey: "playlistResumeOn", keys: ["playlistResumeOn"],
     apply(ctx) {
       if (!S.playlistResumeOn) return;
@@ -4453,7 +4453,7 @@
   // channel and restore it automatically.
   xa.register({
     id: "channel-volume", name: "Per-Channel Volume",
-    summary: "Remembers your preferred loudness for every channel and applies it quietly.",
+    summary: "Remembers volume per channel.",
     masterKey: "channelVolumeOn", keys: ["channelVolumeOn"],
     apply(ctx) {
       if (!S.channelVolumeOn) return;
@@ -4495,7 +4495,7 @@
   // One click under the player sends the current video into any collection.
   xa.register({
     id: "quick-collection-send", name: "Quick Save to Collection",
-    summary: "A small ▤ menu under the player drops the current video into any collection.",
+    summary: "Quick button to save the current video to a collection.",
     masterKey: "quickCollectionSendOn", keys: ["quickCollectionSendOn"],
     apply(ctx) {
       if (!S.quickCollectionSendOn) return;
@@ -4539,7 +4539,7 @@
   // Expands the description into a clean overlay: big type, zero clutter.
   xa.register({
     id: "reader-mode", name: "Description Reader",
-    summary: "Open long descriptions in a calm reader panel — large type, no chrome.",
+    summary: "Read long descriptions in a clean panel.",
     masterKey: "readerModeOn", keys: ["readerModeOn"],
     apply(ctx) {
       if (!S.readerModeOn) return;
@@ -4594,7 +4594,7 @@
   // scroll fingers. Esc exits anytime.
   xa.register({
     id: "zen-breather", name: "Zen Breather",
-    summary: "Alt+G dims everything for a one-minute breathing circle. Esc leaves anytime.",
+    summary: "Alt+G opens a one-minute breathing break.",
     masterKey: "zenBreatherOn", keys: ["zenBreatherOn"],
     apply(ctx) {
       if (!S.zenBreatherOn) return;
@@ -4643,4 +4643,36 @@
       Yt["zen-breather"].push(close);
     },
     settings(en) { en.appendChild(Io("Enable breather (Alt+G)", "zenBreatherOn")); },
+  });
+
+  // ─── 31. AIO: Player Tools ───────────────────────────────────────────────
+  // One switch for the hidden player buttons. Members stay individually
+  // adjustable afterwards; switching this on turns them all on.
+  xa.register({
+    id: "aio-player-tools", name: "Player Tools (All-in-One)",
+    summary: "One switch for player extras: copy buttons, transcript, notes, chapters.",
+    masterKey: "aioPlayerToolsOn",
+    keys: ["aioPlayerToolsOn", "copyTimestampButtonOn", "copyVideoInfoButtonOn", "openTranscriptButtonOn", "videoNotesOn", "channelNotesOn", "chapterButtonsOn", "chapterHotkeysOn"],
+    apply() {
+      if (!S.aioPlayerToolsOn) return;
+      for (const k of ["copyTimestampButtonOn", "copyVideoInfoButtonOn", "openTranscriptButtonOn", "videoNotesOn", "channelNotesOn", "chapterButtonsOn", "chapterHotkeysOn"]) {
+        if (!S[k]) Ta(k, true);
+      }
+    },
+    settings(en) { en.appendChild(Io("Turn on every player tool", "aioPlayerToolsOn")); },
+  });
+
+  // ─── 32. AIO: Shorts Cleanup ─────────────────────────────────────────────
+  xa.register({
+    id: "aio-shorts-cleanup", name: "Shorts Cleanup (All-in-One)",
+    summary: "One switch: Shorts open in the player, start muted, no comments.",
+    masterKey: "aioShortsCleanupOn",
+    keys: ["aioShortsCleanupOn", "redirectShortsOn", "shortsAutoMuteOn", "shortsHideCommentsOn"],
+    apply() {
+      if (!S.aioShortsCleanupOn) return;
+      for (const k of ["redirectShortsOn", "shortsAutoMuteOn", "shortsHideCommentsOn"]) {
+        if (!S[k]) Ta(k, true);
+      }
+    },
+    settings(en) { en.appendChild(Io("Turn on every Shorts cleanup", "aioShortsCleanupOn")); },
   });

@@ -1469,6 +1469,10 @@
       const addBlockedTopic = (topic) => { blockTopics.add(topic.toLowerCase()); };
       const removeBlockedTopic = (topic) => { blockTopics.delete(topic.toLowerCase()); };
       const addBlockedKeyword = (kw) => { blockKeywords.push(kw.toLowerCase()); };
+      // Setting edits re-run apply() which re-parses the comma lists; without
+      // a reset, removing an entry from the UI never unblocked it (the old
+      // term stayed in the in-memory set until a page reload).
+      const clearBlocked = () => { blockTopics.clear(); blockKeywords.length = 0; };
 
       const scanAndBlock = async (maxActions = 15) => {
         const homepage = ProfileAnalyzer.analyzeHomepage();
@@ -1512,7 +1516,7 @@
         return { actions, scanned: homepage.recommendations.length };
       };
 
-      return { addBlockedTopic, removeBlockedTopic, addBlockedKeyword, scanAndBlock, getBlockedTopics: () => [...blockTopics], getBlockedKeywords: () => [...blockKeywords] };
+      return { addBlockedTopic, removeBlockedTopic, addBlockedKeyword, clearBlocked, scanAndBlock, getBlockedTopics: () => [...blockTopics], getBlockedKeywords: () => [...blockKeywords] };
     })();
 
     // ─── Autonomous Watch Optimizer ──────────────────────────────────────────
@@ -1596,6 +1600,7 @@
 
       const addBlocked = (c) => { const v = String(c || "").trim().toLowerCase(); if (v) blocked.add(v); };
       const removeBlocked = (c) => { blocked.delete(String(c || "").trim().toLowerCase()); };
+      const clearBlocked = () => { blocked.clear(); };
       const isBlocked = (c) => blocked.has(String(c || "").trim().toLowerCase());
       const getBlocked = () => [...blocked];
       const getTopChannels = (limit = 8) => SignalTracker.getChannels(limit);
@@ -1617,7 +1622,7 @@
         return done;
       };
 
-      return { addBlocked, removeBlocked, isBlocked, getBlocked, getTopChannels, boostTopChannels };
+      return { addBlocked, removeBlocked, clearBlocked, isBlocked, getBlocked, getTopChannels, boostTopChannels };
     })();
 
     // ─── Interest Booster ────────────────────────────────────────────────────
@@ -1850,6 +1855,7 @@
       blockKeyword: (kw) => NegativeSignalManager.addBlockedKeyword(kw),
       blockChannel: (c) => ChannelAffinity.addBlocked(c),
       unblockChannel: (c) => ChannelAffinity.removeBlocked(c),
+      resetBlockLists: () => { NegativeSignalManager.clearBlocked(); ChannelAffinity.clearBlocked(); },
       scanAndBlock: (max) => NegativeSignalManager.scanAndBlock(max),
       scanShorts: (max) => ShortsSignals.scan(max),
       boost: (max) => InterestBooster.runBoost(max),
@@ -2261,7 +2267,10 @@
       AlgoEngine.startMonitoring();
       Yt["algo-intelligence"].push(() => AlgoEngine.stopMonitoring());
 
-      // Parse blocked topics / keywords / channels from settings
+      // Reset then re-parse blocked topics / keywords / channels: apply()
+      // re-runs on every settings edit (not just on enable), so a list that
+      // is only appended-to would keep entries the user already removed.
+      AlgoEngine.resetBlockLists();
       for (const t of String(S.algoBlockTopics || "").split(/[,;\n]+/)) {
         const trimmed = t.trim().toLowerCase();
         if (trimmed) AlgoEngine.blockTopic(trimmed);

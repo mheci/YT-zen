@@ -28574,11 +28574,15 @@ const Nr = [
         let added = 0;
         document.querySelectorAll("ytd-video-renderer, ytd-compact-video-renderer, ytd-rich-item-renderer").forEach(card => {
           if (card.dataset.zenCred) return;
-          card.dataset.zenCred = "1";
+          const meta = card.querySelector("#metadata-line");
+          // No metadata container at all means the card can never be badged;
+          // only then stamp it processed. A container that exists but is not
+          // yet populated (YouTube fills views/age lazily) must stay open so a
+          // later scan can badge it — stamping it first left those cards
+          // badge-less forever.
+          if (!meta) { card.dataset.zenCred = "1"; return; }
           const info = ZenSearch.analyzeCredibility(card);
           if (!info || info.reach === "unknown") return;
-          const meta = card.querySelector("#metadata-line");
-          if (!meta) return;
           const badge = document.createElement("span");
           badge.className = "zen-cred-badge";
           if (info.reach === "high") {
@@ -28601,6 +28605,7 @@ const Nr = [
             ab.title = "Over 2 years old. May be outdated.";
             meta.appendChild(ab);
           }
+          card.dataset.zenCred = "1";
         });
         return added;
       };

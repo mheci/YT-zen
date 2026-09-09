@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YT-zen
 // @namespace    https://github.com/mheci/YT-zen
-// @version      3.16.6
+// @version      3.16.7
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      Unlicense
@@ -20624,7 +20624,10 @@ const Nr = [
       "ytd-video-renderer{margin:4px 0!important}",
     ]),
     "#comments ytd-comment-thread-renderer,#comments ytd-comment-view-model,#comments ytd-comment-renderer,#comment-content,ytd-comment-text,#comments yt-attributed-string,#comments yt-formatted-string{background:transparent!important}",
-    "ytd-rich-item-renderer,ytd-rich-grid-media,#dismissible.ytd-rich-grid-media{background:transparent!important;border:0!important;outline:0!important;box-shadow:none!important}",
+    "ytd-rich-item-renderer,ytd-rich-item-renderer #content,ytd-rich-item-renderer yt-lockup-view-model,ytd-rich-item-renderer .ytLockupViewModelHost,ytd-rich-grid-media,#dismissible.ytd-rich-grid-media,#dismissible.ytd-rich-item-renderer{background:transparent!important;border:0!important;outline:0!important;box-shadow:none!important}",
+    "ytd-rich-item-renderer yt-touch-feedback-shape .ytSpecTouchFeedbackShapeFill,ytd-rich-item-renderer yt-touch-feedback-shape .ytSpecTouchFeedbackShapeHoverEffect{background:transparent!important;background-color:transparent!important}",
+    "ytd-rich-item-renderer yt-touch-feedback-shape .ytSpecTouchFeedbackShapeStroke{border-color:transparent!important}",
+    "ytd-rich-section-renderer,ytd-rich-shelf-renderer,ytd-chips-shelf-with-video-shelf-renderer{background:transparent!important;box-shadow:none!important}",
   ].join("\n");
   const qr = "ytp-theme-engine-style";
   function Vr(e) {
@@ -21414,6 +21417,26 @@ const Nr = [
                 "yt-chip-cloud-chip-renderer[aria-selected=true] yt-chip-shape",
               ].join(",") +
                 "{background-color:" +
+                c +
+                "!important;color:" +
+                a +
+                "!important;border-color:" +
+                c +
+                "!important}",
+            ),
+            k.push(
+              // Generic chip-view-model pills ("Explore more topics" etc.)
+              // share the inner .ytChipShapeChip markup with a different host.
+              "chip-view-model .ytChipShapeChip{background-color:" +
+                p +
+                "!important;color:" +
+                c +
+                "!important;border:1px solid " +
+                u +
+                "!important;border-radius:18px!important}",
+            ),
+            k.push(
+              "chip-view-model .ytChipShapeChip.ytChipShapeActive{background-color:" +
                 c +
                 "!important;color:" +
                 a +
@@ -26504,6 +26527,8 @@ const Nr = [
       "ytd-shelf-renderer:has(a[href*='/shorts/'])",
       "ytd-rich-section-renderer:has(a[href*='/shorts/'])",
       "ytd-rich-shelf-renderer:has(ytd-reel-item-renderer)",
+      "ytd-rich-shelf-renderer:has(path[d*='m19.45,3.88'])",
+      "ytd-rich-section-renderer:has(ytd-rich-shelf-renderer path[d*='m19.45,3.88'])",
       "ytd-rich-section-renderer:has(ytd-reel-shelf-renderer)",
       "ytd-rich-section-renderer:has(ytd-reel-item-renderer)",
       "ytd-rich-section-renderer:has(grid-shelf-view-model.ytGridShelfViewModelHost)",
@@ -26562,6 +26587,35 @@ const Nr = [
       }
       return false;
     }
+    // Empty Shorts shells: YouTube now renders the home "Shorts" shelf with
+    // zero items (no reel nodes, no /shorts/ links), so no selector above
+    // can match it. Identify it by its title text or its logo path and kill
+    // the whole wrapping section.
+    function shortsShellRoot(el) {
+      try {
+        const title = el.querySelector("#title");
+        const isShorts =
+          (title && /^shorts$/i.test((title.textContent || "").trim())) ||
+          !!el.querySelector("path[d*='m19.45,3.88']");
+        if (!isShorts) return null;
+        return el.closest("ytd-rich-section-renderer") || el;
+      } catch (err) {
+        return null;
+      }
+    }
+    function killShortsShells(scope) {
+      try {
+        const s = scope && scope.querySelectorAll ? scope : document;
+        const shelves = s.querySelectorAll("ytd-rich-shelf-renderer");
+        for (let i = 0; i < shelves.length; i++) {
+          const root = shortsShellRoot(shelves[i]);
+          if (root) {
+            root.style.display = "none";
+            root.setAttribute("data-zen-shorts-dead", "1");
+          }
+        }
+      } catch (err) {}
+    }
 
     function sanitizeShortsHrefs(scope) {
       if (!S.hideShortsRedirect) return;
@@ -26604,6 +26658,7 @@ const Nr = [
             }
           }
           if (doSanitize) sanitizeShortsHrefs(root);
+          killShortsShells(root);
         } catch (err) {}
       }
     }
@@ -26641,6 +26696,8 @@ const Nr = [
     }
     function scrubRoot() {
       if (!shortsOn()) return;
+
+      killShortsShells(document);
 
       if (S.hideShortsDomClean) {
         try {

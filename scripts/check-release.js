@@ -17,6 +17,9 @@ const versionOf = (text) => {
 if (versionOf(bundle) !== pkg.version || versionOf(meta) !== pkg.version) {
   throw new Error(`Version mismatch: package=${pkg.version}, bundle=${versionOf(bundle)}, meta=${versionOf(meta)}`);
 }
+if (!/@inject-into\s+content/.test(bundle)) {
+  throw new Error("Bundle is missing @inject-into content — without it Violentmonkey on Firefox uses page-context injection, which YouTube's CSP blocks on regular reloads (the script then never runs).");
+}
 if (!/@sandbox\s+JavaScript/.test(bundle)) {
   throw new Error("Bundle is missing @sandbox JavaScript — without it Tampermonkey injects a page-context inline script that YouTube's CSP blocks on cold navigations (the 'only works after hard refresh' regression).");
 }

@@ -958,6 +958,92 @@
         }
       };
 
+      // GET /api/lockCategories?videoID= — VIP-verified category locks for
+      // this video. Locked categories reject non-VIP submissions, so the
+      // editor checks this before sending.
+      const getLockCategories = async (videoId, abortSignal) => {
+        if (!VIDEO_ID_RE.test(String(videoId || ""))) return [];
+        const base = Settings.getServerUrl();
+        try {
+          Metrics.recordUserInfoRequest();
+          const { body } = await requestJson(
+            base + "/api/lockCategories?videoID=" + encodeURIComponent(String(videoId)),
+            abortSignal,
+            { timeoutMs: API_TIMEOUT_MS }
+          );
+          if (Array.isArray(body)) return body;
+          if (body && Array.isArray(body.categories)) return body.categories;
+          return [];
+        } catch (_) {
+          return [];
+        }
+      };
+
+      // GET /api/userStats — public per-user totals (hashed userID).
+      const getUserStats = async (userId, abortSignal, force = false) => {
+        const cleanUserId = typeof userId === "string" ? userId.trim() : "";
+        if (!cleanUserId) return null;
+        if (!force) {
+          const cached = userInfoCache.get("stats:" + cleanUserId);
+          if (cached !== undefined) return cached;
+        }
+        const base = Settings.getServerUrl();
+        try {
+          Metrics.recordUserInfoRequest();
+          const { body } = await requestJson(
+            base + "/api/userStats?userID=" + encodeURIComponent(cleanUserId) +
+              "&values=[\"overallStats\",\"categoryCount\",\"actionTypeCount\"]",
+            abortSignal,
+            { timeoutMs: API_TIMEOUT_MS }
+          );
+          if (!body || typeof body !== "object") return null;
+          userInfoCache.set("stats:" + cleanUserId, body);
+          return body;
+        } catch (_) {
+          return null;
+        }
+      };
+
+      // Locally submitted segment UUIDs (this browser only), so users can
+      // delete their own submissions via DELETE /api/skipSegments/{uuid}.
+      const MINE_KEY = "ytp_sb_my_submissions";
+      const mySubmissions = () => {
+        try {
+          const raw = window.localStorage.getItem(MINE_KEY);
+          const arr = raw ? JSON.parse(raw) : [];
+          return Array.isArray(arr) ? arr.filter((u) => typeof u === "string").slice(-200) : [];
+        } catch (_) { return []; }
+      };
+      const rememberSubmission = (uuid, videoId) => {
+        try {
+          const mine = mySubmissions().filter((m) => m.uuid !== uuid);
+          mine.push({ uuid: String(uuid), videoId: String(videoId || ""), at: Date.now() });
+          window.localStorage.setItem(MINE_KEY, JSON.stringify(mine.slice(-200)));
+        } catch (_) {}
+      };
+
+      // DELETE /api/skipSegments/{uuid}?userID= — removes a submission you
+      // own (server checks userID ownership / VIP status).
+      const deleteSegment = async (uuid) => {
+        if (!State.userId || /^(idx-|preview-)/.test(String(uuid))) return false;
+        const base = Settings.getServerUrl();
+        try {
+          Metrics.recordVoteRequest();
+          await requestResponse(
+            base + "/api/skipSegments/" + encodeURIComponent(String(uuid)) +
+              "?userID=" + encodeURIComponent(State.userId),
+            { method: "DELETE" }
+          );
+          try {
+            const mine = mySubmissions().filter((m) => m.uuid !== String(uuid));
+            window.localStorage.setItem(MINE_KEY, JSON.stringify(mine));
+          } catch (_) {}
+          return true;
+        } catch (_) {
+          return false;
+        }
+      };
+
       return {
         fetchWithRetry,
         voteOnSegment,
@@ -966,6 +1052,11 @@
         submitSegment,
         reportViewed,
         getUserInfo,
+        getLockCategories,
+        getUserStats,
+        deleteSegment,
+        rememberSubmission,
+        mySubmissions,
         hashPrefix,
         normalizeSegments,
       };
@@ -1496,8 +1587,12 @@
               <input type="text" class="editor-text-input" id="ed-desc-val" value="${ZenResources.Dom.esc(State.editor.description)}" placeholder="Optional chapter title...">
             </div>
             <div style="display:flex;gap:6px;margin-top:8px">
-              <button class="editor-btn primary-btn" style="flex:1" id="ed-submit">Submit</button>
-              <button class="editor-btn" style="flex:1" id="ed-preview">Preview Segment</button>
+              <div style="flex:1">
+                <div class="zen-meta" id="ed-sbstats" style="margin-bottom:4px"></div>
+                <div id="ed-sbmine" style="margin-bottom:4px"></div>
+              </div>
+              <button class="editor-btn primary-btn" id="ed-submit">Submit</button>
+              <button class="editor-btn" id="ed-preview">Preview Segment</button>
               <button class="editor-btn danger-btn" id="ed-cancel">Cancel</button>
             </div>
           </div>
@@ -1523,6 +1618,45 @@
         panel.querySelector("#ed-cat-val").addEventListener("change", (ev) => {
           State.editor.category = ev.target.value;
         });
+
+        // Account impact + my submissions on this video (delete-own).
+        (async () => {
+          try {
+            const vid = ie.videoId();
+            const mine = API.mySubmissions().filter((m) => m.videoId === vid);
+            const segs = State.segments.filter((sg) => mine.some((m) => m.uuid === sg.UUID));
+            const box = panel.querySelector("#ed-sbmine");
+            if (box && segs.length) {
+              box.innerHTML = '<span class="zen-meta">Your submissions:</span>';
+              segs.forEach((sg) => {
+                const row = document.createElement("div");
+                row.style.cssText = "display:flex;align-items:center;gap:6px;margin:2px 0";
+                const lbl = document.createElement("span");
+                lbl.className = "zen-meta";
+                lbl.textContent = (Categories.find((c) => c.id === sg.category) || { label: sg.category }).label +
+                  " " + sg.segment[0].toFixed(1) + "–" + sg.segment[1].toFixed(1);
+                const btn = document.createElement("button");
+                btn.className = "editor-btn danger-btn mini-btn";
+                btn.textContent = "Delete";
+                btn.addEventListener("click", () => {
+                  API.deleteSegment(sg.UUID).then((ok) => {
+                    pe(ok ? "Submission deleted" : "Delete failed (owner or VIP only)", 2200, ok ? "success" : "error");
+                    if (ok) { row.remove(); SponsorBlockEngine.invalidate(vid); SponsorBlockEngine.refreshCurrent(); }
+                  });
+                });
+                row.append(lbl, btn);
+                box.appendChild(row);
+              });
+            }
+            const info = State.userId ? await API.getUserInfo(State.userId) : null;
+            const statsEl = panel.querySelector("#ed-sbstats");
+            if (statsEl && info) {
+              statsEl.textContent = "Your SB impact: " + (info.viewCount || 0) + " segment views · " +
+                (info.minutesSaved || 0) + " min saved · " + (info.segmentCount || 0) + " submitted" +
+                (info.vip ? " · VIP" : "");
+            }
+          } catch (_) {}
+        })();
 
         panel.querySelector("#ed-desc-val").addEventListener("input", (ev) => {
           State.editor.description = ev.target.value;
@@ -1553,7 +1687,7 @@
           pe("Preview segment added locally", 1800, "success");
         });
 
-        panel.querySelector("#ed-submit").addEventListener("click", () => {
+        panel.querySelector("#ed-submit").addEventListener("click", async () => {
           const videoId = ie.videoId();
           const start = parseFloat(panel.querySelector("#ed-start-val").value);
           const end = parseFloat(panel.querySelector("#ed-end-val").value);
@@ -1561,13 +1695,36 @@
             pe("Invalid segment times", 1800, "error");
             return;
           }
+          // Locked categories are VIP-verified server-side; a non-VIP submit
+          // would be rejected, so surface it before the request.
+          try {
+            const locks = await API.getLockCategories(videoId);
+            const lockHit = locks.find((l) => (typeof l === "string" ? l : l && l.category) === State.editor.category);
+            if (lockHit) {
+              pe("Category \"" + State.editor.category + "\" is locked for this video" +
+                (lockHit && lockHit.reason ? ": " + lockHit.reason : ""), 3200, "error");
+              return;
+            }
+          } catch (_) {}
           pe("Submitting segment...", 1500, "info");
+          const known = new Set(State.segments.map((sg) => sg.UUID));
           API.submitSegment(videoId, start, end, State.editor.category, State.editor.description)
             .then(success => {
               if (success) {
                 pe("Segment submitted successfully!", 2000, "success");
-                // Clear local previews and re-fetch
+                // The server mints the UUID, so identify our new submission
+                // by diffing the refreshed segment list against the
+                // pre-submit set, then remember it for delete-own support.
                 SponsorBlockEngine.invalidate(videoId);
+                SponsorBlockEngine.refreshCurrent && SponsorBlockEngine.refreshCurrent();
+                setTimeout(() => {
+                  try {
+                    State.segments
+                      .map((sg) => sg.UUID)
+                      .filter((u) => !known.has(u) && !/^(idx-|preview-)/.test(u))
+                      .forEach((u) => API.rememberSubmission(u, videoId));
+                  } catch (_) {}
+                }, 2500);
                 closeSubmissionEditor();
               } else {
                 pe("Submission failed", 2000, "error");
@@ -1957,6 +2114,10 @@
         submitSegment: API.submitSegment,
         reportViewed: API.reportViewed,
         getUserInfo: API.getUserInfo,
+        getLockCategories: (videoId) => API.getLockCategories(videoId, null),
+        getUserStats: (userId, force = false) => API.getUserStats(userId, null, force),
+        deleteSegment: (uuid) => API.deleteSegment(uuid),
+        mySubmissions: () => API.mySubmissions(),
         hashPrefix: API.hashPrefix,
         normalizeSegments: API.normalizeSegments,
       },

@@ -48,11 +48,6 @@
           else domains.push(d);
         }
       }
-      const hostMatches = (list) => {
-        const host = (location.hostname || '').toLowerCase();
-        return list.some((d) => host === d || host.endsWith('.' + d));
-      };
-
       // Detect procedural filters
       const hasHasText = /:has-text\(/.test(selector);
       const hasMatchesPath = /:matches-path\(/.test(selector);
@@ -125,12 +120,14 @@
       };
     };
 
-    // Escape special regex characters in a string
+    // Does the current host match any entry in the given list (host or a
+    // subdomain of it)? Used by generateCSS/applyProcedural for domain scope.
     const hostMatches = (list) => {
       const host = (location.hostname || '').toLowerCase();
       return list.some((d) => host === d || host.endsWith('.' + d));
     };
 
+    // Escape special regex characters in a string
     const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
     // ─── Filter List Parser ──────────────────────────────────────────────────

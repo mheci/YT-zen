@@ -26,7 +26,11 @@
     // Returns null for comments, blank lines, or unparseable lines.
     const parseFilter = (line) => {
       const raw = line.trim();
-      if (!raw || raw[0] === '!' || raw[0] === '#') return null;
+      // A bare '#' guard would also drop documented global hides ('##sel')
+      // since those legitimately start with '#'. Only '!' comments/blank
+      // lines are rejected here; anything else falls through to the '##'
+      // scan and returns null when it isn't a cosmetic filter.
+      if (!raw || raw[0] === '!') return null;
 
       // Check for cosmetic filter: domain##selector or ##selector
       const hashIdx = raw.indexOf('##');

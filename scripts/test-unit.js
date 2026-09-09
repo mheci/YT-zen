@@ -584,6 +584,47 @@ let keepAlive;
   // undeclared `energy`) so boosting is restored when sound resumes. ---
   assert.ok(bundle.includes("reading.energy >= 4 && boosted"),
     "silence-skipper de-boost uses the declared reading.energy");
+
+  // --- Group 11b: uBlock filter parser categorization + scoping ---
+  {
+    const uctx = vm.createContext({
+      console, URL, location: { hostname: "www.youtube.com", pathname: "/watch?v=x" },
+      document: { querySelectorAll: () => [] },
+      setTimeout, clearTimeout, setInterval, clearInterval, performance,
+      AbortController, DOMException,
+    });
+    let usrc = fs.readFileSync(path.join(root, "src/ublock-filter-engine.js"), "utf8");
+    usrc += "\n;globalThis.UBlockEngine = UBlockEngine;";
+    vm.runInContext(usrc, uctx, { filename: "src/ublock-filter-engine.js" });
+    const UE = uctx.UBlockEngine;
+    // comment & blank -> null
+    assert.strictEqual(UE.parseFilter("! a comment"), null);
+    assert.strictEqual(UE.parseFilter(""), null);
+    // plain name without ## -> null (not a cosmetic filter)
+    assert.strictEqual(UE.parseFilter("somechannel"), null);
+    // global css hide
+    const g = UE.parseFilter("##ytd-video-renderer");
+    assert.ok(g && g.selector === "ytd-video-renderer" && g.isCssOnly === true);
+    // domain-scoped
+    const d = UE.parseFilter("www.youtube.com##ytd-rich-item-renderer");
+    assert.ok(d && d.domains[0] === "www.youtube.com");
+    // excluded domain
+    const ex = UE.parseFilter("~music.youtube.com##ytd-video-renderer");
+    assert.ok(ex && ex.excludedDomains[0] === "music.youtube.com");
+    // :has-text plain + regex => procedural
+    const ht = UE.parseFilter("##ytd-comment-thread-renderer:has-text(spam)");
+    assert.ok(ht && ht.isProcedural === true && ht.hasTextPatterns.length === 1);
+    const htr = UE.parseFilter("##ytd-comment-thread-renderer:has-text(/spam|scam/i)");
+    assert.ok(htr && htr.isProcedural === true && htr.hasTextPatterns.length === 1);
+    // :matches-path regex captured without g/y stateful flags
+    const mp = UE.parseFilter("##.ytp-gif:matches-path(/watch\\?v=.*/)");
+    assert.ok(mp && mp.pathRegex, "path regex captured");
+    assert.ok(mp.pathRegex.global === false && mp.pathRegex.sticky === false, "stateful flags stripped");
+    // parseFilterList categorization
+    const list = UE.parseFilterList("! c\n##a\n##b:has-text(x)\n##c:matches-path(/watch/)\nchannel##d\n");
+    assert.strictEqual(list.cssFilters.length, 3, "a + d + c(css part when path) counted css");
+    assert.strictEqual(list.procFilters.filter(f=>f.hasTextPatterns.length).length >= 1, true, ":has-text goes procedural");
+  }
   console.log("Unit tests passed.");
 })().catch((error) => {
   console.error(error);

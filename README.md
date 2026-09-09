@@ -71,6 +71,15 @@ The integration:
 
 Manual submissions remain explicitly user initiated; YT-zen never submits segments automatically.
 
+## Boot & launch reliability
+
+YT-zen runs at `document-start` on every matched YouTube surface and applies after YouTube's app shell mounts (with an 8s hard cap, then a 20s repair watchdog). The launch path is protected by:
+
+- `@sandbox JavaScript` — Tampermonkey runs the script in its JS sandbox instead of injecting an inline page-context script, which YouTube's CSP would block on cold navigations (the historical "only works after a hard refresh" cause). Violentmonkey/Greasemonkey ignore the key.
+- IndexedDB can never wedge boot: opens are raced with a 3s stall guard, a blocked upgrade resolves retryable-null, and the boot config load is capped at 1.5s — the synchronous GM/localStorage config applies immediately and a late IDB merge re-applies only changed feature groups.
+- bfcache restores (`pageshow`, persisted) re-arm ZenResources and re-apply features, so back/forward navigation never leaves dead features.
+- `window.__zen_last_apply` + a `ytzen:applied` event mark the completed first apply; `scripts/harness-boot.js` asserts both a plain boot and a boot with a permanently-hung `indexedDB.open` still apply.
+
 ## Architecture
 
 The userscript is the canonical distribution. Every subsystem under `src/` is the canonical source and is synchronized into the bundle by `scripts/build-userscript.js` using marker replacement; edits belong in `src/`, never in `yt-zen.user.js` directly.

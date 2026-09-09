@@ -131,6 +131,20 @@ Testing & tooling:
 - jsdom boot harness (plain + hung-IDB scenarios), CDP browser harness (cold load, SPA nav, bfcache, synthetic persisted restore) with feature-style and signature assertions.
 - Build gates: structural validation of the 201-theme color table; release check that the `@sandbox` header survives the build.
 
+## Troubleshooting: Firefox + Violentmonkey
+
+**Symptom:** YT-zen only runs after a hard refresh; regular reloads do nothing. Console shows `injected.js` blocked by `script-src-elem` / CSP nonce errors.
+
+**Cause:** Violentmonkey's default `auto` injection tries the page context first, which YouTube's CSP blocks on Firefox; its content-mode fallback is unreliable. `@inject-into content` (in our header since 3.16.10) makes injection deterministic — **but Violentmonkey snapshots per-script settings at install time and keeps them across updates**, so an existing install keeps its stored `auto` even after the update.
+
+**Fix (pick one):**
+1. Remove YT-zen from Violentmonkey and reinstall it from the latest release (fresh install reads the header), or
+2. Violentmonkey → YT-zen → editor → Settings tab → *Inject into* → `content`.
+
+**Verify:** on a plain reload, the console shows `[YT-zen] inject mode: content` within the first moments of page load. If the line is absent, Violentmonkey did not inject at all — update Violentmonkey itself, and check its advanced settings (Firefox: *Alternative page mode* / *Synchronous page mode*).
+
+**Note on content mode:** the page's JS world is isolated, so the fetch/sendBeacon hooks, the autoplay-hold gate, and the watchtime engine are inert there; all DOM/CSS-level features (UI, theming, Shorts removal, filters, SponsorBlock, dashboard) work fully.
+
 ## Update channel
 
 Updates are served from GitHub's CDN, not the REST API:

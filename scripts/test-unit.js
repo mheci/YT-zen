@@ -539,6 +539,46 @@ let keepAlive;
   assert.ok(bundle.includes("!S.algoAutoDislikeOn"), "maybeAutoDislike no longer rides the auto-like gate");
 
 
+
+  // --- Group 8: BoundedCache LRU + O(1) size semantics ---
+  {
+    const evictions = [];
+    const bc = new BoundedCache(3, "test-lru", { onEvict: (k, v, reason) => evictions.push([k, reason]) });
+    bc.set("a", 1); bc.set("b", 2); bc.set("c", 3);
+    bc.set("d", 4);                       // over cap -> evict "a" (oldest)
+    assert.deepStrictEqual(Array.from(bc.keys()).sort(), ["b", "c", "d"], "LRU evicts oldest on overflow");
+    assert.strictEqual(evictions[0][0], "a", "onEvict called with the evicted key");
+    assert.strictEqual(bc.get("b"), 2);   // promote b to newest
+    bc.set("e", 5);                       // now evict c
+    assert.deepStrictEqual(Array.from(bc.keys()).sort(), ["b", "d", "e"], "get() promotes and changes eviction order");
+    assert.strictEqual(bc.size, 3, "size getter is stable/O(1) and reflects live entries");
+    bc.delete("d");
+    assert.strictEqual(bc.has("d"), false, "delete removes the entry");
+    bc.clear();
+    assert.strictEqual(bc.size, 0, "clear empties the cache");
+    assert.strictEqual(bc.get("nope", 42), 42, "miss returns the fallback");
+  }
+  // --- Group 9: BoundedCache lazy expiry keeps size O(1); expired entries are
+  // purged on access, not on the size getter. ---
+  {
+    // past-time entry via internal _map so no wall-clock flake
+    const bc2 = new BoundedCache(8, "ttl");
+    bc2.set("live", 1, 60000);
+    const key = "old";
+    // craft an already-expired entry directly
+    const ent = bc2._entry("x", 60000);
+    ent.expiresAt = 1;                     // in the far past
+    bc2._map.set(key, ent);
+    assert.strictEqual(bc2.size, 2, "size stays 2 without sweeping (expired not yet touched)");
+    assert.strictEqual(bc2.peek(key), undefined, "peek purges the expired entry");
+    assert.strictEqual(bc2.size, 1, "after touch, expired entry is gone and size reflects it");
+    assert.strictEqual(bc2.get("live"), 1, "live entry survives");
+  }
+  // --- Group 10: bundle markers for the new reliability fixes ---
+  assert.ok(bundle.includes("Reset quarantined features"), "reset-quarantine menu command is wired");
+  assert.ok(bundle.includes("_r.catch((t) => fa(e, t))"), "async failures count toward feature quarantine");
+  assert.ok(bundle.includes("_ytShellReady"), "boot waits for the YouTube SPA shell");
+
   console.log("Unit tests passed.");
 })().catch((error) => {
   console.error(error);

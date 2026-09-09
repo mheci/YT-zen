@@ -2380,9 +2380,12 @@ algoBlockChannels: "",
       cleanupExpired(limit = Infinity) {
         const max = Math.max(0, finite(limit, Infinity));
         let removed = 0;
+        // Take a single timestamp for the whole pass instead of calling
+        // now() once per entry via _expiredEntry().
+        const at = now();
         for (const [key, entry] of Array.from(this._map.entries())) {
           if (removed >= max) break;
-          if (this._expiredEntry(entry)) {
+          if (entry && entry.expiresAt > 0 && entry.expiresAt <= at) {
             this._remove(key, "expired");
             removed++;
           }
@@ -2470,7 +2473,13 @@ algoBlockChannels: "",
       keys() { this.cleanupExpired(); return Array.from(this._map.keys()); }
       values() { this.cleanupExpired(); return Array.from(this._map.values(), (entry) => entry.value); }
       entries() { this.cleanupExpired(); return Array.from(this._map.entries(), ([key, entry]) => [key, entry.value]); }
-      get size() { this.cleanupExpired(); return this._map.size; }
+      // O(1): size must not run a full O(n) expiry sweep on every read. The
+      // registry's maintenance loop and perf features read .size frequently;
+      // expired entries are still purged lazily on get/peek/has and by an
+      // explicit cleanupExpired()/stats() when it actually matters.
+      get size() { return this._map.size; }
+      // Convenience for callers that want an expiry sweep + count back.
+      sweepExpired(limit) { return this.cleanupExpired(limit); }
 
       stats() {
         this.cleanupExpired();
@@ -8126,11 +8135,12 @@ algoBlockChannels: "",
           if (!a) return;
           const i = () => {
             if (Xt.visible && !_a())
-              try {
-                n();
-              } catch (t) {
-                fa(e, t);
-              }
+                try {
+                  const _r = n();
+                  if (_r && typeof _r.then === "function") _r.catch((t) => fa(e, t));
+                } catch (t) {
+                  fa(e, t);
+                }
           };
           if (a === document.body && r && r.childList && r.subtree) {
             const e =
@@ -8180,7 +8190,9 @@ algoBlockChannels: "",
             featureId: e,
             fn: function () {
               try {
-                return a();
+                const _r = a();
+                if (_r && typeof _r.then === "function") _r.catch((t) => fa(e, t));
+                return _r;
               } catch (t) {
                 fa(e, t);
               }
@@ -8203,13 +8215,15 @@ algoBlockChannels: "",
         );
       },
       addTimeout(a, n) {
-        const r = setTimeout(function () {
+      const r = setTimeout(function () {
           try {
-            return a();
+            const _r = a();
+            if (_r && typeof _r.then === "function") _r.catch((t) => fa(e, t));
+            return _r;
           } catch (t) {
             fa(e, t);
           }
-        }, n);
+      }, n);
         return (t.push(() => clearTimeout(r)), r);
       },
       addRAF(a) {
@@ -31068,6 +31082,15 @@ const Nr = [
             GM_registerMenuCommand("Import settings from file", () => {
               try {
                 typeof Xo === "function" ? Xo() : pe("Import unavailable.", 2200, "info");
+              } catch (e) {}
+            });
+          } catch (e) {}
+          try {
+            GM_registerMenuCommand("Reset quarantined features", () => {
+              try {
+                const _n = ga && ga.size ? ga.size : 0;
+                if (xa && xa.clearQuarantine) xa.clearQuarantine();
+                pe(_n ? "Cleared " + _n + " quarantined feature(s)." : "No features were quarantined.", 2000, "success");
               } catch (e) {}
             });
           } catch (e) {}

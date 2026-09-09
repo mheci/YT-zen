@@ -490,9 +490,12 @@
       cleanupExpired(limit = Infinity) {
         const max = Math.max(0, finite(limit, Infinity));
         let removed = 0;
+        // Take a single timestamp for the whole pass instead of calling
+        // now() once per entry via _expiredEntry().
+        const at = now();
         for (const [key, entry] of Array.from(this._map.entries())) {
           if (removed >= max) break;
-          if (this._expiredEntry(entry)) {
+          if (entry && entry.expiresAt > 0 && entry.expiresAt <= at) {
             this._remove(key, "expired");
             removed++;
           }
@@ -580,7 +583,13 @@
       keys() { this.cleanupExpired(); return Array.from(this._map.keys()); }
       values() { this.cleanupExpired(); return Array.from(this._map.values(), (entry) => entry.value); }
       entries() { this.cleanupExpired(); return Array.from(this._map.entries(), ([key, entry]) => [key, entry.value]); }
-      get size() { this.cleanupExpired(); return this._map.size; }
+      // O(1): size must not run a full O(n) expiry sweep on every read. The
+      // registry's maintenance loop and perf features read .size frequently;
+      // expired entries are still purged lazily on get/peek/has and by an
+      // explicit cleanupExpired()/stats() when it actually matters.
+      get size() { return this._map.size; }
+      // Convenience for callers that want an expiry sweep + count back.
+      sweepExpired(limit) { return this.cleanupExpired(limit); }
 
       stats() {
         this.cleanupExpired();

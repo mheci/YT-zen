@@ -2184,6 +2184,10 @@
         if (info) info.appendChild(badge);
       };
       ZenEngine.scheduleOnReady(ctx, check, { attempts: 8, delayMs: 600 });
+      // Without a nav rescan the detector only ever checked the first watch
+      // page present when the feature was enabled; each subsequent SPA
+      // navigation to another video never got evaluated.
+      ctx.onNav(() => ctx.addTimeout(check, 700));
       Yt["dead-link-detector"].push(() => {});
     },
     settings(en) { en.appendChild(Io("Enable Outdated Content Detector", "deadLinkOn")); } });

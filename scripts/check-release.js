@@ -17,6 +17,12 @@ const versionOf = (text) => {
 if (versionOf(bundle) !== pkg.version || versionOf(meta) !== pkg.version) {
   throw new Error(`Version mismatch: package=${pkg.version}, bundle=${versionOf(bundle)}, meta=${versionOf(meta)}`);
 }
+if (!/@sandbox\s+JavaScript/.test(bundle)) {
+  throw new Error("Bundle is missing @sandbox JavaScript — without it Tampermonkey injects a page-context inline script that YouTube's CSP blocks on cold navigations (the 'only works after hard refresh' regression).");
+}
+if (!meta.includes("@sandbox JavaScript") && !meta.includes("@sandbox")) {
+  throw new Error("Meta is missing @sandbox — metadata and bundle headers have diverged.");
+}
 for (const required of [
   "all-categories-v2",
   "privacy-path-json",

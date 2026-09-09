@@ -419,22 +419,26 @@ let keepAlive;
       let mode = 1; // 1 = scan reports work, 0 = quiet scan
       const schedBackoff = ScanScheduler.create(() => (mode ? 1 : 0), { intervalMs: 2000, minGapMs: 1, maxBackoffMs: 8000 });
       schedulers.push(schedBackoff);
+      // A priority nudge that lands while another run is momentarily in
+      // flight is coalesced into a no-op, so a fixed-sleep-then-assert was
+      // intermittently reading the pre-backoff delay (rare CI flake). Poll to
+      // an eventually-consistent value: re-nudging advances currentDelay one
+      // step at a time and stops at the exact target, so it cannot overshoot.
+      const expectDelay = async (expected, label) => {
+        for (let i = 0; i < 25; i++) {
+          if (schedBackoff.stats().delayMs === expected) return;
+          schedBackoff.request({ priority: true });
+          await sleep(40);
+        }
+        assert.strictEqual(schedBackoff.stats().delayMs, expected, label);
+      };
       schedBackoff.request({ priority: true });
-      assert.strictEqual(schedBackoff.stats().delayMs, 2000, "a scan that reports work keeps the base cadence");
+      await expectDelay(2000, "a scan that reports work keeps the base cadence");
       mode = 0;
-      await sleep(50);
-      schedBackoff.request({ priority: true });
-      assert.strictEqual(schedBackoff.stats().delayMs, 4000, "one quiet scan backs off by one step");
-      await sleep(50);
-      schedBackoff.request({ priority: true });
-      await sleep(50);
-      schedBackoff.request({ priority: true });
-      assert.strictEqual(schedBackoff.stats().delayMs, 8000, "quiet scans keep backing off to the cap");
-
+      await expectDelay(4000, "one quiet scan backs off by one step");
+      await expectDelay(8000, "quiet scans keep backing off to the cap");
       mode = 1;
-      await sleep(50);
-      schedBackoff.request({ priority: true });
-      assert.strictEqual(schedBackoff.stats().delayMs, 2000, "a scan that reports work restores the base cadence");
+      await expectDelay(2000, "a scan that reports work restores the base cadence");
 
       let runs = 0;
       const schedGap = ScanScheduler.create(() => ++runs, { intervalMs: 200, minGapMs: 25, maxBackoffMs: 400 });

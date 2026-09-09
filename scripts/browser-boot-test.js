@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Browser boot regression harness (puppeteer-core + system Chromium).
 /*
  * Real-browser boot reliability harness for YT-zen.
  * Loads youtube.com in headless Chromium with the userscript injected at
@@ -91,7 +92,7 @@ const GM_SHIM = `
     presetSeen: typeof window.__YTZ_PRESET_CFG_JSON === "string" && window.__YTZ_PRESET_CFG_JSON.length > 0,
     bfcacheReapplied: !!window.__zenBfcacheReapplied,
     themeStyleMounted: !!document.getElementById("ytp-theme-engine-style"),
-    themeCssHasFixes: (() => { const st = document.getElementById("ytp-theme-engine-style"); if (!st) return null; const t = st.textContent || ""; return { commentFix: t.includes("#comment-content"), gridFix: t.includes("#dismissible.ytd-rich-grid-media"), compact: t.includes("ytd-masthead#masthead{height:48px"), themeVars: t.includes("--yt-spec-base-background") }; })(),
+    themeCssHasFixes: (() => { const st = document.getElementById("ytp-theme-engine-style"); if (!st) return null; const t = st.textContent || ""; return { commentFix: t.includes("#comment-content"), gridFix: t.includes("#dismissible.ytd-rich-grid-media"), compact: t.includes("ytd-masthead#masthead{height:48px"), themeVars: t.includes("--yt-spec-base-background"), chipInnerStyled: t.includes("yt-chip-shape{background-color:") || t.includes(".ytChipShapeChip{"), chipHostNotPainted: !/yt-chip-cloud-chip-renderer,ytd-feed-filter-chip-bar-renderer yt-chip-cloud-chip-renderer\{background-color/.test(t), compactNoHostGeometry: !t.includes("ytd-masthead#masthead{height") && !t.includes("ytd-guide-entry-renderer{height:32px") }; })(),
     richItemStyle: (() => { const el = document.querySelector("ytd-rich-item-renderer, ytd-rich-grid-media"); if (!el) return null; const cs = getComputedStyle(el); return { border: cs.borderTopWidth + " " + cs.borderTopColor, shadow: cs.boxShadow.slice(0, 40), bg: cs.backgroundColor }; })(),
     commentBg: (() => { const el = document.querySelector("ytd-comment-thread-renderer, #comment-content, ytd-comment-text"); if (!el) return null; return getComputedStyle(el).backgroundColor; })(),
     gmCfg: (() => { try { return !!localStorage.getItem("gm:ytp.cfg"); } catch (e) { return "err"; } })(),

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YT-zen
 // @namespace    https://github.com/mheci/YT-zen
-// @version      3.16.5
+// @version      3.16.6
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      Unlicense
@@ -20613,15 +20613,15 @@ const Nr = [
   // themeCompactOn=false) and two custom-theme corrections — tinted boxes
   // behind comment text, and a dark border/shadow rendered behind home
   // grid containers.
+  // GEOMETRY RULE: only content margins here. Earlier revisions forced
+  // heights/paddings on Polymer hosts (masthead, guide entries, chips);
+  // their inner components own their own box metrics, so those hosts
+  // ended up fighting YouTube's layout and clipped/misaligned them.
   const _zenThemeExtras = () => [
     ...(S.themeCompactOn === false ? [] : [
-      "ytd-masthead#masthead{height:48px!important}",
-      "ytd-guide-entry-renderer{height:32px!important}",
-      "tp-yt-paper-item.ytd-guide-entry-renderer{padding:0 12px!important}",
-      "yt-chip-cloud-chip-renderer{height:28px!important;padding:0 10px!important}",
       "ytd-rich-item-renderer{margin-bottom:10px!important}",
-      "ytd-compact-video-renderer{padding-top:4px!important;padding-bottom:4px!important}",
       "h3.ytd-rich-grid-media{margin:6px 0 2px!important}",
+      "ytd-video-renderer{margin:4px 0!important}",
     ]),
     "#comments ytd-comment-thread-renderer,#comments ytd-comment-view-model,#comments ytd-comment-renderer,#comment-content,ytd-comment-text,#comments yt-attributed-string,#comments yt-formatted-string{background:transparent!important}",
     "ytd-rich-item-renderer,ytd-rich-grid-media,#dismissible.ytd-rich-grid-media{background:transparent!important;border:0!important;outline:0!important;box-shadow:none!important}",
@@ -20707,9 +20707,10 @@ const Nr = [
         "ytd-searchbox,ytd-searchbox-spt{background:rgba(255,255,255,.06)!important;border:1px solid rgba(255,255,255,.1)!important;border-radius:10px!important;backdrop-filter:blur(12px) saturate(150%);-webkit-backdrop-filter:blur(12px) saturate(150%)}",
         "tp-yt-iron-dropdown,ytd-popup-container,paper-menu-button,ytd-multi-page-menu-renderer,ytd-menu-popup-renderer,ytd-simple-menu-header-renderer{background:rgba(20,22,28,.92)!important;border:1px solid rgba(255,255,255,.12)!important;border-radius:12px!important;backdrop-filter:blur(20px) saturate(170%);-webkit-backdrop-filter:blur(20px) saturate(170%);box-shadow:0 24px 60px rgba(0,0,0,.6),0 6px 18px rgba(0,0,0,.4);overflow:hidden}",
         "ytd-channel-renderer,ytd-grid-channel-renderer,ytd-vertical-list-renderer{background:" + GLASS_BG2 + "!important;border:1px solid rgba(255,255,255,.07)!important;border-radius:14px!important}",
-        "yt-chip-cloud-chip-renderer{background:rgba(20,22,28,.5)!important;border:1px solid rgba(255,255,255,.08)!important;border-radius:99px!important;transition:" + _ease + "}",
-        "yt-chip-cloud-chip-renderer:hover{background:rgba(20,22,28,.7)!important;border-color:rgba(255,255,255,.18)!important}",
-        "yt-chip-cloud-chip-renderer[selected]{background:linear-gradient(135deg,#ff0033 0%,#ff3d7f 100%)!important;border-color:rgba(255,255,255,.25)!important;color:#fff!important;box-shadow:0 2px 8px rgba(255,61,127,.4)}",
+        "yt-chip-cloud-chip-renderer{background:transparent!important;transition:" + _ease + "}",
+        "yt-chip-cloud-chip-renderer .ytChipShapeChip,yt-chip-cloud-chip-renderer yt-chip-shape{background:rgba(20,22,28,.5)!important;border:1px solid rgba(255,255,255,.08)!important;border-radius:99px!important;transition:" + _ease + "}",
+        "yt-chip-cloud-chip-renderer:hover .ytChipShapeChip{background:rgba(20,22,28,.7)!important;border-color:rgba(255,255,255,.18)!important}",
+        "yt-chip-cloud-chip-renderer[selected] .ytChipShapeChip,yt-chip-cloud-chip-renderer[aria-selected=true] .ytChipShapeChip{background:linear-gradient(135deg,#ff0033 0%,#ff3d7f 100%)!important;border-color:rgba(255,255,255,.25)!important;color:#fff!important;box-shadow:0 2px 8px rgba(255,61,127,.4)}",
         "yt-live-chat-renderer,#chat,yt-live-chat-item-list-renderer{background:" + GLASS_BG + "!important}",
         "#progress{background:rgba(255,61,127,.85)!important;height:3px!important}",
         "ytd-notification-topbar-renderer,.yt-spec-icon-badge{background:rgba(255,61,127,.85)!important;box-shadow:0 0 10px rgba(255,61,127,.4)}",
@@ -21381,28 +21382,43 @@ const Nr = [
                 "!important}",
             ),
             k.push(
+              // Chips: new markup renders the pill inside chip-shape
+              // (.ytChipShapeChip); painting the host leaves a square box
+              // behind the rounded pill, so the host stays transparent and
+              // the inner shape carries the theme.
               [
                 "yt-chip-cloud-chip-renderer",
                 "ytd-feed-filter-chip-bar-renderer yt-chip-cloud-chip-renderer",
               ].join(",") +
-                "{background-color:" +
-                p +
-                "!important;color:" +
+                "{color:" +
                 c +
                 "!important;border-color:" +
                 u +
-                "!important}",
+                "!important;background-color:transparent!important}",
+            ),
+            k.push(
+              "yt-chip-cloud-chip-renderer .ytChipShapeChip,yt-chip-cloud-chip-renderer yt-chip-shape{background-color:" +
+                p +
+                "!important;color:" +
+                c +
+                "!important;border:1px solid " +
+                u +
+                "!important;border-radius:18px!important}",
             ),
             k.push(
               [
-                "yt-chip-cloud-chip-renderer[selected]",
-                "yt-chip-cloud-chip-renderer[aria-selected=true]",
-                "yt-chip-cloud-chip-renderer[chip-style=STYLE_HOME_FILTER_SELECTED]",
+                "yt-chip-cloud-chip-renderer[selected] .ytChipShapeChip",
+                "yt-chip-cloud-chip-renderer[aria-selected=true] .ytChipShapeChip",
+                "yt-chip-cloud-chip-renderer[chip-style=STYLE_HOME_FILTER_SELECTED] .ytChipShapeChip",
+                "yt-chip-cloud-chip-renderer[selected] yt-chip-shape",
+                "yt-chip-cloud-chip-renderer[aria-selected=true] yt-chip-shape",
               ].join(",") +
                 "{background-color:" +
                 c +
                 "!important;color:" +
                 a +
+                "!important;border-color:" +
+                c +
                 "!important}",
             ),
             k.push(

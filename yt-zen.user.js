@@ -3661,9 +3661,11 @@ algoBlockChannels: "",
       "sponsor.ajay.app",
       "www.youtube.com",
     ]);
-    try {
-      (S.remoteSelectorsURL && a.add(new URL(S.remoteSelectorsURL).host));
-    } catch (e) {}
+    // NOTE: remoteSelectorsURL used to expand this allowlist, but nothing in
+    // the script ever consumed those settings — the expansion only widened
+    // the privileged-fetch surface for no functionality. Removed; if a
+    // remote selector loader ever ships it must re-add its own origin here
+    // (with its SHA pin check) at the call site.
     let n;
     try {
       n = new URL(e).host;

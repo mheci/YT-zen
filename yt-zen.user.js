@@ -14308,7 +14308,12 @@ algoBlockChannels: "",
               // host-only cookie is valid in every context and avoids Firefox
               // rejecting a cross-context Domain attribute.
               if (!/^[A-Za-z0-9_\-]+$/.test(String(name || ""))) return false;
-              document.cookie=`${name}=${value}; path=/; SameSite=Lax; Secure`;
+              // Reject separator/control characters: a raw value containing
+              // ';' or CR/LF would let one "value" smuggle extra cookie
+              // attributes (Domain/Path/Secure) into the header.
+              const _sv = String(value == null ? "" : value);
+              if (/[;\r\n]/.test(_sv) || _sv.length > 4096) return false;
+              document.cookie=`${name}=${_sv}; path=/; SameSite=Lax; Secure`;
               return true;
             }catch(e){return false;}
           },

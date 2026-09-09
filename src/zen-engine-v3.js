@@ -2485,7 +2485,9 @@
         logDiv.textContent = "Recent signals: " + (events.length ? events.map(ev => ev.type + (ev.pct !== undefined ? " " + ev.pct + "%" : "")).join(" · ") : "none yet — watch some videos and scan the feed.");
       };
       updateLog();
-      const timer = setInterval(updateLog, 4000);
+      // Stop refreshing once the dashboard panel is gone — the global
+      // teardown only fires at unload, so this used to tick forever.
+      const timer = setInterval(() => { en.isConnected && updateLog(); }, 4000);
       Co.push(() => clearInterval(timer));
       en.appendChild(logDiv);
     },

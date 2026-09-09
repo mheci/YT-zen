@@ -521,13 +521,16 @@
         try { if (ctx.state === "suspended") ctx.resume(); } catch (_) {}
         // One reusable frequency buffer per analyser: readEnergy() runs on a
         // cadence and allocating a fresh Uint8Array per read churned GC.
-        const entry = { ctx, source, analyser, stream, rerouted, buf: new Uint8Array(analyser.frequencyBinCount) };
+        const entry = { ctx, source, analyser, stream, rerouted, buf: new Uint8Array(analyser.frequencyBinCount), resumeHandler: null };
         perVideo.set(video, entry);
         if (typeof video.addEventListener === "function") {
           try {
-            video.addEventListener("play", () => {
+            // Keep a reference so release() can remove it: otherwise each
+            // re-created entry for the same element stacks a fresh listener.
+            entry.resumeHandler = () => {
               if (ctx.state === "suspended") { try { ctx.resume(); } catch (_) {} }
-            }, { once: false, passive: true });
+            };
+            video.addEventListener("play", entry.resumeHandler, { passive: true });
           } catch (_) {}
         }
         return entry;
@@ -557,6 +560,10 @@
     const release = (video) => {
       const entry = perVideo.get(video);
       if (!entry) return;
+      if (typeof video.removeEventListener === "function" && entry.resumeHandler) {
+        try { video.removeEventListener("play", entry.resumeHandler); } catch (_) {}
+        entry.resumeHandler = null;
+      }
       if (entry.rerouted) {
         // createMediaElementSource throws if called twice on the same
         // element, so keep the entry and re-route the source straight to

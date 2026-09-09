@@ -8701,10 +8701,16 @@ algoBlockChannels: "",
         const t = () => {
             if (S.abA < 0 || S.abB <= S.abA) return;
             const e = ie.el();
-            e &&
-              e.currentTime >= S.abB &&
-              !_isLiveStream() &&
-              (e.currentTime = S.abA), e.paused || e.play().catch(() => {});
+            // Null/absent video (navigation races) must not crash this tick:
+            // three throws quarantined the whole feature. Also only resume
+            // playback on an actual loop wrap — the old comma-expression ran
+            // e.play() on every tick inside [A,B], so the video could not be
+            // paused while the loop was engaged.
+            if (!e || _isLiveStream()) return;
+            if (e.currentTime >= S.abB) {
+              try { e.currentTime = S.abA; } catch (_) { return; }
+              if (e.paused) e.play().catch(() => {});
+            }
           },
           a = () => {
             const a = ie.el();

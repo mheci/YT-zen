@@ -25489,6 +25489,11 @@ const Nr = [
               (t.cfg && (S = Object.assign({}, s, j(D(t.cfg)))),
 
                 Array.isArray(t.history) &&
+                  // Bound the import: an oversized/crafted file must not
+                  // queue an unbounded IDB write storm. Keep the newest
+                  // 5000 entries (export order is oldest→newest).
+                  (t.history = t.history.slice(-5000)),
+                  Array.isArray(t.history) &&
                   (await Promise.all(
                     t.history
                       .filter(

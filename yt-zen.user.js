@@ -31349,6 +31349,9 @@ const Nr = [
             (ev) => {
               try {
                 if (!ev || !ev.persisted) return;
+                // Observable for diagnostics/tests: a bfcache restore that
+                // went through the re-arm path.
+                try { window.__zenBfcacheReapplied = Date.now(); } catch (e2) {}
                 u("bfcache restore: re-arming resources and re-applying features");
                 try { ZenResources.cleanup(); } catch (e2) {}
                 try { Z.abort(); } catch (e2) {}

@@ -15449,7 +15449,7 @@ algoBlockChannels: "",
       apply(e) {
         S.denseVideoGridOn &&
           e.addStyle(
-            "ytd-rich-grid-renderer{--ytd-rich-grid-items-per-row:5!important;--ytd-rich-grid-posts-per-row:5!important}ytd-rich-item-renderer{margin-bottom:14px!important}ytd-video-renderer{margin:6px 0!important}",
+            "ytd-rich-grid-renderer{--ytd-rich-grid-items-per-row:6!important;--ytd-rich-grid-posts-per-row:6!important}ytd-rich-item-renderer{margin-bottom:10px!important}ytd-video-renderer{margin:4px 0!important}h3.ytd-rich-grid-media{margin:6px 0 2px!important}@media(min-width:1600px){ytd-rich-grid-renderer{--ytd-rich-grid-items-per-row:8!important;--ytd-rich-grid-posts-per-row:8!important}}@media(min-width:2100px){ytd-rich-grid-renderer{--ytd-rich-grid-items-per-row:10!important;--ytd-rich-grid-posts-per-row:10!important}}",
           );
       },
       settings() {},
@@ -20576,11 +20576,33 @@ const Nr = [
     Object.freeze(Nr);
   let Hr = null,
     Dr = null;
+  // Theme CSS memo: the builder assembles ~60KB of CSS on every apply;
+  // cache the last result keyed by the full theme object.
+  let _themeCssMemo = { k: "", v: "" };
+  // Engine-owned theme addenda: compact rhythm (opt-out via
+  // themeCompactOn=false) and two custom-theme corrections — tinted boxes
+  // behind comment text, and a dark border/shadow rendered behind home
+  // grid containers.
+  const _zenThemeExtras = () => [
+    ...(S.themeCompactOn === false ? [] : [
+      "ytd-masthead#masthead{height:48px!important}",
+      "ytd-guide-entry-renderer{height:32px!important}",
+      "tp-yt-paper-item.ytd-guide-entry-renderer{padding:0 12px!important}",
+      "yt-chip-cloud-chip-renderer{height:28px!important;padding:0 10px!important}",
+      "ytd-rich-item-renderer{margin-bottom:10px!important}",
+      "ytd-compact-video-renderer{padding-top:4px!important;padding-bottom:4px!important}",
+      "h3.ytd-rich-grid-media{margin:6px 0 2px!important}",
+    ]),
+    "#comments ytd-comment-thread-renderer,#comments ytd-comment-view-model,#comments ytd-comment-renderer,#comment-content,ytd-comment-text,#comments yt-attributed-string,#comments yt-formatted-string{background:transparent!important}",
+    "ytd-rich-item-renderer,ytd-rich-grid-media,#dismissible.ytd-rich-grid-media{background:transparent!important;border:0!important;outline:0!important;box-shadow:none!important}",
+  ].join("\n");
   const qr = "ytp-theme-engine-style";
   function Vr(e) {
     try {
       const t = document.head || document.documentElement;
       if (!t) return;
+      // Identical stylesheet already mounted — skip the remove/re-create.
+      if (Hr && Hr.isConnected && Hr.textContent === e) return;
       const a = document.getElementById(qr);
       if (a)
         try {
@@ -20788,6 +20810,7 @@ const Nr = [
     masterKey: "themeEngineOn",
     keys: [
       "themeEngineOn",
+      "themeCompactOn",
       "themeSelected",
       "themeOverhaulOn",
       "themeGlassOverhaulOn",
@@ -20945,6 +20968,10 @@ const Nr = [
         for (const e of [60, 200, 600, 1500, 3500]) t.addTimeout(n, e);
       }
       let r = "";
+      const _memoKey = JSON.stringify(a && a.vars ? [a.id, a.mode] : a) + "|v2";
+      if (_themeCssMemo.k === _memoKey && _themeCssMemo.v) {
+        r = _themeCssMemo.v;
+      } else
       try {
         r = (function (e) {
           if (!e || !e.vars) return "";
@@ -21922,9 +21949,12 @@ const Nr = [
             k.join("\n")
           );
         })(a);
+        _themeCssMemo.k = _memoKey;
+        _themeCssMemo.v = r;
       } catch (e) {
         (h("themeBuildCSS", e), (r = ""));
       }
+      r && (r += "\n" + _zenThemeExtras());
       r &&
         (Vr(r),
         Fr(),
@@ -31861,4 +31891,3 @@ const Nr = [
     window.dispatchEvent(new CustomEvent("prism:ready"));
   } catch (e) {}
 })();
-

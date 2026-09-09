@@ -14828,7 +14828,18 @@ algoBlockChannels: "",
       })(),
       pa(Or),
       (Yt[e] = Yt[e] || []),
-      Yt[e].push(() => Sr.delete(a)));
+      // The observer used to stay attached to #movie_player/body for the
+      // whole session even after every player-button feature was disabled;
+      // drop it once the last installer goes away.
+      Yt[e].push(() => {
+        Sr.delete(a);
+        if (!Sr.size && Tr) {
+          try {
+            Tr.disconnect();
+          } catch (e) {}
+          Tr = null;
+        }
+      }));
   }
   function Lr(e) {
     document.querySelectorAll(e).forEach((e) => {

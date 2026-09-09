@@ -11,6 +11,7 @@
 // @match        https://m.youtube.com/*
 // @match        https://music.youtube.com/*
 // @run-at       document-start
+// @sandbox      JavaScript
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_deleteValue

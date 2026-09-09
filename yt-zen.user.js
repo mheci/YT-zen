@@ -11,6 +11,7 @@
 // @match        https://m.youtube.com/*
 // @match        https://music.youtube.com/*
 // @run-at       document-start
+// @sandbox      JavaScript
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_deleteValue
@@ -376,13 +377,18 @@
       // YtpCache.cleanup() deserializes the whole kv store to find expired
       // rows — far too heavy for a 30s heartbeat. Throttle it to one pass
       // per five minutes; pagehide checkpoints still force it immediately.
+      // Precedence fixed: the 5-minute throttle must only fire when YtpCache
+      // actually exists, not bypass the existence check via || short-circuit.
       try {
         if (
-          typeof YtpCache !== "undefined" && YtpCache &&
-          forceKv === true || Date.now() - _lastKvCleanup > 300000
+          forceKv === true ||
+          (typeof YtpCache !== "undefined" && YtpCache &&
+            Date.now() - _lastKvCleanup > 300000)
         ) {
-          _lastKvCleanup = Date.now();
-          YtpCache.cleanup();
+          if (typeof YtpCache !== "undefined" && YtpCache) {
+            _lastKvCleanup = Date.now();
+            YtpCache.cleanup();
+          }
         }
       } catch (e) {}
 
@@ -1261,12 +1267,34 @@ algoBlockChannels: "",
     return (
       f ||
       ((f = new Promise((e) => {
-        let t;
+        let t,
+          _settled = !1,
+          _stall = 0;
+        const _finish = (v, msg, err) => {
+          if (_settled) return;
+          _settled = !0;
+          try { clearTimeout(_stall); } catch (_) {}
+          if (msg) h(msg, err);
+          // A failed/stalled open must not poison the cached promise for the
+          // rest of the session: drop it so the next caller retries.
+          if (v === null) f = null;
+          e(v);
+        };
         try {
           t = indexedDB.open("ytplus_v2", 3);
         } catch (t) {
-          return (h("IDB open threw", t), e(null));
+          return _finish(null, "IDB open threw", t);
         }
+        // Hard stall guard: an open that never settles (blocked store, some
+        // privacy modes) used to leave this promise pending forever, which
+        // froze the boot's config load — YT-zen then only started after a
+        // hard refresh. Time the open out and retry on the next call.
+        _stall = setTimeout(() => {
+          try {
+            t.onupgradeneeded = t.onsuccess = t.onerror = t.onblocked = null;
+          } catch (_) {}
+          _finish(null, "IDB open stalled; skipping IDB for this pass");
+        }, 3000);
         ((t.onupgradeneeded = (e) => {
           try {
             const a = t.result,
@@ -1310,11 +1338,21 @@ algoBlockChannels: "",
             m("IDB upgrade error", e);
           }
         }),
-          (t.onsuccess = () => e(t.result)),
-          (t.onerror = () => {
-            (h("IDB open failed", t.error), (f = null), e(null));
+          (t.onsuccess = () => {
+            // Keep the successful handle cached for the session.
+            if (_settled) return;
+            _settled = !0;
+            try { clearTimeout(_stall); } catch (_) {}
+            e(t.result);
           }),
-          (t.onblocked = () => h("IDB upgrade blocked")));
+          (t.onerror = () => _finish(null, "IDB open failed", t.error)),
+          (t.onblocked = () => {
+            // A version upgrade blocked by an older tab resolves null instead
+            // of hanging; a later b() call retries the open once the block
+            // clears (no reload required).
+            h("IDB upgrade blocked; continuing without IDB");
+            _finish(null);
+          }));
       })),
       f)
     );
@@ -31262,12 +31300,42 @@ const Nr = [
             { capture: !0 },
           );
         } catch (e) {}
+        try {
+          // bfcache restore: pagehide already ran Ze() and
+          // ZenResources.cleanup() (shared observers/tickers/abort groups are
+          // cleared), so pages restored from the back/forward cache used to
+          // keep dead features until a full reload. Re-arm on pageshow.
+          window.addEventListener(
+            "pageshow",
+            (ev) => {
+              try {
+                if (!ev || !ev.persisted) return;
+                u("bfcache restore: re-arming resources and re-applying features");
+                try { ZenResources.cleanup(); } catch (e2) {}
+                try { Z.abort(); } catch (e2) {}
+                try { Z = new AbortController(); } catch (e2) {}
+                try { da.clear(); } catch (e2) {}
+                try { ue(); } catch (e2) {}
+                try { xa.applyAll(); } catch (e2) {}
+                try { ft(); } catch (e2) {}
+                try { g.emit("nav.changed", { url: location.href, bfcache: !0 }); } catch (e2) {}
+              } catch (e2) {
+                m("bfcache restore", e2);
+              }
+            },
+            { capture: !0 },
+          );
+        } catch (e) {}
       })();
     } catch (e) {
       m("attachCfgFlushHooks", e);
     }
     try {
-      await (async function () {
+      // Hard cap the async (IndexedDB) config load: z() above already
+      // restored the synchronous GM/localStorage config, so a stalled or
+      // blocked IDB read must never delay feature application. If the read
+      // lands late, its merge still runs and changed features are re-applied.
+      const _loadCfgBody = async function () {
         const e = [];
         try {
           const t = await v("kv", I);
@@ -31304,9 +31372,46 @@ const Nr = [
               W(S, A));
         }
         ((T = !0), g.emit("cfg.loaded"));
-      })();
+      };
+      const _snapBefore = Object.assign({}, S);
+      await Promise.race([
+        _loadCfgBody().then(() => "done"),
+        new Promise((r) => setTimeout(() => r("timeout"), 1500)),
+      ]).then((who) => {
+        if (who !== "timeout") return;
+        // The IDB read finished after the cap (or is still running). When the
+        // merge does land, diff the config against the pre-merge snapshot and
+        // re-apply touched feature groups, so late-arriving settings still
+        // take effect this session.
+        try {
+          g.once("cfg.loaded", () => {
+            try {
+              if (typeof ka === "undefined" || !ka) return;
+              setTimeout(() => {
+                try {
+                  const _touched = new Set();
+                  for (const _k of Object.keys(_snapBefore))
+                    if (S[_k] !== _snapBefore[_k]) {
+                      const _feats = ka.get(_k);
+                      if (_feats) for (const _f of _feats) _touched.add(_f.id);
+                    }
+                  for (const _k of Object.keys(S))
+                    if (!(_k in _snapBefore)) {
+                      const _feats = ka.get(_k);
+                      if (_feats) for (const _f of _feats) _touched.add(_f.id);
+                    }
+                  _touched.forEach((_id) => xa.apply(_id));
+                  if (_touched.size)
+                    u("Late config merge: " + _touched.size + " feature(s) re-applied");
+                } catch (_) {}
+              }, 0);
+            } catch (_) {}
+          });
+        } catch (_) {}
+      });
     } catch (e) {
       m("loadCfg failed", e);
+      T = !0;
     }
     try {
       S.geoOverrideOn && Mn();
@@ -31341,6 +31446,9 @@ const Nr = [
       } catch (e) {
         m("applyAll", e);
       }
+      // Boot-smoke harness marker: proves the feature pass actually ran.
+      try { window.__zen_last_apply = Date.now(); } catch (e) {}
+      try { window.dispatchEvent(new CustomEvent("ytzen:applied")); } catch (e) {}
       try {
         ft();
       } catch (e) {}
@@ -31485,3 +31593,4 @@ const Nr = [
     window.dispatchEvent(new CustomEvent("prism:ready"));
   } catch (e) {}
 })();
+

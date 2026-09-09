@@ -8118,24 +8118,33 @@ algoBlockChannels: "",
     Yt[e] = Yt[e] || [];
     const t = Yt[e];
     let a = null;
+    const _ids = new Set();
     return {
       addStyle(n) {
         if (a) return ((a.textContent += "\n" + n), a);
         const r = "ytp-style-" + e + "-" + ++Gt,
           o = document.createElement("style");
-        return (
-          (o.id = r),
-          (o.textContent = n),
-          (document.head || document.documentElement).appendChild(o),
-          (a = o),
-          t.push(() => {
-            try {
-              o.remove();
-            } catch (e) {}
-            a = null;
-          }),
-          o
-        );
+        o.id = r;
+        o.textContent = n;
+        (document.head || document.documentElement).appendChild(o);
+        // Register the live style id so the boot watchdog can detect a
+        // PARTIAL wipe (some markers removed by YouTube re-renders), not
+        // just the total-wipe "zero markers" case.
+        try {
+          (xa._styleIds || (xa._styleIds = new Set())).add(r);
+          if (xa._styleIds.size > 400) xa._styleIds.clear();
+        } catch (_) {}
+        _ids.add(r);
+        a = o;
+        t.push(() => {
+          try {
+            o.remove();
+          } catch (e) {}
+          try { xa._styleIds && xa._styleIds.delete(r); } catch (_) {}
+          try { _ids.delete(r); } catch (_) {}
+          a = null;
+        });
+        return o;
       },
       addListener(a, n, r, o) {
         try {
@@ -26694,11 +26703,6 @@ const Nr = [
       const o = Object.assign({ timeout: 9000, headers: {}, method: "GET" }, opts || {});
       const gmx = (typeof GM_xmlhttpRequest === "function") ? GM_xmlhttpRequest
         : (typeof window !== "undefined" && typeof window.GM_xmlhttpRequest === "function") ? window.GM_xmlhttpRequest : null;
-      const wrap = (fn) => {
-        if (typeof GM_xmlhttpRequest === "function") return gmx(fn);
-        if (typeof window !== "undefined" && typeof window.GM_xmlhttpRequest === "function") return window.GM_xmlhttpRequest(fn);
-        return null;
-      };
       if (gmx) {
         return new Promise((resolve) => {
           try {
@@ -31567,9 +31571,27 @@ const Nr = [
           const _markers = document.querySelector(
             'style[id^="ytp-style-"],style[id^="ytp-zen-"]',
           );
-          // Repair path: the page is up but zero YT-zen markers survived.
-          if (!_markers) {
-            h("watchdog: no YT-zen markers found, re-applying features");
+          // Repair path 1: the page is up but zero YT-zen markers survived.
+          // Repair path 2: a PARTIAL wipe — a style this session registered
+          // is gone from the DOM while others survived (YouTube re-renders
+          // can replace subtrees and drop our nodes).
+          let _missingStyle = false;
+          try {
+            if (xa._styleIds && xa._styleIds.size) {
+              for (const _sid of xa._styleIds) {
+                if (!document.getElementById(_sid)) {
+                  _missingStyle = true;
+                  break;
+                }
+              }
+            }
+          } catch (_) {}
+          if (!_markers || _missingStyle) {
+            h(
+              "watchdog: re-applying features (" +
+                (!_markers ? "no markers" : "missing " + "registered style(s)") +
+                ")",
+            );
             try {
               xa.applyAll();
             } catch (e) {}

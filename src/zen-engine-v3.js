@@ -197,11 +197,6 @@
       const o = Object.assign({ timeout: 9000, headers: {}, method: "GET" }, opts || {});
       const gmx = (typeof GM_xmlhttpRequest === "function") ? GM_xmlhttpRequest
         : (typeof window !== "undefined" && typeof window.GM_xmlhttpRequest === "function") ? window.GM_xmlhttpRequest : null;
-      const wrap = (fn) => {
-        if (typeof GM_xmlhttpRequest === "function") return gmx(fn);
-        if (typeof window !== "undefined" && typeof window.GM_xmlhttpRequest === "function") return window.GM_xmlhttpRequest(fn);
-        return null;
-      };
       if (gmx) {
         return new Promise((resolve) => {
           try {

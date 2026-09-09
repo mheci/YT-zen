@@ -77,6 +77,69 @@ if (!bundle.includes("return { createVideoRow, scoreVideo, setStatus, discoveryH
   process.stderr.write("check: ZenDiscovery export line missing from bundle.\n");
 }
 
+// Theme table guard: the Nr array (~4k lines of static color data) is pure
+// JSON, so parse it and validate structure — a hand-edit that drops a var
+// key, introduces a duplicate id, or typos a color would otherwise ship
+// silently. Also verifies every theme id is referenced by nothing else is
+// needed: ids are consumed dynamically by themeSelected.
+(function validateThemes() {
+  const start = bundle.indexOf("const Nr = [");
+  if (start < 0) {
+    failed++;
+    process.stderr.write("check: theme table (const Nr = [) not found in bundle.\n");
+    return;
+  }
+  const end = bundle.indexOf("\n  ];", start);
+  if (end < 0) {
+    failed++;
+    process.stderr.write("check: theme table terminator missing.\n");
+    return;
+  }
+  // end points at the \n before "  ];" — include the "]" but not the ";".
+  const json = bundle.slice(start + "const Nr =".length, end + 4).replace(/\r?\n/g, "");
+  let themes;
+  try {
+    // The table is static data from our own build (object keys are minified,
+    // so it is not valid JSON) — eval via Function is fine in a build script.
+    themes = new Function("return (" + json + ")")();
+  } catch (e) {
+    failed++;
+    process.stderr.write("check: theme table is not valid data: " + e.message + "\n");
+    return;
+  }
+  const REQUIRED_VARS = [
+    "base-background", "raised-background", "menu-background",
+    "general-background-a", "general-background-b", "general-background-c",
+    "text-primary", "text-secondary", "text-disabled",
+    "badge-chip-background", "outline", "call-to-action",
+    "call-to-action-inverse", "icon-active-other", "icon-inactive",
+    "10-percent-layer", "shadow",
+  ];
+  const COLOR = /^(#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})|rgba?\(\s*[\d.]+\s*,\s*[\d.]+\s*,\s*[\d.]+\s*(?:,\s*[\d.]+\s*)?\))$/;
+  const seen = new Set();
+  for (const t of themes) {
+    const label = t && t.id ? t.id : "(unknown)";
+    if (!t.id || !/^[a-z0-9-]+$/.test(t.id)) { failed++; process.stderr.write(`check: theme ${label} has a bad id.\n`); }
+    if (seen.has(t.id)) { failed++; process.stderr.write(`check: duplicate theme id "${t.id}".\n`); }
+    seen.add(t.id);
+    if (t.mode !== "dark" && t.mode !== "light" && t.mode !== "auto") { failed++; process.stderr.write(`check: theme ${label} has invalid mode "${t.mode}".\n`); }
+    if (t.id === "none") continue; // the default theme carries no vars
+    if (!t.vars) { failed++; process.stderr.write(`check: theme ${label} has no vars.\n`); continue; }
+    for (const key of REQUIRED_VARS) {
+      if (!(key in t.vars)) { failed++; process.stderr.write(`check: theme ${label} missing var "${key}".\n`); continue; }
+      if (!COLOR.test(t.vars[key])) { failed++; process.stderr.write(`check: theme ${label} var "${key}" is not a color: ${t.vars[key]}\n`); }
+    }
+    for (const key of Object.keys(t.vars)) {
+      if (!REQUIRED_VARS.includes(key)) { failed++; process.stderr.write(`check: theme ${label} has unexpected var "${key}".\n`); }
+    }
+  }
+  if (themes.length < 30) {
+    failed++;
+    process.stderr.write(`check: theme table shrank to ${themes.length} entries (expected 30+).\n`);
+  }
+  if (failed === 0) console.log(`check: theme table OK (${themes.length} themes).`);
+})();
+
 if (failed > 0) {
   process.stderr.write(`check: ${failed} file(s) failed syntax validation.\n`);
   process.exit(1);

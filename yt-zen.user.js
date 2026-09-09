@@ -30106,7 +30106,11 @@ const Nr = [
       });
       const id = ZenResources.SharedTicker.add(() => {
         const el = ie.el();
-        if (!el || el.paused || document.hidden) { lastPauseAt = Date.now(); return; }
+        // Do NOT refresh lastPauseAt here: the ticker runs every second while
+        // paused, so it clobbered the timestamp captured by the pause handler
+        // and made the "5+ min break resets the streak" check in the play
+        // handler mathematically unreachable (diff was always <= ~1s).
+        if (!el || el.paused || document.hidden) return;
         watched += 1000;
         if (watched >= every()) {
           watched = 0;

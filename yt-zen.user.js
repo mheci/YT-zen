@@ -21913,7 +21913,10 @@ const Nr = [
       genBtn.addEventListener("click", () => {
         if (!cu) return;
         try {
-          const hex = String(genInput.value || "#ff3d7f");
+          // Config import can plant an arbitrary themeGenColor string; the
+          // whole palette derives from this value, so pin it to #rrggbb.
+          const _hexIn = String(genInput.value || "");
+          const hex = /^#[0-9a-fA-F]{6}$/.test(_hexIn) ? _hexIn : "#ff3d7f";
           const toHex = (c) => { try { return cu.formatHex(c); } catch (_) { return hex; } };
           const base = cu.hsl(hex);
           const shade = (factor) => toHex(cu.interpolate([hex, factor > 0 ? "#000000" : "#ffffff"], "rgb")(Math.abs(factor)));

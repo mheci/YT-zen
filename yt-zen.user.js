@@ -10153,7 +10153,11 @@ algoBlockChannels: "",
     // Returns null for comments, blank lines, or unparseable lines.
     const parseFilter = (line) => {
       const raw = line.trim();
-      if (!raw || raw[0] === '!' || raw[0] === '#') return null;
+      // A bare '#' guard would also drop documented global hides ('##sel')
+      // since those legitimately start with '#'. Only '!' comments/blank
+      // lines are rejected here; anything else falls through to the '##'
+      // scan and returns null when it isn't a cosmetic filter.
+      if (!raw || raw[0] === '!') return null;
 
       // Check for cosmetic filter: domain##selector or ##selector
       const hashIdx = raw.indexOf('##');
@@ -10175,11 +10179,6 @@ algoBlockChannels: "",
           else domains.push(d);
         }
       }
-      const hostMatches = (list) => {
-        const host = (location.hostname || '').toLowerCase();
-        return list.some((d) => host === d || host.endsWith('.' + d));
-      };
-
       // Detect procedural filters
       const hasHasText = /:has-text\(/.test(selector);
       const hasMatchesPath = /:matches-path\(/.test(selector);
@@ -10252,12 +10251,14 @@ algoBlockChannels: "",
       };
     };
 
-    // Escape special regex characters in a string
+    // Does the current host match any entry in the given list (host or a
+    // subdomain of it)? Used by generateCSS/applyProcedural for domain scope.
     const hostMatches = (list) => {
       const host = (location.hostname || '').toLowerCase();
       return list.some((d) => host === d || host.endsWith('.' + d));
     };
 
+    // Escape special regex characters in a string
     const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
     // ─── Filter List Parser ──────────────────────────────────────────────────
@@ -26979,13 +26980,16 @@ const Nr = [
         try { if (ctx.state === "suspended") ctx.resume(); } catch (_) {}
         // One reusable frequency buffer per analyser: readEnergy() runs on a
         // cadence and allocating a fresh Uint8Array per read churned GC.
-        const entry = { ctx, source, analyser, stream, rerouted, buf: new Uint8Array(analyser.frequencyBinCount) };
+        const entry = { ctx, source, analyser, stream, rerouted, buf: new Uint8Array(analyser.frequencyBinCount), resumeHandler: null };
         perVideo.set(video, entry);
         if (typeof video.addEventListener === "function") {
           try {
-            video.addEventListener("play", () => {
+            // Keep a reference so release() can remove it: otherwise each
+            // re-created entry for the same element stacks a fresh listener.
+            entry.resumeHandler = () => {
               if (ctx.state === "suspended") { try { ctx.resume(); } catch (_) {} }
-            }, { once: false, passive: true });
+            };
+            video.addEventListener("play", entry.resumeHandler, { passive: true });
           } catch (_) {}
         }
         return entry;
@@ -27015,6 +27019,10 @@ const Nr = [
     const release = (video) => {
       const entry = perVideo.get(video);
       if (!entry) return;
+      if (typeof video.removeEventListener === "function" && entry.resumeHandler) {
+        try { video.removeEventListener("play", entry.resumeHandler); } catch (_) {}
+        entry.resumeHandler = null;
+      }
       if (entry.rerouted) {
         // createMediaElementSource throws if called twice on the same
         // element, so keep the entry and re-route the source straight to
@@ -29768,7 +29776,7 @@ const Nr = [
         else if (reading.energy < 4) quietMs += 500;
         else quietMs = 0;
         if (quietMs >= 1500 && !boosted) { try { prevRate = vid.playbackRate || 1; vid.playbackRate = targetRate(); boosted = true; } catch (_) {} }
-        else if (energy >= 4 && boosted) { try { vid.playbackRate = prevRate; } catch (_) {} boosted = false; quietMs = 0; }
+        else if (reading && reading.energy >= 4 && boosted) { try { vid.playbackRate = prevRate; } catch (_) {} boosted = false; quietMs = 0; }
       };
       const id = ZenResources.SharedTicker.add(tick, 500, { pauseHidden: true, label: "zen-silence-skip" });
       Yt["silence-skipper"].push(() => {

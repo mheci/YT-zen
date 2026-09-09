@@ -3775,14 +3775,25 @@
       };
       const protoPlay = HTMLMediaElement.prototype.play;
       let patched = false;
+      let myPatch = null;
       const patch = () => {
         if (patched) return; patched = true;
-        HTMLMediaElement.prototype.play = function (...args) {
+        myPatch = function (...args) {
           if (gateActive) { return Promise.resolve(); }
           return protoPlay.apply(this, args);
         };
+        HTMLMediaElement.prototype.play = myPatch;
       };
-      const unpatch = () => { if (patched) { try { HTMLMediaElement.prototype.play = protoPlay; } catch (_) {} patched = false; } };
+      // Only uninstall while we still own prototype.play: if a later gate
+      // (session-resume) wrapped our patch after us, blindly restoring
+      // protoPlay would rip their gate out from under them.
+      const unpatch = () => {
+        if (patched) {
+          try { if (HTMLMediaElement.prototype.play === myPatch) HTMLMediaElement.prototype.play = protoPlay; } catch (_) {}
+          myPatch = null;
+          patched = false;
+        }
+      };
       patch();
       const binder = ZenPack.elBinder();
       binder(ctx, "ended", () => { if (!overlay) showGate(); });

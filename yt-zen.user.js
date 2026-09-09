@@ -31576,10 +31576,15 @@ const Nr = [
           if (va.size === 0) return;
           // Never force-reapply if every registered feature was quarantined.
           if (ga.size > 0 && ga.size === va.size) return;
-          // Only act once YouTube's SPA shell is actually present.
+          // Only act once YouTube's SPA shell is actually present. Same
+          // selector set as the boot-time _ytShellReady() check (the watchdog
+          // previously missed #page-manager/#contents, which mobile and some
+          // late mounts expose first — the backstop never fired there).
           const _shell =
             document.querySelector("ytd-app, ytmusic-app") ||
-            document.querySelector("yt-page-manager, ytd-page-manager");
+            document.querySelector(
+              "yt-page-manager, ytd-page-manager, #page-manager, #contents",
+            );
           if (!_shell) return;
           const _markers = document.querySelector(
             'style[id^="ytp-style-"],style[id^="ytp-zen-"]',

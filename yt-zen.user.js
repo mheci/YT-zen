@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YT-zen
 // @namespace    https://github.com/mheci/YT-zen
-// @version      3.16.13
+// @version      3.16.14
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      Unlicense
@@ -7432,7 +7432,7 @@ algoBlockChannels: "",
       U = _fwUA(),
       d = Math.floor(t || 0),
       c = Math.floor(null != a ? a : d),
-      s = o && null != o.rtnDelta ? o.rtnDelta : 5,
+      s = o && null != o.rtnDelta ? o.rtnDelta : 10 + Math.floor(16 * Math.random()),
       l = [
         "ns=yt",
         "el=detailpage",
@@ -7491,7 +7491,6 @@ algoBlockChannels: "",
         "vm=" + ((o && o.vm) || (_fwTpl && _fwTpl.vm) || "CAEQARgB"),
         "vd=" + d,
         "fexp=" + ((o && o.fexp) || (_fwTpl && _fwTpl.fexp) || ""),
-        "final=" + ("ended" === n ? "1" : "0"),
       ];
     return (
       i.visitorData && l.push("vis=" + encodeURIComponent(i.visitorData)),
@@ -7641,55 +7640,125 @@ algoBlockChannels: "",
   // the genuine session — the one signal that works in every injection
   // mode (the media element is shared even under content injection, where
   // page-world APIs and synthetic page events are unreachable/ignored).
+  // ORGANIC CHANNEL (force-watched), duration-aware: the only signal no
+  // server can discard is the real player itself reaching the end. For any
+  // length: seek to a short tail, sprint it at 16x (muted) so the genuine
+  // `ended` fires in seconds, then restore. On a buffering stall it NEVER
+  // pauses mid-video (a paused mid-video write is what marks history
+  // partially watched) — it keeps fast-forwarding until the real end.
+  // ORGANIC CHANNEL v3 (force-watched), controller-led: the only signal no
+  // server can discard is the real player itself covering the video. Long
+  // videos fight direct element seeks (rate resets, position drift), but the
+  // player's OWN skip path (synthetic 'l' key = +10s, the same as the user
+  // pressing L) is controller-sanctioned: it seeks, buffers and plays via
+  // the genuine pipeline. Phase 1 skips to the tail; phase 2 plays the last
+  // seconds at 16x (muted). We pause just before the end — matching the
+  // genuine fingerprint (a real full watch ends with state=paused cmt=len,
+  // never state=ended) and preventing autoplay from dragging the user to
+  // the next video. Never pauses mid-video on failure.
+  // ORGANIC CHANNEL v5 (force-watched) — boundary-seek finalize.
+  //
+  // Verified on real videos: the controller-sanctioned 'l' key (+10s skip)
+  // walks the playhead to the tail through the player's own seek pipeline
+  // (no rate fights, no fetch needed), and a boundary seek
+  // (currentTime = duration) makes the PLAYER ITSELF flush its final
+  // watchtime at cmt=len state=paused — the exact fingerprint of a real
+  // full watch — without needing the last media segment to download.
+  // No rate wars (the controller resets forced rates), no fetch stalls
+  // (the tail range is never required), no autoplay yank (the video is
+  // simply parked at its last frame; the autonav toggle is switched off
+  // for the duration in case a buffered tail plays into a real end).
   async function KtOrganic(e, t) {
-    let done = false;
     const fwLog = (m) => { try { (window.__fwLog = window.__fwLog || []).slice(-39); (window.__fwLog = window.__fwLog || []).push(Math.round(performance.now()) + " " + m); } catch (_) {} };
-    const wasMuted = e.muted, wasRate = e.playbackRate, wasPaused = e.paused;
-    const sprint = (rate, runway, waitMs) => new Promise((resolve) => {
-      let settled = false;
-      const finish = (ok) => {
-        if (settled) return;
-        settled = true;
-        try { e.removeEventListener("ended", onEnd); } catch (_) {}
-        clearInterval(poll);
-        clearTimeout(to);
-        resolve(ok);
-      };
-      const onEnd = () => finish(true);
-      const poll = setInterval(() => {
-        try { if (e.ended || t - e.currentTime <= 0.06) finish(true); } catch (_) {}
-      }, 80);
-      const to = setTimeout(() => finish(false), waitMs);
-      try { e.addEventListener("ended", onEnd, { once: true }); } catch (_) {}
+    const wasMuted = e.muted, wasRate = e.playbackRate;
+    const vid = (function () {
+      try { return (location.search.match(/v=([\w-]+)/) || [])[1] || null; } catch (_) { return null; }
+    })();
+    const stillHere = () => {
+      try { return ie.videoId() === vid; } catch (_) { return false; }
+    };
+    const pressKey = (key, code, kc) => {
+      try {
+        document.dispatchEvent(
+          new KeyboardEvent("keydown", { key: key, code: code, keyCode: kc, which: kc, bubbles: true, cancelable: true }),
+        );
+      } catch (_) {}
+    };
+    let done = false;
+    // PHASE 1: controller-sanctioned +10s skips until within ~13s of the end.
+    const deadline = Date.now() + 16000;
+    const maxPresses = Math.ceil(t / 10) + 8;
+    let presses = 0;
+    fwLog("skip-phase start t=" + (+e.currentTime).toFixed(1) + "/" + t);
+    while (Date.now() < deadline && presses < maxPresses && stillHere()) {
+      let cur = -1, d = t;
+      try { cur = e.currentTime; d = e.duration || t; } catch (_) {}
+      if (cur < 0) break;
+      try { if (e.ended) { done = true; break; } } catch (_) {}
+      if (d - cur <= 13) break;
+      pressKey("l", "KeyL", 76);
+      presses++;
+      await new Promise((r) => setTimeout(r, 60));
+    }
+    fwLog("skip-phase done presses=" + presses + " t=" + (function () { try { return (+e.currentTime).toFixed(1); } catch (_) { return "?"; } })());
+    // Autoplay off for the duration: if the boundary seek plays into a
+    // real end (buffered tail), the end screen must not yank the user.
+    let autonavOff = false;
+    try {
+      const btn = document.querySelector(".ytp-autonav-toggle-button");
+      if (btn && btn.getAttribute("aria-checked") === "true") {
+        btn.click();
+        autonavOff = true;
+      }
+    } catch (_) {}
+    // PHASE 2: boundary seek — the player flushes its final watchtime at
+    // cmt=len by itself (state=paused, the genuine full-watch shape).
+    if (!done && stillHere()) {
       try { e.muted = true; } catch (_) {}
-      try { e.loop = false; } catch (_) {}
-      try { e.playbackRate = rate; } catch (_) {}
-      try { e.currentTime = Math.max(0, t - runway); } catch (_) {}
-      try { const p = e.play(); p && p.catch && p.catch(() => {}); } catch (_) {}
-    });
-    try { e.loop = false; } catch (_) {}
-    fwLog("sprint1 start t=" + (+e.currentTime).toFixed(1) + "/" + t);
-    done = await sprint(8, 1.5, 4000);
-    fwLog("sprint1 done=" + done + " t=" + (+e.currentTime).toFixed(1));
-    if (!done) { fwLog("sprint2 start"); done = await sprint(4, 3, 6000); fwLog("sprint2 done=" + done + " t=" + (+e.currentTime).toFixed(1)); }
-    if (!done) { fwLog("sprint3 start"); done = await sprint(2, 6, 9000); fwLog("sprint3 done=" + done + " t=" + (+e.currentTime).toFixed(1)); }
-    // Settle: restore everything; pause right after the ended state so
-    // autoplay can't immediately yank the user to the next video. If the
-    // sprints never reached a real `ended` (tail buffering stalled), give
-    // the video extra muted seconds to finish naturally instead of faking
-    // the position — a faked seek reads back as "partially watched".
+      let d = t;
+      try { d = e.duration || t; } catch (_) {}
+      // Target dur-1.2 (99.85%), not the exact boundary: seeking to the
+      // exact duration makes the player re-cue the video from 0 (jarring
+      // and pointless — the flush fires either way, 99.85% is a full bar).
+      try { e.currentTime = Math.max(0, d - 1.2); } catch (_) {}
+      const seek2 = setTimeout(() => {
+        try { e.currentTime = Math.max(0, d - 0.6); } catch (_) {}
+      }, 350);
+      const seekDeadline = Date.now() + 12000;
+      while (Date.now() < seekDeadline && stillHere()) {
+        let cur = -1;
+        try { cur = e.currentTime; } catch (_) {}
+        if (cur < 0) break;
+        // Success = playhead at the boundary; the player's flush fires on
+        // the seek itself (paused or not — settle parks it).
+        try { if (e.ended || d - cur <= 1.5) { done = true; break; } } catch (_) {}
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      clearTimeout(seek2);
+      // The boundary seek processes slowly on an unbuffered tail — one
+      // final re-check before giving up.
+      if (!done) {
+        try { done = e.ended || d - e.currentTime <= 1.5; } catch (_) {}
+      }
+      fwLog("boundary-seek done=" + done + " t=" + (function () { try { return (+e.currentTime).toFixed(2); } catch (_) { return "?"; } })());
+    }
+    // Settle: park at the end frame, restore state, release everything.
     setTimeout(() => {
+      if (autonavOff) {
+        try {
+          const btn = document.querySelector(".ytp-autonav-toggle-button");
+          if (btn && btn.getAttribute("aria-checked") === "false") btn.click();
+        } catch (_) {}
+      }
+      if (!stillHere()) return;
       try { e.pause(); } catch (_) {}
       try { e.playbackRate = wasRate; } catch (_) {}
       try { e.muted = wasMuted; } catch (_) {}
       try { if (typeof jt !== "undefined") jt = !1; } catch (_) {}
-      fwLog("settle t=" + (+e.currentTime).toFixed(1) + " paused=" + e.paused + " done=" + done);
-    }, done ? 900 : 11000);
-    if (done) {
-      pe("Marked as fully watched.", 2200, "success");
-    } else {
-      pe("Watchtime signals sent — history may take a moment.", 2600, "info");
-    }
+      fwLog("settle done=" + done + " t=" + (function () { try { return (+e.currentTime).toFixed(2); } catch (_) { return "?"; } })());
+    }, 600);
+    if (done) pe("Marked as fully watched.", 2200, "success");
+    else pe("Watchtime signals sent.", 2600, "info");
     return done;
   }
   function Kt(e, t, a, n) {
@@ -7698,7 +7767,7 @@ algoBlockChannels: "",
     }
     jt = !0;
 
-    pe("Marking as watched…", 1200, "info");
+    pe("Fast-forwarding to the end…", 1400, "info");
     const r = {
       loop: e.loop,
       playbackRate: e.playbackRate,
@@ -7717,7 +7786,7 @@ algoBlockChannels: "",
     };
     // Organic channel starts AFTER the snapshot above — sprint 8× must not
     // leak into r.playbackRate or Kt's own restore would pin it forever.
-    try { KtOrganic(e, n).catch(() => {}); } catch (_) {}
+    try { KtOrganic(e, n, r).catch(() => {}); } catch (_) {}
     try {
       e.loop = !1;
     } catch (e) {}
@@ -7959,14 +8028,17 @@ algoBlockChannels: "",
               // authoritative ENDED + last-write-wins repeats: they must
               // land AFTER the real player's own final beacon (~0.5-1s
               // post-end) so nothing stale overwrites the position.
-              const endBeacon = (lact) =>
+              const endBeacon = (lact, state) =>
                 fire(track.watchtimeUrl, {
-                  cmt: DU, et: DU, st: fwEndSt, mt: DU, rt: rtNow(), lact: lact, state: "ended",
+                  cmt: DU, et: DU, st: fwEndSt, mt: DU, rt: rtNow(), lact: lact, state: state || "ended",
                 });
               endBeacon(30);
               setTimeout(() => endBeacon(20), 1300);
-              setTimeout(() => endBeacon(10), 3000);
-              setTimeout(() => endBeacon(10), 6000);
+              // Genuine sessions NEVER send state=ended: the final write of
+              // a real full watch is state=paused at cmt=len. Make the LAST
+              // write on the wire match that shape exactly.
+              setTimeout(() => endBeacon(21, "paused"), 3200);
+              setTimeout(() => endBeacon(11, "paused"), 6000);
               u(
                 "fw account-history: " + fired +
                   " beacons (cpn " + (realCpn ? "real" : "MISSING") +

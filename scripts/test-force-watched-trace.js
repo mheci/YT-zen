@@ -43,13 +43,13 @@ const fs = require('fs');
   }})()`;
   await page.evaluateOnNewDocument(shim);
   await page.evaluateOnNewDocument(src);
-  await page.goto('https://www.youtube.com/watch?v=jNQXAC9IVRw', { waitUntil: 'domcontentloaded', timeout: 60000 });
+  await page.goto('https://www.youtube.com/watch?v=' + (process.env.FW_VIDEO || 'jNQXAC9IVRw'), { waitUntil: 'domcontentloaded', timeout: 60000 });
   await new Promise((r) => setTimeout(r, 5000));
   base = now();
   await page.keyboard.down('Shift');
   await page.keyboard.press('KeyW');
   await page.keyboard.up('Shift');
-  await new Promise((r) => setTimeout(r, 16000));
+  await new Promise((r) => setTimeout(r, +(process.env.FW_WAIT || 16000)));
   const fwLog = await page.evaluate(() => window.__fwLog || []);
   // human timing: rebaseline rows to keypress
   const out = rows.filter((r) => r.t !== null).map((r) => ({ ...r, t: r.t }));

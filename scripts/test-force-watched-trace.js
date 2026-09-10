@@ -1,9 +1,6 @@
-// test-force-watched-trace.js — beacon forensics for Shift+W force-watched.
-// Chronological dump of every /api/stats/* request around the hotkey press:
-// kind, cpn, cmt/et/st/len/state/rt and whether the session-signed params
-// (of) are present — i.e. exactly what position the backend would end up
-// recording. Requires puppeteer-core + Chromium.
-// Usage: NODE_PATH=<node_modules> node scripts/test-force-watched-trace.js
+// Beacon forensics: chronological dump of every /api/stats/* request around
+// Shift+W — who fired it (script vs real player inferred by params), and
+// what position/state the backend would end up recording.
 const puppeteer = require('puppeteer-core');
 const fs = require('fs');
 (async () => {
@@ -27,7 +24,7 @@ const fs = require('fs');
       t: t0ref.v ? Math.round(performanceNow() - t0ref.v) : null,
       kind: m[1],
       docid: q.docid, cpn: (q.cpn || '').slice(0, 8),
-      cmt: q.cmt, et: q.et, st: q.st, len: q.len, state: q.state,
+      cmt: q.cmt, et: q.et, st: q.st, len: q.len, state: q.state, of: (q.of || '').slice(0, 10), plid: (q.plid || '').slice(0, 8), cbr: q.cbr,
       rt: q.rt, lact: q.lact, el: q.el, hasOf: q.of ? 1 : 0, hasVt: q.vt ? 1 : 0, hasRtn: q.rtn ? 1 : 0,
     });
   });

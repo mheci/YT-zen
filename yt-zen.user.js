@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YT-zen
 // @namespace    https://github.com/mheci/YT-zen
-// @version      3.16.12
+// @version      3.16.13
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      Unlicense
@@ -7340,6 +7340,71 @@ algoBlockChannels: "",
       cpn: t,
     });
   }
+  // Session-stash: playbackTracking templates carry the live session's
+  // ei/plid/cl/of/vm — the synthetic campaign reuses them so every beacon
+  // (real cpn or phantom) presents the same signed session fingerprint.
+  let _fwTpl = null;
+  function _fwTplSet(u) {
+    try {
+      try { (window.__fwTplDbg = window.__fwTplDbg || []).push("SET " + String(u).slice(0, 90)); } catch (e) {}
+      const q = new URL(String(u || ""), location.origin).searchParams;
+      _fwTpl = {
+        ei: q.get("ei") || "",
+        plid: q.get("plid") || "",
+        cl: q.get("cl") || "",
+        of: q.get("of") || "",
+        vm: q.get("vm") || "",
+        fexp: q.get("fexp") || "",
+      };
+    } catch (e) {}
+  }
+  // Real client params: the browser/OS we report MUST match the actual
+  // navigator (a Firefox UA with cbr=Chrome/cos=Windows is an
+  // inconsistency the backend can see).
+  function _fwUA() {
+    const ua = navigator.userAgent || "";
+    const m = (re) => {
+      const x = re.exec(ua);
+      return x ? x[1] : "";
+    };
+    let browser = "Chrome",
+      bver = m(/Chrome\/([\d.]+)/) || "124.0.0.0";
+    if (/Firefox\//.test(ua)) {
+      browser = "Firefox";
+      bver = m(/Firefox\/([\d.]+)/) || bver;
+    } else if (/Edg\//.test(ua)) {
+      browser = "Microsoft Edge";
+      bver = m(/Edg\/([\d.]+)/) || bver;
+    } else if (!/Chrome\//.test(ua) && /Safari\//.test(ua)) {
+      browser = "Safari";
+      bver = m(/Version\/([\d.]+)/) || bver;
+    }
+    let os = "Windows",
+      osver = "10.0";
+    if (/Windows NT ([\d.]+)/.test(ua)) {
+      os = "Windows";
+      osver = m(/Windows NT ([\d.]+)/) || "10.0";
+    } else if (/Mac OS X/.test(ua)) {
+      os = "Mac OS X";
+      osver = (m(/Mac OS X ([\d_]+)/) || "10_15_7").replace(/_/g, ".");
+    } else if (/Android/.test(ua)) {
+      os = "Android";
+      osver = m(/Android ([\d.]+)/) || "10";
+    } else if (/Linux/.test(ua)) {
+      os = "Linux";
+      osver = m(/x86_64/) ? "x86_64" : "";
+    }
+    return { browser: browser, bver: bver, os: os, osver: osver };
+  }
+  // Plausible active video itag from the element's real height.
+  function _fwVfmt() {
+    try {
+      const h = (ie.el() || {}).videoHeight || 0;
+      const m = { 2160: 313, 1440: 271, 1080: 248, 720: 247, 480: 244, 360: 243, 240: 242 };
+      for (const k of Object.keys(m)) if (h >= +k) return m[k];
+    } catch (e) {}
+    return 0;
+  }
   function _t() {
     let t = "",
       a = "2.20240101",
@@ -7364,6 +7429,7 @@ algoBlockChannels: "",
   }
   function Ht(e, t, a, n, r, o) {
     const i = _t(),
+      U = _fwUA(),
       d = Math.floor(t || 0),
       c = Math.floor(null != a ? a : d),
       s = o && null != o.rtnDelta ? o.rtnDelta : 5,
@@ -7373,8 +7439,8 @@ algoBlockChannels: "",
         "cpn=" + encodeURIComponent(r),
         "docid=" + encodeURIComponent(e),
         "ver=2",
-        "ei=" + encodeURIComponent(i.ei),
-        "fmt=" + ((o && o.fmt) || "243"),
+        "ei=" + encodeURIComponent(i.ei || (_fwTpl && _fwTpl.ei) || ""),
+        "fmt=" + ((o && o.fmt) || _fwVfmt() || "243"),
         "fs=0",
         "rt=" +
           (o && null != o.rt
@@ -7387,7 +7453,7 @@ algoBlockChannels: "",
                 }
               })()),
         "rtn=" + s,
-        "of=" + encodeURIComponent("MS3lEPwEKa0vQUe3qbeAVA"),
+        "of=" + encodeURIComponent((o && o.of) || (_fwTpl && _fwTpl.of) || "MS3lEPwEKa0vQUe3qbeAVA"),
         "euri=",
         "lact=" +
           (o && null != o.lact
@@ -7397,13 +7463,13 @@ algoBlockChannels: "",
         "volume=" + (o && null != o.volume ? o.volume : 100),
         "muted=" + (o && o.muted ? "1" : "0"),
         "subscribed=" + (o && o.subscribed ? "1" : "0"),
-        "cbr=Chrome",
-        "cbrver=" + i.chromeVer + ".0.0.0",
+        "cbr=" + U.browser,
+        "cbrver=" + U.bver,
         "c=WEB",
         "cver=" + encodeURIComponent(i.ver),
         "cplayer=UNIPLAYER",
-        "cos=Windows",
-        "cosver=10.0",
+        "cos=" + U.os,
+        "cosver=" + (U.osver || "10.0"),
         "cplatform=DESKTOP",
         "hl=" + encodeURIComponent(i.hl),
         "cr=" + encodeURIComponent(i.gl),
@@ -7417,14 +7483,14 @@ algoBlockChannels: "",
         "lsct=" + c,
         "referrer=" +
           encodeURIComponent("https://www.youtube.com/watch?v=" + e),
-        "plid=" + ((o && o.plid) || Tt()),
+        "plid=" + ((o && o.plid) || (_fwTpl && _fwTpl.plid) || Tt()),
         "state=" + (n || "paused"),
         "idpj=-2",
         "ldpj=-13",
-        "cl=" + (608e6 + Math.floor(1e6 * Math.random())),
-        "vm=" + ((o && o.vm) || "CAEQARgB"),
+        "cl=" + ((_fwTpl && _fwTpl.cl) || String(608e6 + Math.floor(1e6 * Math.random()))),
+        "vm=" + ((o && o.vm) || (_fwTpl && _fwTpl.vm) || "CAEQARgB"),
         "vd=" + d,
-        "fexp=" + ((o && o.fexp) || "v1"),
+        "fexp=" + ((o && o.fexp) || (_fwTpl && _fwTpl.fexp) || ""),
         "final=" + ("ended" === n ? "1" : "0"),
       ];
     return (
@@ -7466,13 +7532,14 @@ algoBlockChannels: "",
   function Vt(e, t, a, n, r) {
     try {
       const o = _t(),
+        U2 = _fwUA(),
         i = Math.floor(t || 0),
         d = Math.floor(a);
       Dt(
         "https://www.youtube.com/api/stats/qoe?" +
           [
             "event=" + (r || "streamingstats"),
-            "fexp=v1",
+            "fexp=" + ((_fwTpl && _fwTpl.fexp) || ""),
             "ns=yt",
             "el=detailpage",
             "cpn=" + encodeURIComponent(n),
@@ -7490,15 +7557,15 @@ algoBlockChannels: "",
             "len=" + i,
             "c=WEB",
             "cver=" + encodeURIComponent(o.ver),
-            "cbr=Chrome",
-            "cbrver=" + o.chromeVer + ".0.0.0",
-            "cos=Windows",
-            "cosver=10.0",
+            "cbr=" + U2.browser,
+            "cbrver=" + U2.bver,
+            "cos=" + U2.os,
+            "cosver=" + (U2.osver || "10.0"),
             "cplatform=DESKTOP",
             "hl=" + encodeURIComponent(o.hl),
             "cr=" + encodeURIComponent(o.gl),
             "afmt=251",
-            "vfmt=243",
+            "vfmt=" + (_fwVfmt() || 243),
             "live=0",
             "bwe=" + (15e5 + Math.floor(2e6 * Math.random())),
             "bh=" + (15 + Math.floor(30 * Math.random())),
@@ -7711,6 +7778,24 @@ algoBlockChannels: "",
                 engagedviewUrl: r.videostatsEngagedviewUrl && r.videostatsEngagedviewUrl.baseUrl,
                 wtfUrl: r.videostatsWtfUrl && r.videostatsWtfUrl.baseUrl,
                 lengthSec: d,
+                extraUrls: (function () {
+                  const seen = {
+                    videostatsPlaybackUrl: 1,
+                    videostatsWatchtimeUrl: 1,
+                    atrUrl: 1,
+                    qoeUrl: 1,
+                    ptrackingUrl: 1,
+                    videostatsDelayplayUrl: 1,
+                    videostatsEngagedviewUrl: 1,
+                    videostatsWtfUrl: 1,
+                  };
+                  const out = [];
+                  try {
+                    for (const [k, v] of Object.entries(r))
+                      if (v && v.baseUrl && !seen[k]) out.push(String(v.baseUrl));
+                  } catch (e) {}
+                  return out;
+                })(),
               });
               try {
                 // Local sources first: the InnerTube re-fetch usually comes
@@ -7726,6 +7811,14 @@ algoBlockChannels: "",
                     null;
                 if (pr && pr.playbackTracking) {
                   const vd = pr.videoDetails || {};
+                  try {
+                    _fwTplSet(
+                      (pr.playbackTracking.videostatsWatchtimeUrl &&
+                        pr.playbackTracking.videostatsWatchtimeUrl.baseUrl) ||
+                        (pr.playbackTracking.videostatsPlaybackUrl &&
+                          pr.playbackTracking.videostatsPlaybackUrl.baseUrl),
+                    );
+                  } catch (e) {}
                   return make(
                     pr.playbackTracking,
                     parseInt(vd.lengthSeconds || "0", 10) || 0,
@@ -7803,55 +7896,99 @@ algoBlockChannels: "",
             };
             let fired = 0;
             const DU = Math.round(dur * 1000) / 1000;
-            const fwMid = Math.max(5, Math.floor(DU / 2));
-            const fwEndSt = Math.max(0, Math.round((DU - 5) * 1000) / 1000);
+            const fwEndSt = Math.max(0, Math.round((DU - Math.min(5, DU / 2)) * 1000) / 1000);
+            const isPix = (u2) => /\/pagead\//.test(String(u2 || ""));
+            // The real player appends its whole client block to template
+            // fires — match it param-for-param (browser/OS/volume/muted
+            // come from the actual element/navigator).
+            const clientBlock = (function () {
+              const t = _t(),
+                U2 = _fwUA();
+              return {
+                c: "WEB",
+                cver: t.ver,
+                cbr: U2.browser,
+                cbrver: U2.bver,
+                cos: U2.os,
+                cosver: U2.osver || "10.0",
+                hl: t.hl,
+                cr: t.gl,
+                mos: 0,
+                fmt: _fwVfmt() || 243,
+                volume: (function () {
+                  try { return Math.round((ie.el().volume || 1) * 100); } catch (e) { return 100; }
+                })(),
+                muted: (function () {
+                  try { return ie.el().muted ? 1 : 0; } catch (e) { return 0; }
+                })(),
+              };
+            })();
             const fire = (u2, params) => {
               try {
                 let s = String(u2 || "");
                 if (!s || !/^https?:/i.test(s)) return;
                 if (realCpn) s = Za(s, "cpn", realCpn);
-                const o2 = params || {};
-                for (const k of ["cmt", "et", "st", "mt", "rt", "lact", "state"])
+                const o2 = Object.assign({}, isPix(u2) ? {} : clientBlock, params || {});
+                for (const k of ["cmt", "et", "st", "mt", "rt", "lact", "state", "c", "cver", "cbr", "cbrver", "cos", "cosver", "hl", "cr", "mos", "fmt", "volume", "muted"])
                   if (null != o2[k]) s = Za(s, k, o2[k]);
                 Qa(s);
                 fired++;
               } catch (e) {}
             };
             // handshake beacons (real player shape: cmt/rt/lact only)
-            fire(track.playbackUrl, { cmt: 0, rt: rtNow(), lact: 1400 });
-            fire(track.atrUrl, { cmt: 0, rt: rtNow(), lact: 800 });
-            // one mid-video playing segment, then the authoritative ENDED
-            fire(track.watchtimeUrl, {
-              cmt: fwMid, et: fwMid, st: 0, mt: fwMid, rt: rtNow(), lact: 900, state: "playing",
-            });
-            fire(track.watchtimeUrl, {
-              cmt: DU, et: DU, st: fwEndSt, mt: DU, rt: rtNow(), lact: 30, state: "ended",
-            });
-            fire(track.qoeUrl, { cmt: DU, rt: rtNow() });
-            fire(track.ptrackingUrl, {});
+            fire(track.playbackUrl, { cmt: 0, rt: rtNow(), lact: 1200 + Math.floor(900 * Math.random()) });
+            fire(track.atrUrl, { cmt: 0, rt: rtNow(), lact: 700 });
             fire(track.delayplayUrl, {});
-            fire(track.engagedviewUrl, {
-              cmt: DU, et: DU, st: 0, state: "playing",
-            });
-            fire(track.wtfUrl, {});
-            // last-write-wins: repeat the ended beacon AFTER the real
-            // player's own final beacon (~0.5-1s post-end) so a stale
-            // in-flight beacon can't overwrite the recorded position.
-            setTimeout(() => {
-              fire(track.watchtimeUrl, {
-                cmt: DU, et: DU, st: fwEndSt, mt: DU, rt: rtNow(), lact: 20, state: "ended",
-              });
-            }, 1300);
-            setTimeout(() => {
-              fire(track.watchtimeUrl, {
-                cmt: DU, et: DU, st: fwEndSt, mt: DU, rt: rtNow(), lact: 10, state: "ended",
-              });
-            }, 3000);
-            u(
-              "fw account-history: " + fired + " beacons + 2 ended repeats (cpn " +
-                (realCpn ? "real" : "MISSING") +
-                ") for " + a,
-            );
+            // FULL-COVERAGE WINDOW SEQUENCE — exactly how a real player
+            // reports: one beacon per ~10s media window covering [0,len].
+            // The backend reconstructs progress from covered st..et
+            // windows; a single giant window can be clamped server-side
+            // and read back as PARTIALLY watched. Windows are staggered
+            // tens of ms apart so the burst stays an ordered stream.
+            const wN = DU <= 24 ? 2 : Math.min(90, Math.ceil(DU / 10));
+            let wi = 0;
+            const finishCampaign = () => {
+              try {
+                for (const eu of track.extraUrls || [])
+                  isPix(eu) ? fire(eu, {}) : fire(eu, { cmt: DU, rt: rtNow() });
+              } catch (e) {}
+              fire(track.engagedviewUrl, { cmt: DU, et: DU, st: 0, state: "playing" });
+              fire(track.ptrackingUrl, {});
+              fire(track.wtfUrl, {});
+              fire(track.qoeUrl, { cmt: DU, rt: rtNow() });
+              // authoritative ENDED + last-write-wins repeats: they must
+              // land AFTER the real player's own final beacon (~0.5-1s
+              // post-end) so nothing stale overwrites the position.
+              const endBeacon = (lact) =>
+                fire(track.watchtimeUrl, {
+                  cmt: DU, et: DU, st: fwEndSt, mt: DU, rt: rtNow(), lact: lact, state: "ended",
+                });
+              endBeacon(30);
+              setTimeout(() => endBeacon(20), 1300);
+              setTimeout(() => endBeacon(10), 3000);
+              setTimeout(() => endBeacon(10), 6000);
+              u(
+                "fw account-history: " + fired +
+                  " beacons (cpn " + (realCpn ? "real" : "MISSING") +
+                  ", " + wN + " windows) for " + a,
+              );
+            };
+            const wTick = () => {
+              try {
+                const st = Math.round(DU * (wi / wN) * 1000) / 1000;
+                const et = Math.round(DU * ((wi + 1) / wN) * 1000) / 1000;
+                fire(track.watchtimeUrl, {
+                  cmt: et, et: et, st: st, mt: et, rt: rtNow(),
+                  lact: 150 + Math.floor(700 * Math.random()),
+                  state: wi % 9 === 7 && wi < wN - 1 ? "paused" : "playing",
+                });
+                if (wi % 4 === 3) fire(track.qoeUrl, { cmt: et, rt: rtNow() });
+              } catch (e) {}
+              wi++;
+              if (wi < wN) setTimeout(wTick, 25 + Math.floor(45 * Math.random()));
+              else finishCampaign();
+            };
+            wTick();
           } catch (e) {
             h("fw account-history player fetch", e);
           }
@@ -7904,6 +8041,12 @@ algoBlockChannels: "",
     ),
       (async () => {
         try {
+          // Give the account-history microtask a beat to stash the live
+          // session template params (ei/plid/cl/of/vm) — beacons fired
+          // unsigned (hardcoded of fallback) are an obsolescence flag.
+          try {
+            for (let z = 0; z < 16 && !_fwTpl; z++) await ne();
+          } catch (e) {}
           !(function (e, t, a, n) {
             try {
               Dt(
@@ -7993,6 +8136,9 @@ algoBlockChannels: "",
     })(n);
     if (
       ((async () => {
+        try {
+          for (let z = 0; z < 16 && !_fwTpl; z++) await ne();
+        } catch (e) {}
         for (let e = 0; e < l.length; e++) {
           const t = l[e];
           for (const e of c)

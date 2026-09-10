@@ -2129,7 +2129,7 @@
         "One toggle for discovery. Browse 8+ categories inside or outside your niche; every pick is filtered against your watch history and never repeats a video you have already seen."));
     } });
 
-  xa.register({ id: "credibility-layer", name: "Credibility Layer", summary: "Shows upload age and channel trust badges on cards.", masterKey: "credLayerOn", keys: ["credLayerOn"],
+  xa.register({ id: "credibility-layer", name: "Credibility Layer", summary: "Upload age and channel trust badges on cards.", masterKey: "credLayerOn", keys: ["credLayerOn"],
     apply(ctx) {
       if (!S.credLayerOn) return;
       ZenEngine.injectCSS();
@@ -4692,7 +4692,7 @@
   // ─── 32. AIO: Shorts Cleanup ─────────────────────────────────────────────
   xa.register({
     id: "aio-shorts-cleanup", name: "Shorts Cleanup (All-in-One)",
-    summary: "One switch: Shorts open in the player, start muted, no comments.",
+    summary: "Shorts: muted, no comments, in-player.",
     masterKey: "aioShortsCleanupOn",
     keys: ["aioShortsCleanupOn", "redirectShortsOn", "shortsAutoMuteOn", "shortsHideCommentsOn"],
     apply() {
@@ -4702,4 +4702,59 @@
       }
     },
     settings(en) { en.appendChild(Io("Turn on every Shorts cleanup", "aioShortsCleanupOn")); },
+  });
+
+  // ─── 33. AIO: Feed Cleanup ───────────────────────────────────────────────
+  // Consolidates overlapping hide-feed toggles into one sensible switch.
+  // Previously: hideRecs, hideLiveContentOn, hidePremieresOn, hideTopLiveGamesOn, hideAutoDubbedOn.
+  // Unified so users can clean the feed without hunting through five separate toggles.
+  // Granular toggles remain for users who want fine control.
+  xa.register({
+    id: "aio-feed-cleanup", name: "Clean Feed (All-in-One)",
+    summary: "One switch: hide recommendations, live, premieres, Top live games, auto-dubbed.",
+    masterKey: "aioFeedCleanupOn",
+    keys: ["aioFeedCleanupOn", "hideRecs", "hideLiveContentOn", "hidePremieresOn", "hideTopLiveGamesOn", "hideAutoDubbedOn"],
+    apply() {
+      if (!S.aioFeedCleanupOn) return;
+      for (const k of ["hideRecs", "hideLiveContentOn", "hidePremieresOn", "hideTopLiveGamesOn", "hideAutoDubbedOn"]) {
+        if (!S[k]) Ta(k, true);
+      }
+    },
+    settings(en) { en.appendChild(Io("Hide extra feed shelves and live noise", "aioFeedCleanupOn")); },
+  });
+
+  // ─── 34. AIO: Compact & Dense ────────────────────────────────────────────
+  // Membership: compactUI + denseVideoGrid + compactPlaylist + compactMode + themeCompact.
+  // These five all control spacing/density — grouping them avoids toggling five places.
+  xa.register({
+    id: "aio-compact-dense", name: "Compact Layout (All-in-One)",
+    summary: "Tighter spacing, denser grid, compact playlists.",
+    masterKey: "aioCompactDenseOn",
+    keys: ["aioCompactDenseOn", "compactUI", "denseVideoGridOn", "compactPlaylistOn", "compactModeOn", "themeCompactOn"],
+    apply() {
+      if (!S.aioCompactDenseOn) return;
+      for (const k of ["compactUI", "denseVideoGridOn", "compactPlaylistOn", "compactModeOn"]) {
+        if (!S[k]) Ta(k, true);
+      }
+      if (S.themeCompactOn === false) Ta("themeCompactOn", true);
+    },
+    settings(en) { en.appendChild(Io("Turn on all compact/density options", "aioCompactDenseOn")); },
+  });
+
+  // ─── 35. AIO: Privacy Shield ────────────────────────────────────────────
+  // Consolidates privacy-adjacent toggles: privacyShieldOn, channelBlockerOn, keywordFilterOn,
+  // removeRedirectUrlsOn, shortenShareUrlOn, blockYTAIOn.
+  // Users who want privacy can flip one switch instead of hunting six.
+  xa.register({
+    id: "aio-privacy-shield", name: "Privacy Shield (All-in-One)",
+    summary: "Block trackers, redirects, AI recommendations, plus channel/keyword filters.",
+    masterKey: "aioPrivacyShieldOn",
+    keys: ["aioPrivacyShieldOn", "privacyShieldOn", "removeRedirectUrlsOn", "shortenShareUrlOn", "blockYTAIOn"],
+    apply() {
+      if (!S.aioPrivacyShieldOn) return;
+      for (const k of ["privacyShieldOn", "removeRedirectUrlsOn", "shortenShareUrlOn", "blockYTAIOn"]) {
+        if (!S[k]) Ta(k, true);
+      }
+    },
+    settings(en) { en.appendChild(Io("Enable core privacy protections", "aioPrivacyShieldOn")); },
   });

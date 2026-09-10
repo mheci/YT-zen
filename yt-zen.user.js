@@ -30490,11 +30490,10 @@ const Nr = [
       if (on("BgThrottle")) {
         try {
           const onVisChange = () => { Xt.perfHidden = document.hidden; };
-          document.addEventListener("visibilitychange", onVisChange, { passive: true });
-          Yt["perf-mode"].push(() => { document.removeEventListener("visibilitychange", onVisChange); Xt.perfHidden = false; });
+          ctx.addListener(document, "visibilitychange", onVisChange, { passive: true });
+          Yt["perf-mode"].push(() => { Xt.perfHidden = false; });
           const passiveScroll = () => {};
-          window.addEventListener("scroll", passiveScroll, { passive: true, capture: true });
-          Yt["perf-mode"].push(() => { window.removeEventListener("scroll", passiveScroll, { capture: true }); });
+          ctx.addListener(window, "scroll", passiveScroll, { passive: true, capture: true });
         } catch (e) {}
       }
       if (on("PaintReduction")) {
@@ -31474,7 +31473,8 @@ const Nr = [
     apply(ctx) {
       if (!S.endWindDownOn) return;
       ZenEngine.injectCSS();
-      let gateActive = false, overlay = null;
+      let gateActive = false, overlay = null, countdownIv = 0;
+      const clearCountdown = () => { if (countdownIv) { clearInterval(countdownIv); countdownIv = 0; } };
       const secs = () => Math.max(3, Math.min(60, Number(S.windDownSec) || 10));
       const showGate = () => {
         if (!document.body || overlay) return;
@@ -31498,15 +31498,17 @@ const Nr = [
         document.body.appendChild(overlay);
         let left = secs();
         cont.textContent = "Continue (" + left + "s)";
-        const iv = setInterval(() => {
+        clearCountdown();
+        countdownIv = setInterval(() => {
           left -= 1;
-          if (left <= 0) { clearInterval(iv); cont.disabled = false; cont.textContent = "Continue"; }
+          if (left <= 0) { clearCountdown(); cont.disabled = false; cont.textContent = "Continue"; }
           else cont.textContent = "Continue (" + left + "s)";
         }, 1000);
         cont.disabled = true;
       };
       const releasePlay = () => { gateActive = false; };
       const dismiss = (allowNext) => {
+        clearCountdown();
         if (overlay) { overlay.remove(); overlay = null; }
         if (allowNext) { releasePlay(); }
         else {
@@ -31539,11 +31541,11 @@ const Nr = [
       patch();
       const binder = ZenPack.elBinder();
       binder(ctx, "ended", () => { if (!overlay) showGate(); });
-      ctx.onNav(() => { if (overlay) { overlay.remove(); overlay = null; } gateActive = false; });
+      ctx.onNav(() => { clearCountdown(); if (overlay) { overlay.remove(); overlay = null; } gateActive = false; });
       ctx.addListener(document, "keydown", (ev) => {
         if (ev.key === "Escape" && overlay) dismiss(false);
       });
-      Yt["end-winddown"].push(() => { unpatch(); if (overlay) { overlay.remove(); overlay = null; } gateActive = false; });
+      Yt["end-winddown"].push(() => { clearCountdown(); unpatch(); if (overlay) { overlay.remove(); overlay = null; } gateActive = false; });
     },
     settings(en) {
       en.appendChild(Io("Hold autoplay behind a calm pause", "endWindDownOn"));

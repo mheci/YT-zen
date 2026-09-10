@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YT-zen
 // @namespace    https://github.com/mheci/YT-zen
-// @version      3.16.14
+// @version      3.16.15
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      Unlicense
@@ -7362,7 +7362,7 @@ algoBlockChannels: "",
   // navigator (a Firefox UA with cbr=Chrome/cos=Windows is an
   // inconsistency the backend can see).
   function _fwUA() {
-    const ua = navigator.userAgent || "";
+    const ua = (navigator.userAgent || "").replace("HeadlessChrome/", "Chrome/");
     const m = (re) => {
       const x = re.exec(ua);
       return x ? x[1] : "";
@@ -7520,12 +7520,21 @@ algoBlockChannels: "",
       }).catch(() => {});
     } catch (e) {}
   }
-  function qt(e, t, a, n, r, o) {
+  function qt(e, t, a, n, r, o, quiet) {
     try {
-      Dt(
+      const u2 =
         "https://www.youtube.com/api/stats/watchtime?" +
-          Ht(e, t, a, n, r || Tt(), o).join("&"),
-      );
+        Ht(e, t, a, n, r || Tt(), o).join("&");
+      // Quiet mode = sendBeacon only: the segment campaign is high-volume;
+      // dual transport doubled the request rate and starved the renderer
+      // on multi-hour videos. Final writes keep the dual transport.
+      if (quiet) {
+        try {
+          navigator.sendBeacon && navigator.sendBeacon(u2);
+        } catch (e) {}
+      } else {
+        Dt(u2);
+      }
     } catch (e) {}
   }
   function Vt(e, t, a, n, r) {
@@ -7668,6 +7677,25 @@ algoBlockChannels: "",
   // (the tail range is never required), no autoplay yank (the video is
   // simply parked at its last frame; the autonav toggle is switched off
   // for the duration in case a buffered tail plays into a real end).
+  // ORGANIC CHANNEL v6 (force-watched) — O(1) at any duration.
+  //
+  // Verified facts from wire forensics on real videos:
+  //  - the player flushes its watchtime on seek-segment boundaries and on
+  //    PAUSE; a genuine full watch finalizes as state=paused cmt=len
+  //    (never state=ended on desktop);
+  //  - direct element seeks/rates lose a tug-of-war with the controller on
+  //    long videos (rate resets, position drift, starved fetches);
+  //  - the controller's OWN inputs always win: synthetic 'l' (+10s) keys
+  //    and progress-bar mouse scrubs go through the player's genuine seek
+  //    pipeline (identical to real user input — YT does not gate them).
+  //
+  // v6: prime with a couple of 'l' presses, turn autoplay OFF via its own
+  // button, then SCRUB the progress bar to 99.5% (controller-sanctioned
+  // seek of any distance — O(1), no walking, works on a 5-hour video),
+  // give the seek a beat, then pause at the tail so the player's own
+  // pause-flush records cmt=len — the genuine fingerprint. The signed
+  // template campaign covers [0..len] in parallel. Never pauses
+  // mid-video; on failure playback is left untouched.
   async function KtOrganic(e, t) {
     const fwLog = (m) => { try { (window.__fwLog = window.__fwLog || []).slice(-39); (window.__fwLog = window.__fwLog || []).push(Math.round(performance.now()) + " " + m); } catch (_) {} };
     const wasMuted = e.muted, wasRate = e.playbackRate;
@@ -7684,25 +7712,29 @@ algoBlockChannels: "",
         );
       } catch (_) {}
     };
+    // Scrub via the progress bar with synthetic mouse input: the player's
+    // own scrub-seek (controller-sanctioned, any distance).
+    const scrubTo = (frac) => {
+      try {
+        const bar = document.querySelector(".ytp-progress-bar");
+        if (!bar) return false;
+        const r = bar.getBoundingClientRect();
+        if (!r.width) return false;
+        const o = {
+          bubbles: true, cancelable: true, button: 0, buttons: 1,
+          clientX: r.left + r.width * frac, clientY: r.top + r.height / 2,
+        };
+        bar.dispatchEvent(new MouseEvent("mousedown", o));
+        document.dispatchEvent(new MouseEvent("mousemove", o));
+        document.dispatchEvent(new MouseEvent("mouseup", o));
+        return true;
+      } catch (_) { return false; }
+    };
     let done = false;
-    // PHASE 1: controller-sanctioned +10s skips until within ~13s of the end.
-    const deadline = Date.now() + 16000;
-    const maxPresses = Math.ceil(t / 10) + 8;
-    let presses = 0;
-    fwLog("skip-phase start t=" + (+e.currentTime).toFixed(1) + "/" + t);
-    while (Date.now() < deadline && presses < maxPresses && stillHere()) {
-      let cur = -1, d = t;
-      try { cur = e.currentTime; d = e.duration || t; } catch (_) {}
-      if (cur < 0) break;
-      try { if (e.ended) { done = true; break; } } catch (_) {}
-      if (d - cur <= 13) break;
-      pressKey("l", "KeyL", 76);
-      presses++;
-      await new Promise((r) => setTimeout(r, 60));
-    }
-    fwLog("skip-phase done presses=" + presses + " t=" + (function () { try { return (+e.currentTime).toFixed(1); } catch (_) { return "?"; } })());
-    // Autoplay off for the duration: if the boundary seek plays into a
-    // real end (buffered tail), the end screen must not yank the user.
+    // PHASE 0: prime the player (a real playback session exists) and get
+    // autoplay out of the way for the duration.
+    pressKey("l", "KeyL", 76);
+    await new Promise((r) => setTimeout(r, 220));
     let autonavOff = false;
     try {
       const btn = document.querySelector(".ytp-autonav-toggle-button");
@@ -7711,51 +7743,44 @@ algoBlockChannels: "",
         autonavOff = true;
       }
     } catch (_) {}
-    // PHASE 2: boundary seek — the player flushes its final watchtime at
-    // cmt=len by itself (state=paused, the genuine full-watch shape).
-    if (!done && stillHere()) {
-      try { e.muted = true; } catch (_) {}
-      let d = t;
+    // PHASE 1: scrub to 99.5% (one controller-led jump, any duration).
+    const scrubDeadline = Date.now() + 9000;
+    let scrubs = 0;
+    let d = t;
+    while (Date.now() < scrubDeadline && stillHere()) {
       try { d = e.duration || t; } catch (_) {}
-      // Target dur-1.2 (99.85%), not the exact boundary: seeking to the
-      // exact duration makes the player re-cue the video from 0 (jarring
-      // and pointless — the flush fires either way, 99.85% is a full bar).
-      try { e.currentTime = Math.max(0, d - 1.2); } catch (_) {}
-      const seek2 = setTimeout(() => {
-        try { e.currentTime = Math.max(0, d - 0.6); } catch (_) {}
-      }, 350);
-      const seekDeadline = Date.now() + 12000;
-      while (Date.now() < seekDeadline && stillHere()) {
-        let cur = -1;
-        try { cur = e.currentTime; } catch (_) {}
-        if (cur < 0) break;
-        // Success = playhead at the boundary; the player's flush fires on
-        // the seek itself (paused or not — settle parks it).
-        try { if (e.ended || d - cur <= 1.5) { done = true; break; } } catch (_) {}
-        await new Promise((r) => setTimeout(r, 50));
-      }
-      clearTimeout(seek2);
-      // The boundary seek processes slowly on an unbuffered tail — one
-      // final re-check before giving up.
-      if (!done) {
-        try { done = e.ended || d - e.currentTime <= 1.5; } catch (_) {}
-      }
-      fwLog("boundary-seek done=" + done + " t=" + (function () { try { return (+e.currentTime).toFixed(2); } catch (_) { return "?"; } })());
+      let cur = -1;
+      try { cur = e.currentTime; } catch (_) {}
+      if (cur < 0) break;
+      try { if (e.ended) { done = true; break; } } catch (_) {}
+      if (d - cur <= Math.max(6, d * 0.012)) break;
+      if (!scrubTo(0.995)) break;
+      scrubs++;
+      await new Promise((r) => setTimeout(r, 450));
     }
-    // Settle: park at the end frame, restore state, release everything.
+    fwLog("scrub scrubs=" + scrubs + " t=" + (function () { try { return (+e.currentTime).toFixed(1); } catch (_) { return "?"; } })() + "/" + d.toFixed(0));
+    // PHASE 2: pin at the boundary and pause — the player's own pause
+    // flush records cmt=len, state=paused (the genuine full-watch write).
+    if (!done && stillHere()) {
+      try { e.currentTime = Math.max(0, d - 1.2); } catch (_) {}
+      await new Promise((r) => setTimeout(r, 350));
+      try { if (e.ended || d - e.currentTime <= Math.max(2.5, d * 0.012)) done = true; } catch (_) {}
+      try { e.pause(); } catch (_) {}
+    }
+    // Settle: restore, release everything. When done, leave autoplay OFF
+    // (restoring it at the end makes the player re-cue from 0s).
     setTimeout(() => {
-      if (autonavOff) {
+      if (autonavOff && !done) {
         try {
           const btn = document.querySelector(".ytp-autonav-toggle-button");
           if (btn && btn.getAttribute("aria-checked") === "false") btn.click();
         } catch (_) {}
       }
       if (!stillHere()) return;
-      try { e.pause(); } catch (_) {}
       try { e.playbackRate = wasRate; } catch (_) {}
       try { e.muted = wasMuted; } catch (_) {}
       try { if (typeof jt !== "undefined") jt = !1; } catch (_) {}
-      fwLog("settle done=" + done + " t=" + (function () { try { return (+e.currentTime).toFixed(2); } catch (_) { return "?"; } })());
+      fwLog("settle done=" + done + " t=" + (function () { try { return (+e.currentTime).toFixed(2); } catch (_) { return "?"; } })() + "/" + d.toFixed(0));
     }, 600);
     if (done) pe("Marked as fully watched.", 2200, "success");
     else pe("Watchtime signals sent.", 2600, "info");
@@ -7992,7 +8017,21 @@ algoBlockChannels: "",
                 })(),
               };
             })();
-            const fire = (u2, params) => {
+            // High-volume sender: sendBeacon only. The dual transport
+            // (sendBeacon + keepalive fetch) doubled the request rate; on
+            // multi-hour videos the window campaign hit ~160 req/s and
+            // starved the renderer (frozen tab). sendBeacon alone is
+            // fire-and-forget reliable; dual transport is reserved for
+            // the few final writes below.
+            const fire1 = (u2) => {
+              try {
+                if (!u2 || !/^https?:/i.test(String(u2))) return;
+                try {
+                  navigator.sendBeacon && navigator.sendBeacon(u2);
+                } catch (e) {}
+              } catch (e) {}
+            };
+            const fire = (u2, params, quiet) => {
               try {
                 let s = String(u2 || "");
                 if (!s || !/^https?:/i.test(s)) return;
@@ -8000,7 +8039,7 @@ algoBlockChannels: "",
                 const o2 = Object.assign({}, isPix(u2) ? {} : clientBlock, params || {});
                 for (const k of ["cmt", "et", "st", "mt", "rt", "lact", "state", "c", "cver", "cbr", "cbrver", "cos", "cosver", "hl", "cr", "mos", "fmt", "volume", "muted"])
                   if (null != o2[k]) s = Za(s, k, o2[k]);
-                Qa(s);
+                quiet ? fire1(s) : Qa(s);
                 fired++;
               } catch (e) {}
             };
@@ -8014,7 +8053,7 @@ algoBlockChannels: "",
             // windows; a single giant window can be clamped server-side
             // and read back as PARTIALLY watched. Windows are staggered
             // tens of ms apart so the burst stays an ordered stream.
-            const wN = DU <= 24 ? 2 : Math.min(90, Math.ceil(DU / 10));
+            const wN = DU <= 24 ? 2 : Math.min(DU > 7200 ? 45 : 90, Math.ceil(DU / 10));
             let wi = 0;
             const finishCampaign = () => {
               try {
@@ -8053,8 +8092,8 @@ algoBlockChannels: "",
                   cmt: et, et: et, st: st, mt: et, rt: rtNow(),
                   lact: 150 + Math.floor(700 * Math.random()),
                   state: wi % 9 === 7 && wi < wN - 1 ? "paused" : "playing",
-                });
-                if (wi % 4 === 3) fire(track.qoeUrl, { cmt: et, rt: rtNow() });
+                }, true);
+                if (wi % 4 === 3) fire(track.qoeUrl, { cmt: et, rt: rtNow() }, true);
               } catch (e) {}
               wi++;
               if (wi < wN) setTimeout(wTick, 25 + Math.floor(45 * Math.random()));
@@ -8180,7 +8219,7 @@ algoBlockChannels: "",
       let a = 0;
       const n = Math.max(15, e - 1);
       for (; a < n; ) {
-        const e = Math.min(n - a, 4 + Math.floor(4 * Math.random())),
+        const e = Math.min(n - a, n > 600 ? Math.ceil(n / 55) + Math.floor(3 * Math.random()) : 4 + Math.floor(4 * Math.random())),
           r = Math.min(n, a + e),
           o =
             Math.random() < 0.08 && t.length > 2 && r < n - 8
@@ -8221,7 +8260,7 @@ algoBlockChannels: "",
                 plid: s,
                 volume: 100,
                 subscribed: !1,
-              });
+              }, !0);
             } catch (e) {}
           (e + 1) % 3 == 0 && (await ne());
         }

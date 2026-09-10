@@ -4672,89 +4672,168 @@
     settings(en) { en.appendChild(Io("Enable breather (Alt+G)", "zenBreatherOn")); },
   });
 
+  // ─── All-in-One bundles ─────────────────────────────────────────────────
+  // Each bundle has one master switch that ENROLLS its members exactly once.
+  // Enrollment is one-way convenience: after turning a bundle on, members can
+  // be switched off individually and re-applying (boot/nav) never forces them
+  // back. Turning the master off disarms enrollment so it can be re-run later.
+  // Every member control is rendered inside the bundle card (the member
+  // features themselves stay hidden), which is what makes the dashboard show
+  // one card instead of N duplicates.
+  const aioEnroll = (master, members) => {
+    const flag = master + "Enrolled";
+    if (S[master]) {
+      if (S[flag]) return;
+      for (const k of members) { if (!S[k]) Ta(k, true); }
+      Ta(flag, true);
+    } else if (S[flag]) {
+      Ta(flag, false);
+    }
+  };
+  const aioRows = (en, rows) => {
+    for (const row of rows) {
+      en.appendChild(typeof row === "function" ? row() : Io(row[0], row[1]));
+    }
+  };
+
   // ─── 31. AIO: Player Tools ───────────────────────────────────────────────
-  // One switch for the hidden player buttons. Members stay individually
-  // adjustable afterwards; switching this on turns them all on.
+  const _playerTools = ["copyTimestampButtonOn", "copyVideoInfoButtonOn", "openTranscriptButtonOn", "videoNotesOn", "channelNotesOn", "chapterButtonsOn", "chapterHotkeysOn"];
   xa.register({
     id: "aio-player-tools", name: "Player Tools (All-in-One)",
-    summary: "One switch for player extras: copy buttons, transcript, notes, chapters.",
+    summary: "One switch for player extras; each stays individually toggleable below.",
     masterKey: "aioPlayerToolsOn",
-    keys: ["aioPlayerToolsOn", "copyTimestampButtonOn", "copyVideoInfoButtonOn", "openTranscriptButtonOn", "videoNotesOn", "channelNotesOn", "chapterButtonsOn", "chapterHotkeysOn"],
-    apply() {
-      if (!S.aioPlayerToolsOn) return;
-      for (const k of ["copyTimestampButtonOn", "copyVideoInfoButtonOn", "openTranscriptButtonOn", "videoNotesOn", "channelNotesOn", "chapterButtonsOn", "chapterHotkeysOn"]) {
-        if (!S[k]) Ta(k, true);
-      }
+    settingsAlways: !0,
+    keys: ["aioPlayerToolsOn", "aioPlayerToolsOnEnrolled", ..._playerTools],
+    apply() { aioEnroll("aioPlayerToolsOn", _playerTools); },
+    settings(en) {
+      en.appendChild(Io("Turn on every player tool", "aioPlayerToolsOn"));
+      aioRows(en, [
+        ["Copy timestamp button", "copyTimestampButtonOn"],
+        ["Copy video info button", "copyVideoInfoButtonOn"],
+        ["Open transcript button", "openTranscriptButtonOn"],
+        ["Video notes", "videoNotesOn"],
+        ["Channel notes", "channelNotesOn"],
+        ["Chapter buttons", "chapterButtonsOn"],
+        ["Chapter hotkeys", "chapterHotkeysOn"],
+      ]);
     },
-    settings(en) { en.appendChild(Io("Turn on every player tool", "aioPlayerToolsOn")); },
   });
 
   // ─── 32. AIO: Shorts Cleanup ─────────────────────────────────────────────
+  const _shorts = ["redirectShortsOn", "shortsAutoMuteOn", "shortsHideCommentsOn"];
   xa.register({
     id: "aio-shorts-cleanup", name: "Shorts Cleanup (All-in-One)",
-    summary: "Shorts: muted, no comments, in-player.",
+    summary: "Open Shorts in the player, mute them, or hide the comments panel.",
     masterKey: "aioShortsCleanupOn",
-    keys: ["aioShortsCleanupOn", "redirectShortsOn", "shortsAutoMuteOn", "shortsHideCommentsOn"],
-    apply() {
-      if (!S.aioShortsCleanupOn) return;
-      for (const k of ["redirectShortsOn", "shortsAutoMuteOn", "shortsHideCommentsOn"]) {
-        if (!S[k]) Ta(k, true);
-      }
+    settingsAlways: !0,
+    keys: ["aioShortsCleanupOn", "aioShortsCleanupOnEnrolled", ..._shorts],
+    apply() { aioEnroll("aioShortsCleanupOn", _shorts); },
+    settings(en) {
+      en.appendChild(Io("Turn on every Shorts cleanup", "aioShortsCleanupOn"));
+      aioRows(en, [
+        ["Open Shorts in the regular player", "redirectShortsOn"],
+        ["Mute Shorts", "shortsAutoMuteOn"],
+        ["Hide Shorts comments", "shortsHideCommentsOn"],
+      ]);
     },
-    settings(en) { en.appendChild(Io("Turn on every Shorts cleanup", "aioShortsCleanupOn")); },
   });
 
   // ─── 33. AIO: Feed Cleanup ───────────────────────────────────────────────
-  // Consolidates overlapping hide-feed toggles into one sensible switch.
-  // Previously: hideRecs, hideLiveContentOn, hidePremieresOn, hideTopLiveGamesOn, hideAutoDubbedOn.
-  // Unified so users can clean the feed without hunting through five separate toggles.
-  // Granular toggles remain for users who want fine control.
+  // One switch for the related/hidden-feed toggles that used to be separate
+  // cards (recommendations, live, premieres, Top live games, auto-dubbed,
+  // numbered cards).
+  const _feed = ["hideRecs", "hideLiveContentOn", "hidePremieresOn", "hideTopLiveGamesOn", "hideAutoDubbedOn", "numberSearchResultsOn"];
   xa.register({
     id: "aio-feed-cleanup", name: "Clean Feed (All-in-One)",
-    summary: "One switch: hide recommendations, live, premieres, Top live games, auto-dubbed.",
+    summary: "Hide recommendations, live cards, premieres, dubs; number the cards.",
     masterKey: "aioFeedCleanupOn",
-    keys: ["aioFeedCleanupOn", "hideRecs", "hideLiveContentOn", "hidePremieresOn", "hideTopLiveGamesOn", "hideAutoDubbedOn"],
-    apply() {
-      if (!S.aioFeedCleanupOn) return;
-      for (const k of ["hideRecs", "hideLiveContentOn", "hidePremieresOn", "hideTopLiveGamesOn", "hideAutoDubbedOn"]) {
-        if (!S[k]) Ta(k, true);
-      }
+    settingsAlways: !0,
+    keys: ["aioFeedCleanupOn", "aioFeedCleanupOnEnrolled", ..._feed, "hideAutoDubbedPreferOriginal"],
+    apply() { aioEnroll("aioFeedCleanupOn", _feed); },
+    settings(en) {
+      en.appendChild(Io("Hide extra feed shelves and live noise", "aioFeedCleanupOn"));
+      aioRows(en, [
+        ["Hide recommended shelves", "hideRecs"],
+        ["Hide live streams", "hideLiveContentOn"],
+        ["Hide premieres", "hidePremieresOn"],
+        ["Hide Top live games", "hideTopLiveGamesOn"],
+        ["Hide auto-dubbed cards", "hideAutoDubbedOn"],
+        ["Restore original audio on watch pages", "hideAutoDubbedPreferOriginal"],
+        ["Number video cards", "numberSearchResultsOn"],
+      ]);
     },
-    settings(en) { en.appendChild(Io("Hide extra feed shelves and live noise", "aioFeedCleanupOn")); },
   });
 
   // ─── 34. AIO: Compact & Dense ────────────────────────────────────────────
-  // Membership: compactUI + denseVideoGrid + compactPlaylist + compactMode + themeCompact.
-  // These five all control spacing/density — grouping them avoids toggling five places.
+  // All spacing/density switches (grid, rows, playlists, theme spacing) in
+  // one place, superseding the old playlist-tweaks grouping.
+  const _dense = ["compactUI", "denseVideoGridOn", "compactPlaylistOn", "playlistAutoscrollOn", "compactModeOn"];
   xa.register({
     id: "aio-compact-dense", name: "Compact Layout (All-in-One)",
     summary: "Tighter spacing, denser grid, compact playlists.",
     masterKey: "aioCompactDenseOn",
-    keys: ["aioCompactDenseOn", "compactUI", "denseVideoGridOn", "compactPlaylistOn", "compactModeOn", "themeCompactOn"],
+    settingsAlways: !0,
+    keys: ["aioCompactDenseOn", "aioCompactDenseOnEnrolled", ..._dense, "themeCompactOn"],
     apply() {
-      if (!S.aioCompactDenseOn) return;
-      for (const k of ["compactUI", "denseVideoGridOn", "compactPlaylistOn", "compactModeOn"]) {
-        if (!S[k]) Ta(k, true);
-      }
-      if (S.themeCompactOn === false) Ta("themeCompactOn", true);
+      // themeCompactOn is tri-state (undefined = leave the theme alone). Fold
+      // it into the ONE-TIME enrollment only; afterwards the member checkbox
+      // must stay usable (re-apply must never force it back).
+      const wasEnrolled = !!S.aioCompactDenseOnEnrolled;
+      aioEnroll("aioCompactDenseOn", _dense);
+      if (S.aioCompactDenseOn && !wasEnrolled && S.themeCompactOn === false) Ta("themeCompactOn", true);
     },
-    settings(en) { en.appendChild(Io("Turn on all compact/density options", "aioCompactDenseOn")); },
+    settings(en) {
+      en.appendChild(Io("Turn on all compact/density options", "aioCompactDenseOn"));
+      aioRows(en, [
+        ["Compact UI", "compactUI"],
+        ["Dense video grid", "denseVideoGridOn"],
+        ["Compact mode", "compactModeOn"],
+        ["Tighter theme spacing", "themeCompactOn"],
+        ["Compact playlists", "compactPlaylistOn"],
+        ["Auto-scroll playlist to current", "playlistAutoscrollOn"],
+      ]);
+    },
   });
 
   // ─── 35. AIO: Privacy Shield ────────────────────────────────────────────
-  // Consolidates privacy-adjacent toggles: privacyShieldOn, channelBlockerOn, keywordFilterOn,
-  // removeRedirectUrlsOn, shortenShareUrlOn, blockYTAIOn.
-  // Users who want privacy can flip one switch instead of hunting six.
+  // One switch for privacy-adjacent URL/tracker toggles. Channel and keyword
+  // filters stay standalone cards (they need their own list editors).
+  const _privacy = ["privacyShieldOn", "removeRedirectUrlsOn", "shortenShareUrlOn", "blockYTAIOn"];
   xa.register({
     id: "aio-privacy-shield", name: "Privacy Shield (All-in-One)",
-    summary: "Block trackers, redirects, AI recommendations, plus channel/keyword filters.",
+    summary: "Skip tracking redirects, shorten share links, block AI features.",
     masterKey: "aioPrivacyShieldOn",
-    keys: ["aioPrivacyShieldOn", "privacyShieldOn", "removeRedirectUrlsOn", "shortenShareUrlOn", "blockYTAIOn"],
-    apply() {
-      if (!S.aioPrivacyShieldOn) return;
-      for (const k of ["privacyShieldOn", "removeRedirectUrlsOn", "shortenShareUrlOn", "blockYTAIOn"]) {
-        if (!S[k]) Ta(k, true);
-      }
+    settingsAlways: !0,
+    keys: ["aioPrivacyShieldOn", "aioPrivacyShieldOnEnrolled", ..._privacy],
+    apply() { aioEnroll("aioPrivacyShieldOn", _privacy); },
+    settings(en) {
+      en.appendChild(Io("Enable core privacy protections", "aioPrivacyShieldOn"));
+      aioRows(en, [
+        ["Privacy shield", "privacyShieldOn"],
+        ["Skip YouTube /redirect URLs", "removeRedirectUrlsOn"],
+        ["Shorten share URLs", "shortenShareUrlOn"],
+        ["Block YouTube AI features", "blockYTAIOn"],
+      ]);
     },
-    settings(en) { en.appendChild(Io("Enable core privacy protections", "aioPrivacyShieldOn")); },
+  });
+
+  // ─── 36. AIO: Comment Cleanup ────────────────────────────────────────────
+  // Supersedes the old comment-tweaks grouping with the same AIO semantics.
+  const _comments = ["collapseLongCommentsOn", "highlightCreatorCommentsOn", "highlightTimestampLinksOn"];
+  xa.register({
+    id: "aio-comment-cleanup", name: "Comment Cleanup (All-in-One)",
+    summary: "Clamp long comments; highlight creator replies and timestamps.",
+    masterKey: "aioCommentCleanupOn",
+    settingsAlways: !0,
+    keys: ["aioCommentCleanupOn", "aioCommentCleanupOnEnrolled", ..._comments, "collapseLongCommentChars"],
+    apply() { aioEnroll("aioCommentCleanupOn", _comments); },
+    settings(en) {
+      en.appendChild(Io("Turn on every comment cleanup", "aioCommentCleanupOn"));
+      aioRows(en, [
+        ["Clamp long comments", "collapseLongCommentsOn"],
+        () => No("Clamp threshold (characters)", "collapseLongCommentChars", 400, 5000, 100, (v) => v + " chars"),
+        ["Highlight creator comments", "highlightCreatorCommentsOn"],
+        ["Highlight timestamp links", "highlightTimestampLinksOn"],
+      ]);
+    },
   });

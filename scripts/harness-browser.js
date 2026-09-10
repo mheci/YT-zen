@@ -47,9 +47,15 @@ function cfgSeed(extra) {
 }
 
 async function newPage(browser, seed, vmContent, log, drop) {
-  const page = await browser.newPage();
+  // Fresh incognito context per scenario: pages in the default context share
+  // localStorage, and a previous scenario's saved ytp.cfg (bumped __ver) would
+  // otherwise outrank the freshly seeded GM config on the next scenario.
+  const ctx = await browser.createBrowserContext();
+  const page = await ctx.newPage();
   await page.setViewport({ width: 1366, height: 900 });
   await page.setCookie({ name: "CONSENT", value: "PENDING+987", domain: ".youtube.com", path: "/" });
+  const _close = page.close.bind(page);
+  page.close = async () => { try { await _close(); } finally { try { await ctx.close(); } catch (_) {} } };
   const entries = attachConsole(page, log);
   await inject(page, { seed: seed || {}, vmContent: !!vmContent, drop: drop || {} });
   page._entries = entries;
@@ -339,6 +345,206 @@ async function scenarioSeekbarMarks(browser) {
   return { name, ok, stubbed, marks: out.marks, positioned: out.positioned, inList: out.inList, colors: out.colors };
 }
 
+async function scenarioAioBundles(browser) {
+  // AIO cards: (1) flipping a master enrolls members once, (2) a member
+  // switched off afterwards is never forced back by re-apply, (3) every
+  // member control is reachable inside the card (members are hidden cards),
+  // (4) the three legacy _bundle cards are gone.
+  const name = "aio-bundles";
+  const seed = cfgSeed({ aioPlayerToolsOn: true, aioShortsCleanupOn: false });
+  const page = await newPage(browser, seed, false, () => {});
+  await page.goto(WATCH, { waitUntil: "domcontentloaded", timeout: 60000 });
+  for (let i = 0; i < 100; i++) { await wait(250); if ((await stateProbe(page)).applied) break; }
+  const readCfg = () => page.evaluate(() => {
+    const raw = typeof GM_getValue === "function" ? GM_getValue("ytp.cfg", null) : null;
+    try { return raw ? JSON.parse(raw) : null; } catch (_) { return null; }
+  });
+  // AIO cards register late in the applyAll batches; poll instead of sleeping.
+  let cfg0 = null;
+  for (let i = 0; i < 60; i++) {
+    cfg0 = await readCfg();
+    if (cfg0 && cfg0.aioPlayerToolsOnEnrolled === true) break;
+    await wait(250);
+  }
+  const memberKeys = ["copyTimestampButtonOn", "copyVideoInfoButtonOn", "openTranscriptButtonOn",
+    "videoNotesOn", "channelNotesOn", "chapterButtonsOn", "chapterHotkeysOn"];
+  const afterBoot = {
+    enrolled: !!(cfg0 && cfg0.aioPlayerToolsOnEnrolled),
+    membersOn: cfg0 ? memberKeys.every((k) => cfg0[k] === true) : false,
+    shortsUntouched: cfg0
+      ? ["redirectShortsOn", "shortsAutoMuteOn", "shortsHideCommentsOn"].every((k) => !cfg0[k])
+      : false,
+  };
+
+  // Open dashboard and inspect the AIO cards.
+  const ui = await page.evaluate(async () => {
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const opener = window.__zenMenu && window.__zenMenu["Open YT-zen dashboard"];
+    if (opener) opener();
+    // Cards render in chunks (20 immediately, then 12 per frame); poll for
+    // all six AIO cards rather than racing the render queue.
+    let dash = null;
+    for (let i = 0; i < 60; i++) {
+      dash = document.querySelector("aside.ytp-dash");
+      if (dash && dash.querySelectorAll(".ytp-card[data-feat^='aio-']").length >= 6) break;
+      await sleep(100);
+    }
+    if (!dash) return { opened: false };
+    const aioCards = Array.from(dash.querySelectorAll(".ytp-card")).filter((c) => {
+      const feat = c.dataset.feat || "";
+      return feat.startsWith("aio-");
+    });
+    const oldBundles = dash.querySelectorAll('[data-feat$="-bundle"]').length;
+    // Player tools card must expose every member as a checkbox + the master
+    const playerCard = aioCards.find((c) => c.dataset.feat === "aio-player-tools");
+    const memberInputs = playerCard
+      ? memberKeysCheck(playerCard)
+      : [];
+    function memberKeysCheck(card) {
+      return ["copyTimestampButtonOn", "copyVideoInfoButtonOn", "openTranscriptButtonOn",
+        "videoNotesOn", "channelNotesOn", "chapterButtonsOn", "chapterHotkeysOn"]
+        .map((k) => !!card.querySelector('input[type="checkbox"][data-key="' + k + '"]'));
+    }
+    const commentCard = aioCards.find((c) => c.dataset.feat === "aio-comment-cleanup");
+    const commentSlider = commentCard
+      ? !!commentCard.querySelector('input[type="range"][data-key="collapseLongCommentChars"]')
+      : false;
+    const feedCard = aioCards.find((c) => c.dataset.feat === "aio-feed-cleanup");
+    const preferOriginalRow = feedCard
+      ? !!feedCard.querySelector('input[type="checkbox"][data-key="hideAutoDubbedPreferOriginal"]')
+      : false;
+    // Standalone member cards whose surface is now exclusively the AIO card.
+    const hiddenStandalones = ["dense-video-grid", "remove-redirect-urls",
+      "shorten-share-url", "block-yt-ai", "hide-auto-dubbed",
+      "feed-card-filters-bundle", "playlist-tweaks-bundle", "comment-tweaks-bundle"]
+      .map((id) => !dash.querySelector('.ytp-card[data-feat="' + id + '"]'));
+    return {
+      opened: true,
+      aioCount: aioCards.length,
+      oldBundles,
+      memberRows: memberInputs,
+      allMemberRows: memberInputs.every(Boolean),
+      commentSlider,
+      preferOriginalRow,
+      hiddenStandalonesGone: hiddenStandalones.every(Boolean),
+    };
+  });
+
+  // Turn a member off, re-apply the bundle, and assert it stays off
+  // (one-time enrollment, not a perpetual force).
+  const stickResult = await page.evaluate(async () => {
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const read = () => JSON.parse(GM_getValue("ytp.cfg", "{}"));
+    const dash = document.querySelector("aside.ytp-dash");
+    const card = Array.from(dash.querySelectorAll(".ytp-card"))
+      .find((c) => c.dataset.feat === "aio-player-tools");
+    const cb = card.querySelector('input[type="checkbox"][data-key="copyTimestampButtonOn"]');
+    cb.click();
+    // Wait until the opt-out is persisted (600ms save debounce, allow load).
+    for (let i = 0; i < 40 && read().copyTimestampButtonOn !== false; i++) await sleep(100);
+    window.__YTPLUS_ENGINE__.apply("aio-player-tools");
+    await sleep(400);
+    const cfg = read();
+    return { off: cfg.copyTimestampButtonOn === false, enrolled: cfg.aioPlayerToolsOnEnrolled === true };
+  });
+  const memberSticks = stickResult.off && stickResult.enrolled;
+
+  // Re-enrollment cycle: master OFF disarms the flag WITHOUT touching any
+  // member; master ON again forces any member the user switched off back on.
+  const cycle = await page.evaluate(async () => {
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const read = () => JSON.parse(GM_getValue("ytp.cfg", "{}"));
+    const dash = document.querySelector("aside.ytp-dash");
+    const card = Array.from(dash.querySelectorAll(".ytp-card"))
+      .find((c) => c.dataset.feat === "aio-player-tools");
+    const box = (key) => card.querySelector('.ytp-head input[type="checkbox"][data-key="' + key + '"]')
+      || card.querySelector('input[type="checkbox"][data-key="' + key + '"]');
+    const master = box("aioPlayerToolsOn");
+    master.click(); // off -> flag disarmed
+    for (let i = 0; i < 40 && read().aioPlayerToolsOnEnrolled !== false; i++) await sleep(100);
+    const off = read();
+    const disarmed = off.aioPlayerToolsOnEnrolled === false
+      && off.chapterButtonsOn === true // members are NOT switched off with master
+      && off.copyTimestampButtonOn === false; // user opt-out preserved
+    master.click(); // on -> re-enrollment should restore the opted-out member
+    for (let i = 0; i < 40 && read().copyTimestampButtonOn !== true; i++) await sleep(100);
+    await sleep(300);
+    const on = read();
+    const reEnrolled = on.aioPlayerToolsOnEnrolled === true
+      && on.copyTimestampButtonOn === true
+      && memberKeysCheck(on);
+    function memberKeysCheck(cfg) {
+      return ["copyTimestampButtonOn", "copyVideoInfoButtonOn", "openTranscriptButtonOn",
+        "videoNotesOn", "channelNotesOn", "chapterButtonsOn", "chapterHotkeysOn"]
+        .every((k) => cfg[k] === true);
+    }
+    return { disarmed, reEnrolled };
+  });
+
+  // Compact bundle: the tri-state "tighter theme spacing" member must behave
+  // like every other member - unchecking it must survive a re-apply (the
+  // force-on is allowed only during the one-time enrollment).
+  const themeMember = await page.evaluate(async () => {
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const read = () => JSON.parse(GM_getValue("ytp.cfg", "{}"));
+    const dash = document.querySelector("aside.ytp-dash");
+    const card = Array.from(dash.querySelectorAll(".ytp-card"))
+      .find((c) => c.dataset.feat === "aio-compact-dense");
+    if (!card) return false;
+    const cb = card.querySelector('input[type="checkbox"][data-key="themeCompactOn"]');
+    if (!cb || read().themeCompactOn !== true) return false;
+    // Arm the compact bundle first (enrollment runs once).
+    const master = card.querySelector('.ytp-head input[type="checkbox"][data-key="aioCompactDenseOn"]')
+      || card.querySelector('input[type="checkbox"][data-key="aioCompactDenseOn"]');
+    master.click();
+    for (let i = 0; i < 40 && read().aioCompactDenseOnEnrolled !== true; i++) await sleep(100);
+    // Then opt out of the theme member and re-apply; it must stay off.
+    cb.click();
+    for (let i = 0; i < 40 && read().themeCompactOn !== false; i++) await sleep(100);
+    window.__YTPLUS_ENGINE__.apply("aio-compact-dense");
+    await sleep(400);
+    return read().themeCompactOn === false && read().aioCompactDenseOn === true;
+  });
+
+  await page.close();
+
+  // Persistence across boot: a previously enrolled bundle with one member
+  // explicitly switched off must NOT re-force that member at startup
+  // (regression guard: Enrolled flags must survive the config schema filter).
+  const persistSeed = { "ytp.cfg": JSON.stringify({
+    __ver: 1000, __ts: Date.now(),
+    aioPlayerToolsOn: true, aioPlayerToolsOnEnrolled: true,
+    copyTimestampButtonOn: false,
+    copyVideoInfoButtonOn: true, openTranscriptButtonOn: true,
+    videoNotesOn: true, channelNotesOn: true,
+    chapterButtonsOn: true, chapterHotkeysOn: true,
+  }) };
+  const p2 = await newPage(browser, persistSeed, false, () => {});
+  await p2.goto(WATCH, { waitUntil: "domcontentloaded", timeout: 60000 });
+  let persisted = null;
+  for (let i = 0; i < 60; i++) {
+    await wait(300);
+    persisted = await p2.evaluate(() => {
+      const g = JSON.parse(GM_getValue("ytp.cfg", "{}"));
+      return { ver: g.__ver, enr: g.aioPlayerToolsOnEnrolled, ts: g.copyTimestampButtonOn, vi: g.copyVideoInfoButtonOn };
+    });
+    if (persisted.ver !== 1000) break;
+  }
+  await p2.close();
+  const persistOk = persisted && persisted.enr === true && persisted.ts === false && persisted.vi === true;
+
+  const ok = afterBoot.enrolled && afterBoot.membersOn && afterBoot.shortsUntouched
+    && ui.opened && ui.aioCount === 6 && ui.oldBundles === 0
+    && ui.allMemberRows && ui.commentSlider && ui.preferOriginalRow
+    && ui.hiddenStandalonesGone && memberSticks
+    && cycle.disarmed && cycle.reEnrolled && persistOk && themeMember;
+  return { name, ok, afterBoot, aioCount: ui.aioCount, oldBundles: ui.oldBundles,
+    memberRows: ui.memberRows, commentSlider: ui.commentSlider,
+    preferOriginalRow: ui.preferOriginalRow, hiddenStandalonesGone: ui.hiddenStandalonesGone,
+    memberSticks, disarmed: cycle.disarmed, reEnrolled: cycle.reEnrolled,
+    persistOk: !!(persisted && persistOk), persisted };
+}
+
 async function scenarioStyleWipe(browser) {
   const name = "style-wipe";
   const log = (...a) => console.log(`[${name}]`, ...a);
@@ -423,6 +629,7 @@ async function main() {
     ["early-nav", () => scenarioEarlyNav(browser)],
     ["delayed-shell", () => scenarioDelayedShell(browser)],
     ["seekbar-marks", () => scenarioSeekbarMarks(browser)],
+    ["aio-bundles", () => scenarioAioBundles(browser)],
     ["style-wipe", () => scenarioStyleWipe(browser)],
     ["dashboard-main", () => scenarioDashboard(browser, false)],
     ["dashboard-content", () => scenarioDashboard(browser, true)],

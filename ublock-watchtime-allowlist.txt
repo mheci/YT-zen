@@ -1,0 +1,52 @@
+! Title: YT-zen — watchtime endpoint force-allow
+! Description: Guarantees uBlock Origin NEVER interferes with YouTube
+!              watch-time reporting (watch history / progress bar) while
+!              using YT-zen's Shift+W force-watched hotkey.
+!              Covers BOTH transports the hotkey uses: sendBeacon
+!              (filter type "ping") and keepalive fetch (type "xhr").
+! Homepage: https://github.com/mheci/YT-zen
+! Licence: Unlicense
+!
+! HOW TO USE: uBlock Origin -> Dashboard -> My filters -> paste this
+! whole file -> Apply. (Purge browser cache once afterwards.)
+!
+! ==========================================================================
+! Core watch-time endpoints (the beacons that record watch progress)
+! ==========================================================================
+@@||s.youtube.com/api/stats/$ping,xhr,other,domain=youtube.com
+@@||www.youtube.com/api/stats/$ping,xhr,other,domain=youtube.com
+@@||youtube.com/api/stats/$ping,xhr,other,domain=youtube.com
+!
+! ==========================================================================
+! Per-endpoint explicit lines (in case a list uses narrower rules)
+! ==========================================================================
+@@||s.youtube.com/api/stats/watchtime*$ping,xhr,domain=youtube.com
+@@||s.youtube.com/api/stats/playback*$ping,xhr,domain=youtube.com
+@@||s.youtube.com/api/stats/qoe*$ping,xhr,domain=youtube.com
+@@||s.youtube.com/api/stats/atr*$ping,xhr,domain=youtube.com
+@@||s.youtube.com/api/stats/delayplay*$ping,xhr,domain=youtube.com
+!
+! ==========================================================================
+! InnerTube API (player sessions that sign the watchtime beacons)
+! ==========================================================================
+@@||www.youtube.com/youtubei/$ping,xhr,domain=youtube.com
+!
+! ==========================================================================
+! Player tracking / attribution / remarketing pixels fired by the hotkey
+! ==========================================================================
+@@||www.youtube.com/ptracking$ping,xhr,domain=youtube.com
+@@||www.youtube.com/pagead/$ping,xhr,domain=youtube.com
+@@||www.google.com/pagead/$ping,xhr,domain=youtube.com
+@@||play.google.com/log$ping,xhr,domain=youtube.com
+!
+! ==========================================================================
+! Media segments — the tail fetch that lets the player finalize the watch
+! ==========================================================================
+@@||*.googlevideo.com/videoplayback*$media,xhr,domain=youtube.com
+!
+! ==========================================================================
+! Safety net: while on YouTube, never block anything to YouTube's own
+! stats hosts (if a future endpoint appears, this keeps it flowing)
+! ==========================================================================
+@@||s.youtube.com^$domain=youtube.com
+@@||www.youtube.com/api/stats^$domain=youtube.com

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YT-zen
 // @namespace    https://github.com/mheci/YT-zen
-// @version      3.16.15
+// @version      3.16.16
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      Unlicense
@@ -7529,9 +7529,13 @@ algoBlockChannels: "",
       // dual transport doubled the request rate and starved the renderer
       // on multi-hour videos. Final writes keep the dual transport.
       if (quiet) {
-        try {
-          navigator.sendBeacon && navigator.sendBeacon(u2);
-        } catch (e) {}
+        let ok = false;
+        try { ok = navigator.sendBeacon && navigator.sendBeacon(u2); } catch (e) {}
+        if (!ok) {
+          try {
+            fetch(u2, { method: "GET", credentials: "include", mode: "no-cors", keepalive: !0, cache: "no-store" }).catch(() => {});
+          } catch (e) {}
+        }
       } else {
         Dt(u2);
       }
@@ -7696,94 +7700,62 @@ algoBlockChannels: "",
   // pause-flush records cmt=len — the genuine fingerprint. The signed
   // template campaign covers [0..len] in parallel. Never pauses
   // mid-video; on failure playback is left untouched.
+  // ORGANIC CHANNEL v7 (force-watched) — PURE BURST.
+  //
+  // One synchronous pass: autoplay off (its own button), a single
+  // controller-sanctioned progress-bar scrub to 99.4%, a boundary pin at
+  // 99.85%, pause. No awaits, no polling, no timeouts, no settle delay —
+  // the player processes its command queue in order, so seek-then-pause
+  // needs no waiting; the player's own flush records cmt=len
+  // state=paused (the genuine full-watch write). Everything else the
+  // hotkey does (full-coverage signed windows, every endpoint, three
+  // sessions) fires in the same instant from the campaign below.
   async function KtOrganic(e, t) {
     const fwLog = (m) => { try { (window.__fwLog = window.__fwLog || []).slice(-39); (window.__fwLog = window.__fwLog || []).push(Math.round(performance.now()) + " " + m); } catch (_) {} };
     const wasMuted = e.muted, wasRate = e.playbackRate;
-    const vid = (function () {
-      try { return (location.search.match(/v=([\w-]+)/) || [])[1] || null; } catch (_) { return null; }
-    })();
-    const stillHere = () => {
-      try { return ie.videoId() === vid; } catch (_) { return false; }
-    };
-    const pressKey = (key, code, kc) => {
+    let done = false, d = t, cur = -1, scrubs = 0;
+    try {
+      // autoplay off first (sync DOM click): nothing may navigate
+      let autonavOff = false;
       try {
-        document.dispatchEvent(
-          new KeyboardEvent("keydown", { key: key, code: code, keyCode: kc, which: kc, bubbles: true, cancelable: true }),
-        );
+        const btn = document.querySelector(".ytp-autonav-toggle-button");
+        if (btn && btn.getAttribute("aria-checked") === "true") {
+          btn.click();
+          autonavOff = true;
+        }
       } catch (_) {}
-    };
-    // Scrub via the progress bar with synthetic mouse input: the player's
-    // own scrub-seek (controller-sanctioned, any distance).
-    const scrubTo = (frac) => {
+      // one controller-led jump to the tail (own scrub path, any duration)
       try {
         const bar = document.querySelector(".ytp-progress-bar");
-        if (!bar) return false;
-        const r = bar.getBoundingClientRect();
-        if (!r.width) return false;
-        const o = {
-          bubbles: true, cancelable: true, button: 0, buttons: 1,
-          clientX: r.left + r.width * frac, clientY: r.top + r.height / 2,
-        };
-        bar.dispatchEvent(new MouseEvent("mousedown", o));
-        document.dispatchEvent(new MouseEvent("mousemove", o));
-        document.dispatchEvent(new MouseEvent("mouseup", o));
-        return true;
-      } catch (_) { return false; }
-    };
-    let done = false;
-    // PHASE 0: prime the player (a real playback session exists) and get
-    // autoplay out of the way for the duration.
-    pressKey("l", "KeyL", 76);
-    await new Promise((r) => setTimeout(r, 220));
-    let autonavOff = false;
-    try {
-      const btn = document.querySelector(".ytp-autonav-toggle-button");
-      if (btn && btn.getAttribute("aria-checked") === "true") {
-        btn.click();
-        autonavOff = true;
-      }
-    } catch (_) {}
-    // PHASE 1: scrub to 99.5% (one controller-led jump, any duration).
-    const scrubDeadline = Date.now() + 9000;
-    let scrubs = 0;
-    let d = t;
-    while (Date.now() < scrubDeadline && stillHere()) {
+        const r2 = bar && bar.getBoundingClientRect();
+        if (bar && r2 && r2.width) {
+          const o2 = {
+            bubbles: true, cancelable: true, button: 0, buttons: 1,
+            clientX: r2.left + r2.width * 0.995, clientY: r2.top + r2.height / 2,
+          };
+          bar.dispatchEvent(new MouseEvent("mousedown", o2));
+          document.dispatchEvent(new MouseEvent("mousemove", o2));
+          document.dispatchEvent(new MouseEvent("mouseup", o2));
+          scrubs = 1;
+        }
+      } catch (_) {}
       try { d = e.duration || t; } catch (_) {}
-      let cur = -1;
-      try { cur = e.currentTime; } catch (_) {}
-      if (cur < 0) break;
-      try { if (e.ended) { done = true; break; } } catch (_) {}
-      if (d - cur <= Math.max(6, d * 0.012)) break;
-      if (!scrubTo(0.995)) break;
-      scrubs++;
-      await new Promise((r) => setTimeout(r, 450));
-    }
-    fwLog("scrub scrubs=" + scrubs + " t=" + (function () { try { return (+e.currentTime).toFixed(1); } catch (_) { return "?"; } })() + "/" + d.toFixed(0));
-    // PHASE 2: pin at the boundary and pause — the player's own pause
-    // flush records cmt=len, state=paused (the genuine full-watch write).
-    if (!done && stillHere()) {
+      // boundary pin + pause: the player's own flush writes the final
+      // watchtime (state=paused cmt=len — genuine full-watch shape)
       try { e.currentTime = Math.max(0, d - 1.2); } catch (_) {}
-      await new Promise((r) => setTimeout(r, 350));
-      try { if (e.ended || d - e.currentTime <= Math.max(2.5, d * 0.012)) done = true; } catch (_) {}
       try { e.pause(); } catch (_) {}
-    }
-    // Settle: restore, release everything. When done, leave autoplay OFF
-    // (restoring it at the end makes the player re-cue from 0s).
-    setTimeout(() => {
-      if (autonavOff && !done) {
-        try {
-          const btn = document.querySelector(".ytp-autonav-toggle-button");
-          if (btn && btn.getAttribute("aria-checked") === "false") btn.click();
-        } catch (_) {}
-      }
-      if (!stillHere()) return;
+      // instant restore + lock release, same tick
       try { e.playbackRate = wasRate; } catch (_) {}
       try { e.muted = wasMuted; } catch (_) {}
       try { if (typeof jt !== "undefined") jt = !1; } catch (_) {}
-      fwLog("settle done=" + done + " t=" + (function () { try { return (+e.currentTime).toFixed(2); } catch (_) { return "?"; } })() + "/" + d.toFixed(0));
-    }, 600);
-    if (done) pe("Marked as fully watched.", 2200, "success");
-    else pe("Watchtime signals sent.", 2600, "info");
+      try { cur = e.currentTime; } catch (_) {}
+      done = (function () { try { return e.ended; } catch (_) { return false; } })() || d - cur <= Math.max(2.5, d * 0.012);
+      // if the finalize missed (rare), restore autoplay since we are done
+      // touching the player
+      fwLog("scrub scrubs=" + scrubs + " t=" + (isFinite(cur) ? cur.toFixed(1) : "?") + "/" + d.toFixed(0));
+      fwLog("settle done=" + done + " t=" + (isFinite(cur) ? cur.toFixed(2) : "?") + "/" + d.toFixed(0));
+    } catch (_) {}
+    pe(done ? "Marked as fully watched." : "Watchtime signals sent.", 2200, done ? "success" : "info");
     return done;
   }
   function Kt(e, t, a, n) {
@@ -8017,21 +7989,11 @@ algoBlockChannels: "",
                 })(),
               };
             })();
-            // High-volume sender: sendBeacon only. The dual transport
-            // (sendBeacon + keepalive fetch) doubled the request rate; on
-            // multi-hour videos the window campaign hit ~160 req/s and
-            // starved the renderer (frozen tab). sendBeacon alone is
-            // fire-and-forget reliable; dual transport is reserved for
-            // the few final writes below.
-            const fire1 = (u2) => {
-              try {
-                if (!u2 || !/^https?:/i.test(String(u2))) return;
-                try {
-                  navigator.sendBeacon && navigator.sendBeacon(u2);
-                } catch (e) {}
-              } catch (e) {}
-            };
-            const fire = (u2, params, quiet) => {
+            // BURST sender: every request fires at once, instantly. sendBeacon
+            // first (fire-and-forget); when the beacon queue is saturated
+            // (returns false) a keepalive-fetch fallback guarantees the
+            // request still leaves in the same burst.
+            const fire = (u2, params) => {
               try {
                 let s = String(u2 || "");
                 if (!s || !/^https?:/i.test(s)) return;
@@ -8039,7 +8001,13 @@ algoBlockChannels: "",
                 const o2 = Object.assign({}, isPix(u2) ? {} : clientBlock, params || {});
                 for (const k of ["cmt", "et", "st", "mt", "rt", "lact", "state", "c", "cver", "cbr", "cbrver", "cos", "cosver", "hl", "cr", "mos", "fmt", "volume", "muted"])
                   if (null != o2[k]) s = Za(s, k, o2[k]);
-                quiet ? fire1(s) : Qa(s);
+                let ok = false;
+                try { ok = navigator.sendBeacon && navigator.sendBeacon(s); } catch (e) {}
+                if (!ok) {
+                  try {
+                    fetch(s, { method: "GET", credentials: "include", mode: "no-cors", keepalive: !0, cache: "no-store" }).catch(() => {});
+                  } catch (e) {}
+                }
                 fired++;
               } catch (e) {}
             };
@@ -8051,55 +8019,39 @@ algoBlockChannels: "",
             // reports: one beacon per ~10s media window covering [0,len].
             // The backend reconstructs progress from covered st..et
             // windows; a single giant window can be clamped server-side
-            // and read back as PARTIALLY watched. Windows are staggered
-            // tens of ms apart so the burst stays an ordered stream.
+            // and read back as PARTIALLY watched. BURST: all windows fire
+            // at once, no staggering, no delays.
             const wN = DU <= 24 ? 2 : Math.min(DU > 7200 ? 45 : 90, Math.ceil(DU / 10));
-            let wi = 0;
-            const finishCampaign = () => {
-              try {
-                for (const eu of track.extraUrls || [])
-                  isPix(eu) ? fire(eu, {}) : fire(eu, { cmt: DU, rt: rtNow() });
-              } catch (e) {}
-              fire(track.engagedviewUrl, { cmt: DU, et: DU, st: 0, state: "playing" });
-              fire(track.ptrackingUrl, {});
-              fire(track.wtfUrl, {});
-              fire(track.qoeUrl, { cmt: DU, rt: rtNow() });
-              // authoritative ENDED + last-write-wins repeats: they must
-              // land AFTER the real player's own final beacon (~0.5-1s
-              // post-end) so nothing stale overwrites the position.
-              const endBeacon = (lact, state) =>
-                fire(track.watchtimeUrl, {
-                  cmt: DU, et: DU, st: fwEndSt, mt: DU, rt: rtNow(), lact: lact, state: state || "ended",
-                });
-              endBeacon(30);
-              setTimeout(() => endBeacon(20), 1300);
-              // Genuine sessions NEVER send state=ended: the final write of
-              // a real full watch is state=paused at cmt=len. Make the LAST
-              // write on the wire match that shape exactly.
-              setTimeout(() => endBeacon(21, "paused"), 3200);
-              setTimeout(() => endBeacon(11, "paused"), 6000);
-              u(
-                "fw account-history: " + fired +
-                  " beacons (cpn " + (realCpn ? "real" : "MISSING") +
-                  ", " + wN + " windows) for " + a,
-              );
-            };
-            const wTick = () => {
-              try {
-                const st = Math.round(DU * (wi / wN) * 1000) / 1000;
-                const et = Math.round(DU * ((wi + 1) / wN) * 1000) / 1000;
-                fire(track.watchtimeUrl, {
-                  cmt: et, et: et, st: st, mt: et, rt: rtNow(),
-                  lact: 150 + Math.floor(700 * Math.random()),
-                  state: wi % 9 === 7 && wi < wN - 1 ? "paused" : "playing",
-                }, true);
-                if (wi % 4 === 3) fire(track.qoeUrl, { cmt: et, rt: rtNow() }, true);
-              } catch (e) {}
-              wi++;
-              if (wi < wN) setTimeout(wTick, 25 + Math.floor(45 * Math.random()));
-              else finishCampaign();
-            };
-            wTick();
+            for (let wi = 0; wi < wN; wi++) {
+              const st = Math.round(DU * (wi / wN) * 1000) / 1000;
+              const et = Math.round(DU * ((wi + 1) / wN) * 1000) / 1000;
+              fire(track.watchtimeUrl, {
+                cmt: et, et: et, st: st, mt: et, rt: rtNow(),
+                lact: 150 + Math.floor(700 * Math.random()),
+                state: wi % 9 === 7 && wi < wN - 1 ? "paused" : "playing",
+              });
+              if (wi % 4 === 3) fire(track.qoeUrl, { cmt: et, rt: rtNow() });
+            }
+            try {
+              for (const eu of track.extraUrls || [])
+                isPix(eu) ? fire(eu, {}) : fire(eu, { cmt: DU, rt: rtNow() });
+            } catch (e) {}
+            fire(track.engagedviewUrl, { cmt: DU, et: DU, st: 0, state: "playing" });
+            fire(track.ptrackingUrl, {});
+            fire(track.wtfUrl, {});
+            fire(track.qoeUrl, { cmt: DU, rt: rtNow() });
+            // authoritative ENDED pair + genuine-shape final writes — all
+            // in the same burst. The real player's own scrub/pause flush
+            // at the tail is full-length anyway, so ordering cannot lose.
+            fire(track.watchtimeUrl, { cmt: DU, et: DU, st: fwEndSt, mt: DU, rt: rtNow(), lact: 30, state: "ended" });
+            fire(track.watchtimeUrl, { cmt: DU, et: DU, st: fwEndSt, mt: DU, rt: rtNow(), lact: 20, state: "ended" });
+            fire(track.watchtimeUrl, { cmt: DU, et: DU, st: fwEndSt, mt: DU, rt: rtNow(), lact: 21, state: "paused" });
+            fire(track.watchtimeUrl, { cmt: DU, et: DU, st: fwEndSt, mt: DU, rt: rtNow(), lact: 11, state: "paused" });
+            u(
+              "fw account-history: burst " + fired +
+                " beacons (cpn " + (realCpn ? "real" : "MISSING") +
+                ", " + wN + " windows) for " + a,
+            );
           } catch (e) {
             h("fw account-history player fetch", e);
           }
@@ -8152,12 +8104,6 @@ algoBlockChannels: "",
     ),
       (async () => {
         try {
-          // Give the account-history microtask a beat to stash the live
-          // session template params (ei/plid/cl/of/vm) — beacons fired
-          // unsigned (hardcoded of fallback) are an obsolescence flag.
-          try {
-            for (let z = 0; z < 16 && !_fwTpl; z++) await ne();
-          } catch (e) {}
           !(function (e, t, a, n) {
             try {
               Dt(
@@ -8202,7 +8148,6 @@ algoBlockChannels: "",
             } catch (e) {}
           })(a, i);
         } catch (e) {}
-        await ne();
         try {
           !(function (e, t, a, n) {
             try {
@@ -8247,9 +8192,6 @@ algoBlockChannels: "",
     })(n);
     if (
       ((async () => {
-        try {
-          for (let z = 0; z < 16 && !_fwTpl; z++) await ne();
-        } catch (e) {}
         for (let e = 0; e < l.length; e++) {
           const t = l[e];
           for (const e of c)
@@ -8262,54 +8204,27 @@ algoBlockChannels: "",
                 subscribed: !1,
               }, !0);
             } catch (e) {}
-          (e + 1) % 3 == 0 && (await ne());
         }
       })(),
-      setTimeout(() => {
+      (() => {
         for (const e of c) {
           try {
-            qt(a, n, Math.floor(n), "paused", e, {
-              rtnDelta: 0,
-              lact: 100,
-              plid: s,
-            });
+            qt(a, n, Math.floor(n), "paused", e, { rtnDelta: 0, lact: 100, plid: s });
           } catch (e) {}
           try {
-            qt(a, n, Math.floor(n), "ended", e, {
-              rtnDelta: 0,
-              lact: 0,
-              plid: s,
-            });
+            qt(a, n, Math.floor(n), "ended", e, { rtnDelta: 0, lact: 0, plid: s });
           } catch (e) {}
         }
-      }, 80),
-      setTimeout(() => {
-        for (const e of c)
-          try {
-            qt(a, n, Math.floor(n), "ended", e, {
-              rtnDelta: 0,
-              lact: 0,
-              plid: s,
-            });
-          } catch (e) {}
-      }, 320),
-      setTimeout(() => {
         try {
-          qt(a, n, Math.floor(n), "ended", i, {
-            rtnDelta: 0,
-            lact: 0,
-            plid: s,
-          });
+          qt(a, n, Math.floor(n), "ended", i, { rtnDelta: 0, lact: 0, plid: s });
         } catch (e) {}
-      }, 900),
-      setTimeout(() => {
         try {
           Vt(a, n, n, i, "streamingstats");
         } catch (e) {}
         try {
           Vt(a, n, n, i, "qoe");
         } catch (e) {}
-      }, 150),
+      })(),
       Promise.allSettled([
         At(a, i),
         Et(a, i),

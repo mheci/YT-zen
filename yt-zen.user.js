@@ -8361,6 +8361,14 @@ algoBlockChannels: "",
       return void pe("Live streams can't be marked as watched.", 2000, "info");
     }
     jt = !0;
+    // Hard ceiling independent of the restore closure: if every restore
+    // path below throws, the in-progress flag must still release, or the
+    // Shift+W hotkey would stay dead until reload. One bounded timer per
+    // press (also cleared on navigation) — never a polling loop.
+    const _fwSafety = setTimeout(() => {
+      try { if (jt) jt = !1; } catch (_) {}
+    }, 12000);
+    try { _fwSafety.unref && _fwSafety.unref(); } catch (_) {}
     // EARLY session-signature stash, Xray-proof: read the playbackTracking
     // templates straight off the page window (data reads are allowed
     // cross-world). Firefox content mode: ie.api().getPlayerResponse() can
@@ -8961,6 +8969,7 @@ algoBlockChannels: "",
       } catch (e) {}
     })(a, n);
     const m = () => {
+      try { clearTimeout(_fwSafety); } catch (e) {}
       if ((Wt.delete(a), t)) {
         try {
           r.apiPlayVideo && (t.playVideo = r.apiPlayVideo);

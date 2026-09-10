@@ -1128,7 +1128,6 @@ algoBlockChannels: "",
         highlightTimestampLinksOn: !1,
         endSoonWarningOn: !1,
         endSoonSec: 20,
-        compactModeOn: !1,
         themeEngineOn: !1,
         themeSelected: "none",
         themeOverhaulOn: !1,
@@ -16340,7 +16339,35 @@ algoBlockChannels: "",
       apply(e) {
         S.denseVideoGridOn &&
           e.addStyle(
-            "ytd-rich-grid-renderer{--ytd-rich-grid-items-per-row:6!important;--ytd-rich-grid-posts-per-row:6!important;--ytd-rich-grid-gutter:8px!important} ytd-rich-grid-renderer #contents{gap:8px!important} ytd-rich-item-renderer{margin-bottom:4px!important} ytd-rich-item-renderer #meta{padding:4px 0 0!important} ytd-video-renderer{margin:2px 0!important} h3.ytd-rich-grid-media{margin:4px 0 1px!important;font-size:14px!important;line-height:1.28!important} ytd-thumbnail{margin-bottom:4px!important} @media(min-width:1600px){ytd-rich-grid-renderer{--ytd-rich-grid-items-per-row:8!important;--ytd-rich-grid-posts-per-row:8!important}}@media(min-width:2100px){ytd-rich-grid-renderer{--ytd-rich-grid-items-per-row:10!important;--ytd-rich-grid-posts-per-row:10!important}} @media(min-width:1300px){ytd-rich-grid-renderer{--ytd-rich-grid-items-per-row:6!important}}",
+`/* Dense grid: raise column count ONLY on page-level grids; shelf
+carousels (rich/reel shelves) keep their native horizontal layout.
+YT wraps a row at sub-pixel overflow (its width formula rounds up at
+common content widths), so a forced 6-col request fit only 5 and left a
+card-width gap on the right. The -1px fitter absorbs rounding (at most
+10px slack at 10 columns), and flex centering splits that slack evenly.
+Only ordinary video items are widened: posts ([is-post]), slim/Shorts
+rows, compact and game-card grids keep YouTube's own per-row vars and
+margins. Windows narrower than 1300px stay fully native. */
+@media(min-width:1300px){
+ytd-rich-grid-renderer:not(:where(ytd-rich-shelf-renderer *,ytd-reel-shelf-renderer *)){
+--ytd-rich-grid-items-per-row:6!important;--ytd-rich-grid-item-margin:8px!important;--ytd-rich-grid-row-margin:12px!important}
+ytd-rich-grid-renderer:not(:where(ytd-rich-shelf-renderer *,ytd-reel-shelf-renderer *))>#contents,
+ytd-rich-grid-renderer:not(:where(ytd-rich-shelf-renderer *,ytd-reel-shelf-renderer *)) ytd-rich-grid-row>#contents{display:flex;flex-wrap:wrap;justify-content:center!important}
+ytd-rich-grid-renderer:not(:where(ytd-rich-shelf-renderer *,ytd-reel-shelf-renderer *))>#contents>ytd-rich-item-renderer[rendered-from-rich-grid]:not([is-post]):not([is-slim-media]):not([is-compact-grid]):not([is-game-card-shelf]):not([is-mini-game-card-shelf]):not([is-link-card-shelf]),
+ytd-rich-grid-renderer:not(:where(ytd-rich-shelf-renderer *,ytd-reel-shelf-renderer *))>#contents>ytd-rich-grid-row>#contents>ytd-rich-item-renderer[rendered-from-rich-grid]:not([is-post]):not([is-slim-media]):not([is-compact-grid]):not([is-game-card-shelf]):not([is-mini-game-card-shelf]):not([is-link-card-shelf]),
+ytd-rich-grid-renderer:not(:where(ytd-rich-shelf-renderer *,ytd-reel-shelf-renderer *))>#contents>.ytdRichItemRendererIsResponsiveGrid:not(.ytdRichItemRendererIsPost):not(.ytdRichItemRendererIsSlimMedia):not(.ytdRichItemRendererIsCompactGrid):not(.ytdRichItemRendererIsGameCardShelf):not(.ytdRichItemRendererIsMiniGameCardShelf):not(.ytdRichItemRendererIsLinkCardShelf):not(.ytdRichItemRendererContainsLumierePosters):not(.ytdRichItemRendererIsExpandOnHoverCardShelf),
+ytd-rich-grid-renderer:not(:where(ytd-rich-shelf-renderer *,ytd-reel-shelf-renderer *))>#contents>ytd-rich-grid-row>#contents>.ytdRichItemRendererIsResponsiveGrid:not(.ytdRichItemRendererIsPost):not(.ytdRichItemRendererIsSlimMedia):not(.ytdRichItemRendererIsCompactGrid):not(.ytdRichItemRendererIsGameCardShelf):not(.ytdRichItemRendererIsMiniGameCardShelf):not(.ytdRichItemRendererIsLinkCardShelf):not(.ytdRichItemRendererContainsLumierePosters):not(.ytdRichItemRendererIsExpandOnHoverCardShelf){
+width:calc(100%/var(--ytd-rich-grid-items-per-row) - var(--ytd-rich-grid-item-margin) - 1px)!important;
+margin-bottom:var(--ytd-rich-grid-row-margin)!important}
+ytd-rich-item-renderer[is-post],ytd-rich-item-renderer[is-slim-media],ytd-rich-item-renderer[is-compact-grid],ytd-rich-item-renderer[is-game-card-shelf],ytd-rich-item-renderer[is-mini-game-card-shelf],.ytdRichItemRendererIsPost,.ytdRichItemRendererIsSlimMedia,.ytdRichItemRendererIsCompactGrid{--ytd-rich-grid-item-margin:16px!important;--ytd-rich-grid-row-margin:32px!important}
+ytd-rich-item-renderer:not([is-post]):not([is-slim-media]) #meta{padding:4px 0 0!important}
+ytd-rich-item-renderer[is-post] #meta{padding:0!important}
+ytd-rich-item-renderer h3.ytd-rich-grid-media{margin:4px 0 1px!important;font-size:14px!important;line-height:1.28!important}
+ytd-rich-item-renderer ytd-thumbnail{margin-bottom:4px!important}
+ytd-video-renderer{margin:2px 0!important}
+}
+@media(min-width:1600px){ytd-rich-grid-renderer:not(:where(ytd-rich-shelf-renderer *,ytd-reel-shelf-renderer *)){--ytd-rich-grid-items-per-row:8!important}}
+@media(min-width:2100px){ytd-rich-grid-renderer:not(:where(ytd-rich-shelf-renderer *,ytd-reel-shelf-renderer *)){--ytd-rich-grid-items-per-row:10!important}}`,
           );
       },
       settings() {},
@@ -32515,7 +32542,7 @@ const Nr = [
   // ─── 34. AIO: Compact & Dense ────────────────────────────────────────────
   // All spacing/density switches (grid, rows, playlists, theme spacing) in
   // one place, superseding the old playlist-tweaks grouping.
-  const _dense = ["compactUI", "denseVideoGridOn", "compactPlaylistOn", "playlistAutoscrollOn", "compactModeOn"];
+  const _dense = ["compactUI", "denseVideoGridOn", "compactPlaylistOn", "playlistAutoscrollOn"];
   xa.register({
     id: "aio-compact-dense", name: "Compact Layout (All-in-One)",
     summary: "Tighter spacing, denser grid, compact playlists.",
@@ -32535,7 +32562,6 @@ const Nr = [
       aioRows(en, [
         ["Compact UI", "compactUI"],
         ["Dense video grid", "denseVideoGridOn"],
-        ["Compact mode", "compactModeOn"],
         ["Tighter theme spacing", "themeCompactOn"],
         ["Compact playlists", "compactPlaylistOn"],
         ["Auto-scroll playlist to current", "playlistAutoscrollOn"],

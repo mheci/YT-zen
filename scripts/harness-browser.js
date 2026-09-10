@@ -18,6 +18,7 @@ const { launch, inject, attachConsole, wait } = require("./browser-lib");
 
 const WATCH = "https://www.youtube.com/watch?v=JQb9eGeclQw"; // known SB segments
 const SEARCH = "https://www.youtube.com/results?search_query=lofi+hip+hop";
+const CHANNEL_VIDEOS = "https://www.youtube.com/@YouTube/videos"; // stable rich grid
 
 const baseSeed = {
   sponsorblockOn: true,
@@ -556,6 +557,113 @@ async function scenarioAioBundles(browser) {
     persistOk: !!(persisted && persistOk), persisted };
 }
 
+async function scenarioDenseGrid(browser) {
+  // Regression for the cramped homepage: forcing 6 columns used YouTube's
+  // own width formula, which rounds UP at common content widths and made
+  // rows wrap to 5 with a card-sized gap on the right. Dense must (a) raise
+  // the page-level grid column count, (b) keep every row fully packed with
+  // no right overflow, (c) leave shelf carousels native, (d) be a no-op
+  // when switched off. Channel Videos tab is a reliable rich grid.
+  const name = "dense-grid";
+  const measure = (page, dense) => page.evaluate((dense) => {
+    const grid = document.querySelector("ytd-rich-grid-renderer");
+    if (!grid) return { noGrid: true };
+    const cw = grid.querySelector("#contents");
+    const items = [...grid.querySelectorAll("ytd-rich-item-renderer")].filter((el) => el.offsetParent);
+    if (items.length < 6) return { noGrid: true, count: items.length };
+    const rows = {};
+    items.forEach((el) => {
+      const y = Math.round(el.getBoundingClientRect().y);
+      rows[y] = (rows[y] || 0) + 1;
+    });
+    const gcs = getComputedStyle(grid);
+    const expected = +gcs.getPropertyValue("--ytd-rich-grid-items-per-row").trim();
+    const cont = cw.getBoundingClientRect();
+    let maxRight = -1e9, minLeft = 1e9;
+    items.forEach((el) => {
+      const r = el.getBoundingClientRect();
+      if (r.right > maxRight) maxRight = r.right;
+      if (r.left < minLeft) minLeft = r.left;
+    });
+    // Synthetic special items with the exact attributes YouTube applies:
+    // posts, slim/Shorts and game-card rows are sized from their OWN
+    // per-row vars and must never take the forced video-item width.
+    let specials = null;
+    if (dense) {
+      specials = (() => {
+        const probe = (attr) => {
+          const el = document.createElement("ytd-rich-item-renderer");
+          el.setAttribute("rendered-from-rich-grid", "");
+          if (attr) el.setAttribute(attr, "");
+          el.setAttribute("__probe", "");
+          el.appendChild(document.createElement("div"));
+          cw.appendChild(el);
+          const w = el.getBoundingClientRect().width;
+          el.remove();
+          return Math.round(w);
+        };
+        const normal = probe(null);
+        const post = probe("is-post");
+        const slim = probe("is-slim-media");
+        const game = probe("is-game-card-shelf");
+        const ppr = +gcs.getPropertyValue("--ytd-rich-grid-posts-per-row").trim() || 3;
+        const postExpected = Math.round(cont.width / ppr - 16);
+        return {
+          normal, post, slim, game, postExpected,
+          postNative: Math.abs(post - postExpected) <= 2,
+          // at 1500px dense videos are 6/row (~173px); posts must stay 3/row (~347px)
+          specialsExcluded: post !== normal && slim !== normal && game !== normal,
+        };
+      })();
+    }
+    return {
+      expected,
+      counts: Object.values(rows),
+      margin: gcs.getPropertyValue("--ytd-rich-grid-item-margin").trim(),
+      rightGap: Math.round(cont.right - maxRight),
+      leftGap: Math.round(minLeft - cont.left),
+      contentsW: Math.round(cont.width),
+      specials,
+    };
+  }, dense);
+  const runPage = async (dense) => {
+    const ctx = await browser.createBrowserContext();
+    const page = await ctx.newPage();
+    await page.setViewport({ width: 1500, height: 1000 });
+    await page.setCookie({ name: "CONSENT", value: "PENDING+987", domain: ".youtube.com", path: "/" });
+    attachConsole(page, () => {});
+    await inject(page, {
+      seed: { "ytp.cfg": JSON.stringify({
+        __ver: 1000, __ts: Date.now(),
+        ...(dense ? { denseVideoGridOn: true } : {}),
+      }) },
+    });
+    await page.goto(CHANNEL_VIDEOS, { waitUntil: "domcontentloaded", timeout: 60000 });
+    let m = { noGrid: true };
+    for (let i = 0; i < 60 && m.noGrid; i++) { await wait(300); m = await measure(page, dense); }
+    const landed = /google\.com\/sorry|recaptcha/.test(page.url());
+    await page.close();
+    try { await ctx.close(); } catch (_) {}
+    return { m, blocked: landed };
+  };
+  const on = await runPage(true);
+  const off = await runPage(false);
+  if (on.blocked && on.m.noGrid) return { name, ok: true, skipped: "youtube-ip-block (sorry/reCAPTCHA)" };
+  const sp = on.m.specials || {};
+  const onOk = on.m.expected === 6
+    && on.m.counts.every((c) => c === 6)
+    && on.m.rightGap >= -2 && on.m.rightGap <= 40 // centered slack, never overflow
+    && Math.abs(on.m.leftGap) <= 20
+    && sp.postNative === true && sp.specialsExcluded === true;
+  const offOk = off.m.expected === 3 && off.m.margin === "16px"
+    && off.m.counts.slice(0, 3).every((c) => c === 3);
+  return {
+    name, ok: !!(onOk && offOk),
+    dense: { expected: on.m.expected, counts: on.m.counts.slice(0, 3), rightGap: on.m.rightGap, leftGap: on.m.leftGap, specials: sp },
+    native: { expected: off.m.expected, margin: off.m.margin, counts: off.m.counts.slice(0, 3) },
+  };
+}
+
 async function scenarioStyleWipe(browser) {
   const name = "style-wipe";
   const log = (...a) => console.log(`[${name}]`, ...a);
@@ -641,6 +749,7 @@ async function main() {
     ["delayed-shell", () => scenarioDelayedShell(browser)],
     ["seekbar-marks", () => scenarioSeekbarMarks(browser)],
     ["aio-bundles", () => scenarioAioBundles(browser)],
+    ["dense-grid", () => scenarioDenseGrid(browser)],
     ["style-wipe", () => scenarioStyleWipe(browser)],
     ["dashboard-main", () => scenarioDashboard(browser, false)],
     ["dashboard-content", () => scenarioDashboard(browser, true)],

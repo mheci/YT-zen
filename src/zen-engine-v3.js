@@ -4769,7 +4769,7 @@
   // ─── 34. AIO: Compact & Dense ────────────────────────────────────────────
   // All spacing/density switches (grid, rows, playlists, theme spacing) in
   // one place, superseding the old playlist-tweaks grouping.
-  const _dense = ["compactUI", "denseVideoGridOn", "compactPlaylistOn", "playlistAutoscrollOn", "compactModeOn"];
+  const _dense = ["compactUI", "denseVideoGridOn", "compactPlaylistOn", "playlistAutoscrollOn"];
   xa.register({
     id: "aio-compact-dense", name: "Compact Layout (All-in-One)",
     summary: "Tighter spacing, denser grid, compact playlists.",
@@ -4789,7 +4789,6 @@
       aioRows(en, [
         ["Compact UI", "compactUI"],
         ["Dense video grid", "denseVideoGridOn"],
-        ["Compact mode", "compactModeOn"],
         ["Tighter theme spacing", "themeCompactOn"],
         ["Compact playlists", "compactPlaylistOn"],
         ["Auto-scroll playlist to current", "playlistAutoscrollOn"],

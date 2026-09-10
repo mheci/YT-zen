@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YT-zen
 // @namespace    https://github.com/mheci/YT-zen
-// @version      3.17.1
+// @version      3.17.2
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      Unlicense
@@ -996,10 +996,10 @@ algoBlockChannels: "",
         screenshotClipboard: !1,
         sleepTimerOn: !1,
         sleepTimerMin: 30,
-        forceWatchedOn: !1,
+        forceWatchedOn: !0,
 
-        forceWatchedAccountHistory: !1,
-        forceWatchedLocalHistory: !1,
+        forceWatchedAccountHistory: !0,
+        forceWatchedLocalHistory: !0,
         debugVerbose: !1,
         theaterDefault: !1,
         wideTheater: !1,
@@ -7830,35 +7830,24 @@ algoBlockChannels: "",
         }
       } catch (_) {}
       try { d = e.duration || t; } catch (_) {}
-      // Let the controller-led scrub settle before a second seek — prevents
-      // double-seek race that left the player in a perpetual buffering state
-      // at d-1.2 (endless spinner, progress stuck).
+      // Let the controller-led scrub settle — prevents double-seek race.
       await new Promise((r) => setTimeout(r, 260));
       try { cur = e.currentTime; } catch(_){}
       const nearEndAfterScrub = isFinite(cur) && isFinite(d) && d - cur <= Math.max(2.5, d * 0.012);
       if (!nearEndAfterScrub) {
-        // Only pin to the tail if it's already buffered; otherwise the
-        // raw currentTime assignment forces an unbuffered DASH fetch that
-        // stalls at readyState 0-2 and the immediate pause() never flushes
-        // watchtime — the video just spins at 1s before the end.
-        let tailBuffered = true;
+        let tailBuffered = false;
         try {
           if (e.buffered && e.buffered.length) {
-            tailBuffered = false;
             for (let i = 0; i < e.buffered.length; i++) {
               if (e.buffered.end(i) >= d - 1.6) { tailBuffered = true; break; }
             }
-            // If tail not buffered and the video is long, treat as not buffered
-            // — the campaign beacons (signed watchtime) already cover progress.
-            if (!tailBuffered && d > 90) tailBuffered = false;
-            else if (!tailBuffered) tailBuffered = true; // short video: try anyway
+          } else {
+            tailBuffered = true;
           }
         } catch(_){ tailBuffered = true; }
         if (tailBuffered) {
+          // Tail already buffered — fast pin + pause (no spinner).
           try { e.currentTime = Math.max(0, d - 0.9); } catch (_) {}
-          // Wait for the raw seek to settle (seeked or timeout) before pausing,
-          // otherwise pause() fires while seeking=true and the player stays in
-          // waiting forever.
           await Promise.race([
             new Promise((res) => {
               let settled = false;
@@ -7868,16 +7857,42 @@ algoBlockChannels: "",
             }),
             new Promise((res) => setTimeout(res, 700))
           ]);
+          try { e.pause(); } catch (_) {}
+          await new Promise((r) => setTimeout(r, 140));
         } else {
-          fwLog("tail not buffered d=" + d.toFixed(0) + " buffered=" + (()=>{try{let s="";for(let i=0;i<e.buffered.length;i++) s+= "["+e.buffered.start(i).toFixed(1)+"-"+e.buffered.end(i).toFixed(1)+"]"; return s||"none";}catch(_){return "?";}})() + " skip currentTime pin");
+          // Tail NOT buffered — don't force an unbuffered DASH seek (that
+          // stalls at readyState 0-2 and leaves spinner at 1s before end).
+          // Instead, sprint the last 3s at 16x muted so YouTube buffers
+          // naturally as it plays. This is the genuine full-watch signal
+          // and it marks YouTube history even when the campaign is off.
+          fwLog("tail not buffered d=" + d.toFixed(0) + " buffered=" + (()=>{try{let s="";for(let i=0;i<e.buffered.length;i++) s+= "["+e.buffered.start(i).toFixed(1)+"-"+e.buffered.end(i).toFixed(1)+"]"; return s||"none";}catch(_){return "?";}})() + " sprint tail");
+          try { e.muted = true; } catch(_){}
+          try { e.playbackRate = 16; } catch(_){}
+          try { e.currentTime = Math.max(0, d - 3); } catch(_){}
+          try { const pr = e.play(); if (pr && pr.catch) pr.catch(()=>{}); } catch(_){}
+          // Wait for the sprint to reach near-end or timeout 4s
+          const sprintDeadline = Date.now() + 4200;
+          while (Date.now() < sprintDeadline) {
+            await new Promise((r)=>setTimeout(r, 90));
+            try { cur = e.currentTime; } catch(_){}
+            if (isFinite(cur) && d - cur <= 0.9) break;
+            try { if (e.ended) break; } catch(_){}
+            try { if (e.seeking || e.readyState < 2) continue; } catch(_){}
+            // If we got stuck buffering for >1.5s, break and let campaign cover
+            try { if (e.readyState < 3 && Date.now() > sprintDeadline - 1500) break; } catch(_){}
+          }
+          try { e.pause(); } catch(_){}
+          await new Promise((r)=>setTimeout(r, 180));
+          // Park just before end for the genuine paused-at-end flush
+          try { if (!e.ended) e.currentTime = Math.max(0, d - 0.6); } catch(_){}
+          await new Promise((r)=>setTimeout(r, 120));
+          try { e.pause(); } catch(_){}
         }
       } else {
         fwLog("scrub already near end cur=" + (isFinite(cur)?cur.toFixed(1):"?") + " skip pin");
+        try { e.pause(); } catch (_) {}
+        await new Promise((r) => setTimeout(r, 140));
       }
-      try { e.pause(); } catch (_) {}
-      // Let the player's own pause-flush (state=paused cmt=len) actually fire
-      // before we restore rate/muted — no need to hold the lock.
-      await new Promise((r) => setTimeout(r, 140));
       try { e.playbackRate = wasRate; } catch (_) {}
       try { e.muted = wasMuted; } catch (_) {}
       try { if (typeof jt !== "undefined") jt = !1; } catch (_) {}
@@ -7885,23 +7900,22 @@ algoBlockChannels: "",
       done = (function () { try { return e.ended; } catch (_) { return false; } })() || d - cur <= Math.max(2.5, d * 0.012);
       const stillSeeking = (()=>{ try{return e.seeking;}catch(_){return false;}})();
       const waiting = (()=>{ try{return e.readyState < 2 || (e.seeking && !e.ended);}catch(_){return false;}})();
-      // If we are not near the end but the player is stuck seeking/waiting,
-      // the tail pin just created an unbuffered spinner. Revert to the
-      // original playhead so the user isn't left staring at a frozen
-      // 1-second-before-end frame — the signed campaign in Kt() already
-      // sent full-range watchtime, so progress is still marked.
       if ((!done || stillSeeking || waiting) && !nearEndAfterScrub) {
-        try { e.currentTime = wasTime; } catch(_){}
-        // Ensure we leave in a stable paused/playing state matching origin
-        try {
-          if (wasPaused) { e.pause(); }
-          else { const pr = e.play(); if (pr && pr.catch) pr.catch(()=>{}); }
-        } catch(_){}
-        // Give the revert a tick to settle
-        await new Promise((r)=>setTimeout(r, 90));
-        try { cur = e.currentTime; } catch(_){}
-        fwLog("reverted spinner cur=" + (isFinite(cur)?cur.toFixed(1):"?") + " was=" + wasTime.toFixed(1) + " waiting=" + waiting + " seeking=" + stillSeeking);
-        // Treat as success for the UI — campaign covers the watch.
+        // If we still failed after sprint/pin, don't leave a frozen
+        // spinner — the signed campaign will have marked progress.
+        // But don't revert if we sprinted and are already near end.
+        const curAfter = (()=>{ try{return e.currentTime;}catch(_){return cur;}})();
+        const nearEndNow = isFinite(curAfter) && isFinite(d) && d - curAfter <= 3.5;
+        if (!nearEndNow) {
+          try { e.currentTime = wasTime; } catch(_){}
+          try { if (wasPaused) e.pause(); else { const pr=e.play(); if(pr&&pr.catch) pr.catch(()=>{}); } } catch(_){}
+          await new Promise((r)=>setTimeout(r, 90));
+          try { cur = e.currentTime; } catch(_){}
+          fwLog("reverted spinner cur=" + (isFinite(cur)?cur.toFixed(1):"?") + " was=" + wasTime.toFixed(1) + " waiting=" + waiting + " seeking=" + stillSeeking);
+        } else {
+          fwLog("stay at tail cur=" + (isFinite(curAfter)?curAfter.toFixed(1):"?") + " done=" + done);
+        }
+        // Campaign covers the watch even after revert/sprint.
         done = true;
       }
       fwLog("scrub scrubs=" + scrubs + " t=" + (isFinite(cur) ? cur.toFixed(1) : "?") + "/" + d.toFixed(0));

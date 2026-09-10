@@ -848,13 +848,28 @@
       auto: "Auto",
     },
     c = (() => {
+      // SponsorBlock ships ON by default (the one exception to YT-zen's
+      // opt-out-everything rule). Category actions mirror the official
+      // SponsorBlock defaults: point/label categories instead of skipping.
+      const DEF_ACT = {
+        sponsor: "skip",
+        selfpromo: "full",
+        interaction: "full",
+        intro: "skip",
+        outro: "skip",
+        preview: "skip",
+        hook: "skip",
+        filler: "skip",
+        music_offtopic: "skip",
+        poi_highlight: "poi",
+        exclusive_access: "skip",
+        chapter: "chapter",
+      };
       const e = {};
       return (
         i.forEach((t) => {
-          const defEn = !1;
-          const defAct = "skip";
-          e["sb_" + t.id + "_en"] = defEn;
-          e["sb_" + t.id + "_act"] = defAct;
+          e["sb_" + t.id + "_en"] = !0;
+          e["sb_" + t.id + "_act"] = DEF_ACT[t.id] || "skip";
         }),
         e
       );
@@ -948,11 +963,11 @@ algoBlockChannels: "",
         adMute: !1,
         adSpeed: !1,
         hideBannerAds: !1,
-        sponsorblockOn: !1,
+        sponsorblockOn: !0,
         sbPrivacy: !1,
-        sbToast: !1,
+        sbToast: !0,
         sbToastDur: 2200,
-        sbSeekbar: !1,
+        sbSeekbar: !0,
         sbHud: !1,
         sessionRestoreOn: !1,
         sessionResumeMode: "silent",
@@ -1886,102 +1901,185 @@ algoBlockChannels: "",
     });
   }
   let Z = new AbortController();
+  // Per-navigation teardown. Runs EXACTLY ONCE per navigation generation:
+  // aborts the nav-scoped controller, drops resume gates, and clears per-page
+  // caches. It deliberately does NOT emit nav.changed — the coalescing
+  // Navigation Manager below owns when features re-scan.
   function Q() {
     try {
       Z.abort();
-    } catch (e) {}
-    // Clear session restore play gate on every navigation to prevent stuck state
+    } catch (er) {}
+    // Clear session restore play gate so navigation can never leave it stuck
     try {
       if (typeof Ma !== "undefined" && Ma) {
         Ma.awaitingResume = !1;
         Ma.awaitingResumeVid = null;
       }
-    } catch (e) {}
-    // Also dismiss any visible resume overlay/card
-    try { Ze(); } catch (e) {}
-    try { Qe(); } catch (e) {}
-    ((Z = new AbortController()),
-      (oe.vid = void 0),
-      (oe.title = void 0),
-      (oe.ch = void 0),
-      (oe.titleT = 0),
-      (oe.chT = 0),
-      da && da.clear(),
-      g.emit("nav.changed", { url: location.href }));
+    } catch (er) {}
+    // Dismiss any visible resume overlay/card from the previous page
+    try { Ze(); } catch (er) {}
+    try { Qe(); } catch (er) {}
+    Z = new AbortController();
+    oe.vid = void 0;
+    oe.title = void 0;
+    oe.ch = void 0;
+    oe.titleT = 0;
+    oe.chT = 0;
+    if (da) da.clear();
   }
 
-  // ─── YT-zen Early Navigation Manager (fix 2026-09-10) ───────────────
-  // Reliability: buffers navigation events that fire BEFORE the async boot
-  // attached its yt-navigate-finish listener. Without this, a cold load
-  // that navigates (YouTube SPA bootstraps after document-start) loses
-  // the first navigation and features never re-apply until a hard refresh.
-  // Deterministic, idempotent, no timers except the URL-poll fallback.
+  // ─── YT-zen Navigation Manager ──────────────────────────────────────────
+  // YouTube surfaces soft navigations through several OVERLAPPING channels:
+  // yt-navigate-start (fires before the URL changes), yt-navigate-finish,
+  // yt-page-data-updated, History API patches, popstate, and a URL poll
+  // fallback. Measurements on youtube.com:
+  //   cold load  -> page-data + nav-finish once, when hydration completes
+  //   SPA click  -> nav-start ~1.4s BEFORE finish (old URL), then finish
+  //                 (new URL), then page-data
+  // The previous implementation ran teardown up to 4x and emitted
+  // nav.changed up to 4-6x per navigation (plus a duplicate boot-time
+  // listener). This manager folds every channel into ONE deterministic
+  // lifecycle per navigation:
+  //   first start/URL-change -> Q() teardown exactly once
+  //   finish/settled         -> exactly one "nav.changed" re-scan event
+  // A bounded fallback timer commits navigations whose finish never arrives.
   let _zenEarlyNavArmed = false;
   let _zenNavPollTimer = 0;
-  let _zenLastHref = location.href;
+  const _zenNav = {
+    committedHref: location.href,
+    pending: false,     // a navigation started but has not been committed
+    initialDone: false, // the cold-hydration finish has been dispatched
+    timer: 0,
+    gen: 0,
+  };
+  function _zenNavClearTimer() {
+    if (_zenNav.timer) {
+      try { clearTimeout(_zenNav.timer); } catch (er) {}
+      _zenNav.timer = 0;
+    }
+  }
+  function _zenNavCommit(source) {
+    _zenNavClearTimer();
+    _zenNav.pending = false;
+    _zenNav.committedHref = location.href;
+    try {
+      // Bounded diagnostic trail of coalesced nav commits (tests/support).
+      const log = (window.__zenNavLog = window.__zenNavLog || []);
+      log.push({ t: Date.now(), source: source || "nav", url: location.href });
+      if (log.length > 40) log.shift();
+    } catch (er) {}
+    try { g.emit("nav.changed", { url: location.href, source: source || "nav" }); } catch (er) {}
+  }
+  // Call after an out-of-band re-apply (bfcache restore) so the manager
+  // treats the current URL as settled.
+  function _zenNavMarkSettled() {
+    _zenNavClearTimer();
+    _zenNav.pending = false;
+    _zenNav.initialDone = true;
+    _zenNav.committedHref = location.href;
+  }
+  function _zenNavSignal(kind) {
+    const href = location.href;
+    if (kind === "start") {
+      // nav-start fires BEFORE the URL changes; one teardown per navigation.
+      if (!_zenNav.pending) {
+        _zenNav.pending = true;
+        _zenNav.gen++;
+        try { Q(); } catch (er) {}
+        // Backstop: if no finish/data/history signal ever arrives, commit so
+        // features still re-scan once. Bounded; finish normally cancels it.
+        _zenNavClearTimer();
+        _zenNav.timer = setTimeout(function () {
+          _zenNav.timer = 0;
+          if (_zenNav.pending) {
+            try { u("nav: finish event missing — fallback commit"); } catch (er) {}
+            _zenNavCommit("fallback");
+          }
+        }, 3000);
+      }
+      return;
+    }
+    if (kind === "finish") {
+      if (!_zenNav.initialDone) {
+        // First finish of the session IS cold-load hydration: the app shell
+        // is fully live. Give features one deterministic re-scan.
+        _zenNav.initialDone = true;
+        if (!_zenNav.pending) { try { Q(); } catch (er) {} }
+        _zenNavCommit("initial");
+        return;
+      }
+      if (_zenNav.pending || href !== _zenNav.committedHref) {
+        if (href !== _zenNav.committedHref && !_zenNav.pending) { try { Q(); } catch (er) {} }
+        _zenNavCommit("yt-navigate-finish");
+      }
+      return;
+    }
+    if (kind === "data") {
+      // page-data follows finish; useful only when finish was missed.
+      if (_zenNav.pending) { _zenNavCommit("page-data"); return; }
+      if (href !== _zenNav.committedHref && !_zenNav.initialDone) {
+        _zenNav.initialDone = true;
+        try { Q(); } catch (er) {}
+        _zenNavCommit("initial");
+      }
+      return;
+    }
+    // history / popstate / poll: the URL changed without a managed start.
+    if (href !== _zenNav.committedHref && !_zenNav.pending) {
+      try { Q(); } catch (er) {}
+      _zenNav.pending = true;
+      _zenNav.gen++;
+      _zenNavClearTimer();
+      _zenNav.timer = setTimeout(function () {
+        _zenNav.timer = 0;
+        if (_zenNav.pending) _zenNavCommit(kind);
+      }, 60);
+    }
+  }
   try {
     if (!_zenEarlyNavArmed) {
       _zenEarlyNavArmed = true;
-      // Patch History API once — deduplicates SPA navigations that do NOT fire yt-navigate-finish
+      // History API patches — required on m.youtube.com / music.youtube.com
+      // and older desktop rollouts that navigate without yt-navigate events.
+      // (Current desktop uses the events; the probe recorded no pushState.)
       try {
-        const _origPush = History.prototype.pushState;
-        const _origReplace = History.prototype.replaceState;
-        if (_origPush && !_origPush.__zenPatched) {
-          History.prototype.pushState = function(...__a) {
-            const __r = _origPush.apply(this, __a);
-            try {
-              if (location.href !== _zenLastHref) {
-                _zenLastHref = location.href;
-                Q();
-                try { g.emit("nav.changed", { url: location.href, source: "pushState" }); } catch (_) {}
-              }
-            } catch(_) {}
-            return __r;
+        const _wrapHistory = function (orig, kind) {
+          const fn = function () {
+            const r = orig.apply(this, arguments);
+            try { if (location.href !== _zenNav.committedHref) _zenNavSignal(kind); } catch (er) {}
+            return r;
           };
-          History.prototype.pushState.__zenPatched = true;
+          fn.__zenPatched = true;
+          return fn;
+        };
+        if (History.prototype.pushState && !History.prototype.pushState.__zenPatched) {
+          History.prototype.pushState = _wrapHistory(History.prototype.pushState, "pushState");
         }
-        if (_origReplace && !_origReplace.__zenPatched) {
-          History.prototype.replaceState = function(...__a) {
-            const __r = _origReplace.apply(this, __a);
-            try {
-              if (location.href !== _zenLastHref) {
-                _zenLastHref = location.href;
-                Q();
-                try { g.emit("nav.changed", { url: location.href, source: "replaceState" }); } catch (_) {}
-              }
-            } catch(_) {}
-            return __r;
-          };
-          History.prototype.replaceState.__zenPatched = true;
+        if (History.prototype.replaceState && !History.prototype.replaceState.__zenPatched) {
+          History.prototype.replaceState = _wrapHistory(History.prototype.replaceState, "replaceState");
         }
-      } catch (_) {}
-      // yt-navigate-* events — attach at DOCUMENT level in capture phase at document-start
+      } catch (er) {}
+      // yt-navigate-* events — document-level capture at document-start.
       try {
-        document.addEventListener("yt-navigate-finish", () => { try { _zenLastHref = location.href; Q(); g.emit("nav.changed", { url: location.href, source: "yt-navigate-finish" }); } catch(_) {} }, true);
-        document.addEventListener("yt-navigate-start", () => { try { Q(); } catch(_) {} }, true);
-        document.addEventListener("yt-page-data-updated", () => { try { g.emit("nav.changed", { url: location.href, source: "page-data" }); } catch(_) {} }, true);
-      } catch (_) {}
-      try { window.addEventListener("popstate", () => { try { _zenLastHref = location.href; Q(); g.emit("nav.changed", { url: location.href, source: "popstate" }); } catch(_) {} }, true); } catch (_) {}
-      // Poll fallback: YouTube's history patch or soft-nav can bypass all events (e.g. location.replace inside player)
-      // Poll every 400ms but only act on genuine URL change; de-duplicated via _zenLastHref
+        document.addEventListener("yt-navigate-finish", function () { try { _zenNavSignal("finish"); } catch (er) {} }, true);
+        document.addEventListener("yt-navigate-start", function () { try { _zenNavSignal("start"); } catch (er) {} }, true);
+        document.addEventListener("yt-page-data-updated", function () { try { _zenNavSignal("data"); } catch (er) {} }, true);
+      } catch (er) {}
+      try { window.addEventListener("popstate", function () { try { _zenNavSignal("popstate"); } catch (er) {} }, true); } catch (er) {}
+      // Last-resort fallback for environments that bypass every event:
+      // poll cheaply (500ms, paused while hidden) and act on genuine URL change.
       try {
         if (!_zenNavPollTimer) {
-          _zenNavPollTimer = setInterval(() => {
+          _zenNavPollTimer = setInterval(function () {
             try {
               if (typeof document !== "undefined" && document.hidden) return;
-              if (location.href !== _zenLastHref) {
-                _zenLastHref = location.href;
-                Q();
-                g.emit("nav.changed", { url: location.href, source: "poll" });
-              }
-            } catch (_) {}
+              if (location.href !== _zenNav.committedHref) _zenNavSignal("poll");
+            } catch (er) {}
           }, 500);
-          try { _zenNavPollTimer.unref && _zenNavPollTimer.unref(); } catch (_) {}
         }
-      } catch (_) {}
+      } catch (er) {}
     }
-  } catch (_) {}
-  let J = !1;
+  } catch (er) {}
   function $(e, t) {
 
     let a,
@@ -3558,12 +3656,31 @@ algoBlockChannels: "",
       isReady: () => !(!ie.el() || !ie.api()),
       videoId() {
         if (void 0 !== oe.vid && oe.vidHref === location.href) return oe.vid;
-        const e = location.href.match(/[?&]v=([^&#]+)/);
-        return (
-          (oe.vid = e ? e[1] : null),
-          (oe.vidHref = location.href),
-          oe.vid
-        );
+        // SPA surfaces use several URL shapes:
+        //   /watch?v=ID            desktop/mobile/music watch
+        //   /shorts/ID             Shorts
+        //   /live/ID, /embed/ID    live/embedded players
+        //   https://youtu.be/ID    share short links
+        let id = null;
+        try {
+          const u = new URL(location.href);
+          id = u.searchParams.get("v");
+          if (!id) {
+            const pm = u.pathname.match(
+              /^\/(?:shorts|live|embed|v|e)\/([A-Za-z0-9_-]{6,})/,
+            );
+            if (pm) id = pm[1];
+            else if (/(^|\.)youtu\.be$/.test(u.hostname)) {
+              const sm = u.pathname.match(/^\/([A-Za-z0-9_-]{6,})/);
+              if (sm) id = sm[1];
+            }
+          }
+          if (id) id = decodeURIComponent(id);
+        } catch (er) {
+          const q = location.href.match(/[?&]v=([^&#]+)/);
+          id = q ? q[1] : null;
+        }
+        return ((oe.vid = id), (oe.vidHref = location.href), oe.vid);
       },
       title() {
         const t = performance.now();
@@ -21097,10 +21214,9 @@ const Nr = [
       "ytd-rich-grid-media #metadata{padding-top:4px!important}",
       "ytd-video-renderer{margin:2px 0!important}",
     ]),
-    "#comments ytd-comment-thread-renderer,#comments ytd-comment-view-model,#comments ytd-comment-renderer,#comments #comment-content,#comments #content,#comments #main,#comments #body,#comments #content-text,#comments yt-attributed-string,#comments yt-formatted-string,#comments span,#comments #author-text,#comments #header-author,#comments ytd-comment-view-model #content-text{background:transparent!important;background-color:transparent!important;border:0!important;box-shadow:none!important}","#comments ytd-comment-renderer #main,#comments ytd-comment-renderer #body,#comments ytd-comment-renderer #content,#comments yt-attributed-string span{background:transparent!important;background-color:transparent!important}",
-    "ytd-rich-item-renderer,ytd-rich-item-renderer #content,ytd-rich-item-renderer #dismissible,ytd-rich-item-renderer yt-lockup-view-model,ytd-rich-item-renderer .ytLockupViewModelHost,ytd-rich-item-renderer yt-lockup-view-model-wiz,ytd-rich-grid-media,#dismissible.ytd-rich-grid-media,#dismissible.ytd-rich-item-renderer,ytd-rich-grid-renderer #contents,ytd-rich-item-renderer .yt-lockup-view-model__inner{background:transparent!important;background-color:transparent!important;border:0!important;outline:0!important;box-shadow:none!important}","ytd-rich-item-renderer yt-interaction:hover,ytd-rich-item-renderer yt-touch-feedback-shape .ytSpecTouchFeedbackShapeFill{background:transparent!important}",
-    "ytd-rich-item-renderer yt-touch-feedback-shape .ytSpecTouchFeedbackShapeFill,ytd-rich-item-renderer yt-touch-feedback-shape .ytSpecTouchFeedbackShapeHoverEffect{background:transparent!important;background-color:transparent!important}",
-    "ytd-rich-item-renderer yt-touch-feedback-shape .ytSpecTouchFeedbackShapeStroke{border-color:transparent!important}",
+    "#comments ytd-comment-thread-renderer,#comments ytd-comment-view-model,#comments ytd-comment-renderer,#comments #comment,#comments #comment-content,#comments #content,#comments #main,#comments #body,#comments #contents,#comments ytd-comment-action-buttons-renderer{background:transparent!important;background-color:transparent!important;box-shadow:none!important}",
+    "ytd-rich-item-renderer,ytd-rich-item-renderer #content,ytd-rich-item-renderer #dismissible,ytd-rich-item-renderer yt-lockup-view-model,ytd-rich-item-renderer .ytLockupViewModelHost,ytd-rich-item-renderer yt-lockup-view-model-wiz,ytd-rich-item-renderer .yt-lockup-view-model__inner,ytd-rich-grid-media,#dismissible.ytd-rich-grid-media,#dismissible.ytd-rich-item-renderer,ytd-rich-grid-renderer #contents,ytd-video-renderer,#dismissible.ytd-video-renderer,ytd-compact-video-renderer,ytd-compact-video-renderer #dismissible,#related yt-lockup-view-model,ytd-playlist-video-renderer,ytd-grid-video-renderer,ytd-reel-item-renderer,ytm-rich-item-renderer,ytm-video-with-context-renderer{background:transparent!important;background-color:transparent!important;box-shadow:none!important}",
+    "ytd-rich-item-renderer yt-thumbnail-view-model,ytd-rich-item-renderer #thumbnail,ytd-video-renderer yt-thumbnail-view-model,ytd-compact-video-renderer #thumbnail,#related yt-thumbnail-view-model,yt-lockup-view-model yt-thumbnail-view-model,ytm-rich-item-renderer .ytThumbnailViewModelHost{background-color:var(--yt-spec-static-overlay-background-solid,transparent)!important}",
     "ytd-rich-section-renderer,ytd-rich-shelf-renderer,ytd-chips-shelf-with-video-shelf-renderer{background:transparent!important;box-shadow:none!important}",
   ].join("\n");
   const qr = "ytp-theme-engine-style";
@@ -21551,6 +21667,17 @@ const Nr = [
               "--yt-spec-shadow:" + f,
               "--yt-spec-static-overlay-text-primary:#fff",
               "--yt-spec-static-overlay-text-secondary:rgba(255,255,255,.7)",
+              // Static overlay backgrounds. SOLID backs lazy-thumbnail /
+              // letterbox placeholders: it must follow the theme base so
+              // empty image slots no longer flash pure black (the "dark frame
+              // behind each video container" artifact on non-black themes).
+              "--yt-spec-static-overlay-background-solid:" + a,
+              // The alpha scrims sit ON TOP of media and need to stay dark for
+              // white label legibility in both light and dark themes.
+              "--yt-spec-static-overlay-background-heavy:rgba(0,0,0,.6)",
+              "--yt-spec-static-overlay-background-medium:rgba(0,0,0,.4)",
+              "--yt-spec-static-overlay-background-medium-light:rgba(0,0,0,.3)",
+              "--yt-spec-static-overlay-background-light:rgba(0,0,0,.1)",
               "--yt-spec-suggested-action:" + p,
               "--yt-spec-suggested-action-inverse:" + c,
               "--yt-spec-static-brand-red:#c00",
@@ -32203,11 +32330,6 @@ const Nr = [
     } catch (e) {
       m("registerMenuCommands", e);
     }
-    try {
-      J || ((J = !0), document.addEventListener("yt-navigate-finish", Q, !0));
-    } catch (e) {
-      m("attachNav", e);
-    }
 
     try {
       const _isTextTarget = (e) => {
@@ -32354,6 +32476,7 @@ const Nr = [
                 try { Z.abort(); } catch (e2) {}
                 try { Z = new AbortController(); } catch (e2) {}
                 try { da.clear(); } catch (e2) {}
+                try { _zenNavMarkSettled(); } catch (e2) {}
                 try { ue(); } catch (e2) {}
                 try { xa.applyAll(); } catch (e2) {}
                 try { ft(); } catch (e2) {}

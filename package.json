@@ -10,12 +10,15 @@
     "test:unit": "node scripts/test-unit.js",
     "test": "npm run build && npm run check && npm run test:unit && npm run test:zen && npm run test:boot",
     "test:boot": "node scripts/harness-boot.js",
-    "test:zen": "node scripts/test-zen.js"
+    "test:zen": "node scripts/test-zen.js",
+    "test:browser": "node scripts/harness-browser.js",
+    "test:theme": "node scripts/harness-theme.js"
   },
   "engines": {
     "node": "^20.19.0 || ^22.13.0 || >=24.0.0"
   },
   "devDependencies": {
-    "jsdom": "^24.1.3"
+    "jsdom": "^24.1.3",
+    "puppeteer-core": "^23.11.1"
   }
 }

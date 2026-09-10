@@ -1,12 +1,4 @@
-// test-force-watched-e2e.js — browser-agnostic Shift+W end-to-end harness.
-// Chromium (CDP) or Firefox (WebDriver BiDi), real YouTube page, userscript
-// booted with the GM shim, Shift+W pressed, then four assertions:
-//   A1 scrub reached the tail (>= 97% via settle trace / element)
-//   A2 settled paused, no autonav navigation
-//   A3 last real-player watchtime write for THIS video is >= 95% of len
-//   A4 organic settle trace done=true (burst: scrub+settle same tick)
-// Env: FW_VIDEO (default oARDSm4df6Y), FW_BROWSER=chromium|firefox,
-//      FW_WAIT (observation ms). Requires puppeteer-core >= 23.
+// Browser-agnostic end-to-end harness (chromium | firefox via BiDi).
 // Boots the userscript with the GM shim at document_start on VIDEO,
 // presses Shift+W, then asserts:
 //   A1 scrub reached the tail (t >= dur - 2%)

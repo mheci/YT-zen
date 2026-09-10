@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YT-zen
 // @namespace    https://github.com/mheci/YT-zen
-// @version      3.16.16
+// @version      3.16.17
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      Unlicense
@@ -24,6 +24,7 @@
 // @grant        unsafeWindow
 // @connect      sponsor.ajay.app
 // @connect      www.youtube.com
+// @connect      s.youtube.com
 // @connect      self
 // @connect      googlevideo.com
 // @connect      ytimg.com
@@ -7993,7 +7994,7 @@ algoBlockChannels: "",
             // first (fire-and-forget); when the beacon queue is saturated
             // (returns false) a keepalive-fetch fallback guarantees the
             // request still leaves in the same burst.
-            const fire = (u2, params) => {
+            const fire = (u2, params, gmx) => {
               try {
                 let s = String(u2 || "");
                 if (!s || !/^https?:/i.test(s)) return;
@@ -8006,6 +8007,15 @@ algoBlockChannels: "",
                 if (!ok) {
                   try {
                     fetch(s, { method: "GET", credentials: "include", mode: "no-cors", keepalive: !0, cache: "no-store" }).catch(() => {});
+                  } catch (e) {}
+                }
+                // Third transport for the authoritative writes: the manager's
+                // own privileged request channel — immune to page CSP and to
+                // page-level request blockers.
+                if (gmx) {
+                  try {
+                    if (typeof GM_xmlhttpRequest === "function")
+                      GM_xmlhttpRequest({ method: "GET", url: s, timeout: 8e3 });
                   } catch (e) {}
                 }
                 fired++;
@@ -8043,15 +8053,37 @@ algoBlockChannels: "",
             // authoritative ENDED pair + genuine-shape final writes — all
             // in the same burst. The real player's own scrub/pause flush
             // at the tail is full-length anyway, so ordering cannot lose.
-            fire(track.watchtimeUrl, { cmt: DU, et: DU, st: fwEndSt, mt: DU, rt: rtNow(), lact: 30, state: "ended" });
-            fire(track.watchtimeUrl, { cmt: DU, et: DU, st: fwEndSt, mt: DU, rt: rtNow(), lact: 20, state: "ended" });
-            fire(track.watchtimeUrl, { cmt: DU, et: DU, st: fwEndSt, mt: DU, rt: rtNow(), lact: 21, state: "paused" });
-            fire(track.watchtimeUrl, { cmt: DU, et: DU, st: fwEndSt, mt: DU, rt: rtNow(), lact: 11, state: "paused" });
+            fire(track.watchtimeUrl, { cmt: DU, et: DU, st: fwEndSt, mt: DU, rt: rtNow(), lact: 30, state: "ended" }, !0);
+            fire(track.watchtimeUrl, { cmt: DU, et: DU, st: fwEndSt, mt: DU, rt: rtNow(), lact: 20, state: "ended" }, !0);
+            fire(track.watchtimeUrl, { cmt: DU, et: DU, st: fwEndSt, mt: DU, rt: rtNow(), lact: 21, state: "paused" }, !0);
+            fire(track.watchtimeUrl, { cmt: DU, et: DU, st: fwEndSt, mt: DU, rt: rtNow(), lact: 11, state: "paused" }, !0);
+            fire(track.qoeUrl, { cmt: DU, rt: rtNow() }, !0);
+            const hasGmx = typeof GM_xmlhttpRequest === "function";
             u(
               "fw account-history: burst " + fired +
                 " beacons (cpn " + (realCpn ? "real" : "MISSING") +
-                ", " + wN + " windows) for " + a,
+                ", " + wN + " windows, gmx=" + (hasGmx ? "yes" : "no") +
+                ") for " + a,
             );
+            // Per-press diagnostic: one readable line describing exactly
+            // what this press did (toast + console).
+            try {
+              const dbg =
+                "tpl=" + (track.watchtimeUrl ? "ok" : "none") +
+                " cpn=" + (realCpn ? "real" : "phantom") +
+                " beacons=" + fired +
+                " windows=" + wN +
+                " gmx=" + (hasGmx ? "yes" : "no") +
+                " player=" + (function () {
+                  try {
+                    const v = ie.el();
+                    const d2 = v && v.duration || 0;
+                    return d2 ? Math.round((v.currentTime / d2) * 100) + "%" : "?";
+                  } catch (e) { return "?"; }
+                })();
+              pe("FW " + dbg, 4000, "info");
+              u("fw diagnostic: " + dbg);
+            } catch (e) {}
           } catch (e) {
             h("fw account-history player fetch", e);
           }

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YT-zen
 // @namespace    https://github.com/mheci/YT-zen
-// @version      3.17.0
+// @version      3.17.1
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      Unlicense
@@ -7800,6 +7800,9 @@ algoBlockChannels: "",
       window.__fwLastVid = __vid; window.__fwLastTs = __now;
     } catch(_) {}
     const wasMuted = e.muted, wasRate = e.playbackRate;
+    let wasTime = 0, wasPaused = true;
+    try { wasTime = e.currentTime; } catch(_){}
+    try { wasPaused = e.paused; } catch(_){}
     let done = false, d = t, cur = -1, scrubs = 0;
     try {
       // autoplay off first (sync DOM click): nothing may navigate
@@ -7827,20 +7830,82 @@ algoBlockChannels: "",
         }
       } catch (_) {}
       try { d = e.duration || t; } catch (_) {}
-      // boundary pin + pause: the player's own flush writes the final
-      // watchtime (state=paused cmt=len — genuine full-watch shape)
-      try { e.currentTime = Math.max(0, d - 1.2); } catch (_) {}
+      // Let the controller-led scrub settle before a second seek — prevents
+      // double-seek race that left the player in a perpetual buffering state
+      // at d-1.2 (endless spinner, progress stuck).
+      await new Promise((r) => setTimeout(r, 260));
+      try { cur = e.currentTime; } catch(_){}
+      const nearEndAfterScrub = isFinite(cur) && isFinite(d) && d - cur <= Math.max(2.5, d * 0.012);
+      if (!nearEndAfterScrub) {
+        // Only pin to the tail if it's already buffered; otherwise the
+        // raw currentTime assignment forces an unbuffered DASH fetch that
+        // stalls at readyState 0-2 and the immediate pause() never flushes
+        // watchtime — the video just spins at 1s before the end.
+        let tailBuffered = true;
+        try {
+          if (e.buffered && e.buffered.length) {
+            tailBuffered = false;
+            for (let i = 0; i < e.buffered.length; i++) {
+              if (e.buffered.end(i) >= d - 1.6) { tailBuffered = true; break; }
+            }
+            // If tail not buffered and the video is long, treat as not buffered
+            // — the campaign beacons (signed watchtime) already cover progress.
+            if (!tailBuffered && d > 90) tailBuffered = false;
+            else if (!tailBuffered) tailBuffered = true; // short video: try anyway
+          }
+        } catch(_){ tailBuffered = true; }
+        if (tailBuffered) {
+          try { e.currentTime = Math.max(0, d - 0.9); } catch (_) {}
+          // Wait for the raw seek to settle (seeked or timeout) before pausing,
+          // otherwise pause() fires while seeking=true and the player stays in
+          // waiting forever.
+          await Promise.race([
+            new Promise((res) => {
+              let settled = false;
+              const h = () => { if (!settled) { settled = true; try{e.removeEventListener("seeked", h);}catch(_){} res(); } };
+              try { e.addEventListener("seeked", h, {once:true}); } catch(_){ res(); return; }
+              setTimeout(() => { if (!settled) { settled = true; try{e.removeEventListener("seeked", h);}catch(_){} res(); } }, 650);
+            }),
+            new Promise((res) => setTimeout(res, 700))
+          ]);
+        } else {
+          fwLog("tail not buffered d=" + d.toFixed(0) + " buffered=" + (()=>{try{let s="";for(let i=0;i<e.buffered.length;i++) s+= "["+e.buffered.start(i).toFixed(1)+"-"+e.buffered.end(i).toFixed(1)+"]"; return s||"none";}catch(_){return "?";}})() + " skip currentTime pin");
+        }
+      } else {
+        fwLog("scrub already near end cur=" + (isFinite(cur)?cur.toFixed(1):"?") + " skip pin");
+      }
       try { e.pause(); } catch (_) {}
-      // instant restore + lock release, same tick
+      // Let the player's own pause-flush (state=paused cmt=len) actually fire
+      // before we restore rate/muted — no need to hold the lock.
+      await new Promise((r) => setTimeout(r, 140));
       try { e.playbackRate = wasRate; } catch (_) {}
       try { e.muted = wasMuted; } catch (_) {}
       try { if (typeof jt !== "undefined") jt = !1; } catch (_) {}
       try { cur = e.currentTime; } catch (_) {}
       done = (function () { try { return e.ended; } catch (_) { return false; } })() || d - cur <= Math.max(2.5, d * 0.012);
-      // if the finalize missed (rare), restore autoplay since we are done
-      // touching the player
+      const stillSeeking = (()=>{ try{return e.seeking;}catch(_){return false;}})();
+      const waiting = (()=>{ try{return e.readyState < 2 || (e.seeking && !e.ended);}catch(_){return false;}})();
+      // If we are not near the end but the player is stuck seeking/waiting,
+      // the tail pin just created an unbuffered spinner. Revert to the
+      // original playhead so the user isn't left staring at a frozen
+      // 1-second-before-end frame — the signed campaign in Kt() already
+      // sent full-range watchtime, so progress is still marked.
+      if ((!done || stillSeeking || waiting) && !nearEndAfterScrub) {
+        try { e.currentTime = wasTime; } catch(_){}
+        // Ensure we leave in a stable paused/playing state matching origin
+        try {
+          if (wasPaused) { e.pause(); }
+          else { const pr = e.play(); if (pr && pr.catch) pr.catch(()=>{}); }
+        } catch(_){}
+        // Give the revert a tick to settle
+        await new Promise((r)=>setTimeout(r, 90));
+        try { cur = e.currentTime; } catch(_){}
+        fwLog("reverted spinner cur=" + (isFinite(cur)?cur.toFixed(1):"?") + " was=" + wasTime.toFixed(1) + " waiting=" + waiting + " seeking=" + stillSeeking);
+        // Treat as success for the UI — campaign covers the watch.
+        done = true;
+      }
       fwLog("scrub scrubs=" + scrubs + " t=" + (isFinite(cur) ? cur.toFixed(1) : "?") + "/" + d.toFixed(0));
-      fwLog("settle done=" + done + " t=" + (isFinite(cur) ? cur.toFixed(2) : "?") + "/" + d.toFixed(0));
+      fwLog("settle done=" + done + " t=" + (isFinite(cur) ? cur.toFixed(2) : "?") + "/" + d.toFixed(0) + " wasPaused=" + wasPaused);
     } catch (_) {}
     try {
       if (done) {

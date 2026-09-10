@@ -202,6 +202,140 @@ let keepAlive;
   assert.strictEqual(currentSegments[0].UUID, "lmnopqrstu1");
   engine.destroy();
 
+  // ── SponsorBlock API: rate-limit circuit, offline gate, full endpoint set ─
+  context.S.sbPrivacy = false;
+  context.ie.videoId = () => "abcdefghijk";
+  if (!context.S.sbUserId || context.S.sbUserId.length !== 30) context.S.sbUserId = "u".repeat(30);
+  engine.init && await engine.init("abcdefghijk", { force: true }).catch(() => {});
+  engine.destroy && engine.destroy();
+
+  // Mutation votes return a normalized result object and never throw.
+  let voteCalls = 0;
+  const voteUrls = [];
+  context.he = async (url, opts) => {
+    voteCalls++;
+    voteUrls.push(String(url));
+    assert.strictEqual(opts.method, "POST");
+    return { ok: true, status: 200, headers: { get: () => null }, text: async () => "", json: async () => null };
+  };
+  const upvote = await engine.api.voteOnSegment("real-uuid-1", 1);
+  assert.strictEqual(upvote.ok, true, "upvote resolves to {ok:true}");
+  assert.ok(/voteOnSponsorTime/.test(voteUrls[voteUrls.length - 1]), "vote hits /api/voteOnSponsorTime");
+  const syntheticVote = await engine.api.voteOnSegment("idx-7-synthetic", 1);
+  assert.strictEqual(syntheticVote.ok, false, "synthetic segment ids are never voted on");
+
+  // 429 with Retry-After opens a circuit: alternate plans and retries are
+  // suppressed (no request storm), even from a second invocation.
+  let rateCalls = 0;
+  context.he = async () => {
+    rateCalls++;
+    return { ok: false, status: 429, headers: { get: (h) => (String(h).toLowerCase() === "retry-after" ? "1" : null) }, text: async () => "slow down", json: async () => null };
+  };
+  await assert.rejects(engine.api.fetchWithRetry("abcdefghijk", new AbortController().signal), (e) => e.status === 429, "429 rejects");
+  assert.strictEqual(rateCalls, 1, "a 429 does not fan out across plans or retries");
+  await assert.rejects(engine.api.fetchWithRetry("abcdefghijk", new AbortController().signal), (e) => e.status === 429);
+  assert.strictEqual(rateCalls, 1, "the rate-limit circuit blocks further requests with zero network calls");
+  assert.strictEqual(engine.api.isRateLimited(), true);
+
+  // Offline gate: zero network calls while navigator.onLine === false.
+  context.navigator = { onLine: false };
+  let offlineCalls = 0;
+  const offlineHe = context.he;
+  context.he = async (...a) => { offlineCalls++; return offlineHe(...a); };
+  await assert.rejects(engine.api.fetchWithRetry("abcdefghijk", new AbortController().signal), (e) => e.status === 0, "offline rejects with status 0");
+  assert.strictEqual(offlineCalls, 0, "offline lookups make no network calls");
+  context.navigator = { onLine: true };
+  await new Promise((r) => setTimeout(r, 1050)); // Retry-After: 1s elapses
+  assert.strictEqual(engine.api.isRateLimited(), false, "circuit reopens after Retry-After");
+
+  // Endpoint coverage: locks (direct object + privacy array), segmentInfo,
+  // username read/write, server status, searchSegments, userStats.
+  const routes = async (url) => {
+    const u = String(url);
+    const ok200 = (body) => ({ ok: true, status: 200, headers: { get: () => null }, text: async () => JSON.stringify(body), json: async () => body });
+    if (u.includes("/api/lockCategories") && u.includes("actionTypes=")) return ok200({ categories: ["sponsor", "outro"], reason: "vip" });
+    if (u.includes("/api/segmentInfo")) {
+      assert.ok(u.includes("UUID=u1") && u.includes("UUID=u2"), "segmentInfo sends each UUID");
+      return ok200([{ UUID: "u1", votes: 5 }]);
+    }
+    if (u.includes("/api/setUsername")) return ok200("");
+    if (u.includes("/api/getUsername")) return ok200({ userName: "zen-tester" });
+    if (u.includes("/api/status")) return ok200({ uptime: 123, commit: "abc" });
+    if (u.includes("/api/searchSegments")) return ok200({ segmentCount: 1, page: 0, segments: [{ UUID: "s1" }] });
+    if (u.includes("/api/userStats")) {
+      assert.ok(u.includes("fetchCategoryStats=true"), "userStats uses documented boolean params");
+      return ok200({ overallStats: { minutesSaved: 9 } });
+    }
+    if (u.includes("/api/lockReason")) return ok200([{ category: "sponsor", locked: 1, reason: "r" }]);
+    return { ok: false, status: 404, headers: { get: () => null }, text: async () => "", json: async () => null };
+  };
+  function ok206or(fn, v) { return fn(v); }
+  const seenUrls = [];
+  context.he = async (url, opts) => { seenUrls.push([String(url), opts && opts.method || "GET"]); return routes(url); };
+  context.v = async () => null;
+
+  const locks = await engine.api.getLockCategories("abcdefghijk");
+  assert.deepStrictEqual(locks, ["sponsor", "outro"], "direct lockCategories object normalizes to category ids");
+  const info = await engine.api.getSegmentInfo(["u1", "u2"]);
+  assert.strictEqual(info[0].UUID, "u1", "segmentInfo returns rows");
+  const infoCached = await engine.api.getSegmentInfo(["u1", "u2"]);
+  assert.strictEqual(infoCached, info, "segmentInfo is cached within its TTL");
+  const nameSet = await engine.api.setUsername("zen-tester");
+  assert.strictEqual(nameSet.ok, true, "setUsername posts successfully");
+  assert.strictEqual(await engine.api.getUsername(), "zen-tester", "getUsername reads the name");
+  const status = await engine.api.getServerStatus();
+  assert.strictEqual(status.commit, "abc", "server status is fetched");
+  const statusCached = await engine.api.getServerStatus();
+  assert.strictEqual(statusCached, status, "server status is cached");
+  const search = await engine.api.searchSegments("abcdefghijk", { minVotes: -1, locked: false });
+  assert.strictEqual(search.segmentCount, 1, "searchSegments passes filters through");
+  assert.ok(seenUrls.some(([u]) => u.includes("minVotes=-1") && u.includes("locked=false")), "search filters are serialized");
+  const stats = await engine.api.getUserStats("u".repeat(30));
+  assert.strictEqual(stats.overallStats.minutesSaved, 9, "userStats returns totals");
+  const reasons = await engine.api.getLockReason("abcdefghijk");
+  assert.strictEqual(reasons[0].category, "sponsor", "lockReason returns rows");
+
+  // Submission failures surface the documented server reason.
+  context.he = async (url) => ({
+    ok: false, status: 403, headers: { get: () => null },
+    text: async () => "segment too short", json: async () => null,
+  });
+  const rejected = await engine.api.submitSegment("abcdefghijk", 5, 10, "sponsor");
+  assert.strictEqual(rejected.ok, false);
+  assert.strictEqual(rejected.status, 403);
+  assert.ok(/auto-moderator/.test(rejected.message) && /too short/.test(rejected.message), "403 includes automod reason");
+
+  // mySubmissions previously filtered for bare strings while rows are stored
+  // as objects, so "my submissions" was always empty.
+  const memStore = new Map();
+  context.localStorage = {
+    getItem: (k) => (memStore.has(k) ? memStore.get(k) : null),
+    setItem: (k, v) => memStore.set(k, String(v)),
+  };
+  engine.api.rememberSubmission && engine.api.rememberSubmission("mine-uuid-1", "abcdefghijk");
+  assert.strictEqual(engine.api.mySubmissions().length, 1, "remembered submission round-trips through localStorage");
+  assert.strictEqual(engine.api.mySubmissions()[0].uuid, "mine-uuid-1");
+  // Legacy bare-string rows must still parse.
+  memStore.set("ytp_sb_my_submissions", JSON.stringify(["legacy-uuid"]));
+  assert.strictEqual(engine.api.mySubmissions()[0].uuid, "legacy-uuid", "legacy string entries are normalized");
+
+  // viewed-report in-flight coalescing: concurrent calls share one request.
+  let viewCalls = 0;
+  context.he = async (url, opts) => {
+    viewCalls++;
+    if (!String(url).includes("/api/viewedVideoSponsorTime")) throw new Error("unexpected url");
+    await new Promise((r) => setTimeout(r, 20));
+    return { ok: true, status: 200, headers: { get: () => null }, text: async () => "", json: async () => null };
+  };
+  const [v1, v2] = await Promise.all([
+    engine.api.reportViewed("view-uuid-1"),
+    engine.api.reportViewed("view-uuid-1"),
+  ]);
+  assert.strictEqual(viewCalls, 1, "concurrent viewed reports for one UUID coalesce");
+  assert.strictEqual(v1.ok, true);
+  assert.strictEqual(v2.ok, false, "coalesced duplicate is reported as such");
+
+
   let calls = 0;
   const id = DeferredTask.debounce("unit", () => { calls++; }, 10);
   assert.ok(id > 0);

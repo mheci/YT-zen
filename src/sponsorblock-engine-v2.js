@@ -59,6 +59,10 @@
     const API_TIMEOUT_MS = 8000;
     const MAX_RETRIES = 2;
     const RETRY_BASE_MS = 500;
+    const RATE_LIMIT_DEFAULT_MS = 60 * 1000;   // 429 with no Retry-After
+    const RATE_LIMIT_CAP_MS = 30 * 60 * 1000;   // never honor a header beyond 30 min
+    const STATUS_TTL_MS = 60 * 1000;            // /api/status freshness
+    const SEGMENT_INFO_TTL_MS = 5 * 60 * 1000;
     const SKIP_COOLDOWN_MS = 500;
     const SEEK_TOLERANCE = 0.3; // seconds
     const POINT_SEGMENT_EPSILON = 0.05;
@@ -538,6 +542,54 @@
       const ALL_CATEGORIES = Categories.map(c => c.id);
       const ALL_ACTION_TYPES = ["skip", "mute", "poi", "chapter", "full"];
       const userInfoCache = new ZenResources.BoundedCache(32, "sb-user-info", { ttlMs: 10 * 60 * 1000 });
+      const miscCache = new ZenResources.BoundedCache(24, "sb-misc", { ttlMs: STATUS_TTL_MS });
+
+      // ── Rate-limit circuit + offline gate ────────────────────────────────
+      // A 429 from the SponsorBlock server is keyed per IP/user. Retrying
+      // blindly across plans and retries turns one rate limit into a request
+      // storm, so every caller funnels through this single circuit.
+      let rateLimitUntil = 0;
+      try {
+        window.addEventListener("online", () => { rateLimitUntil = 0; }, { passive: true });
+      } catch (_) {}
+      const isRateLimited = () => Date.now() < rateLimitUntil;
+      const applyRateLimit = (responseOrMs) => {
+        let waitMs = RATE_LIMIT_DEFAULT_MS;
+        if (typeof responseOrMs === "number") {
+          waitMs = responseOrMs;
+        } else if (responseOrMs) {
+          let header = null;
+          try { header = responseOrMs.headers && responseOrMs.headers.get ? responseOrMs.headers.get("Retry-After") : null; } catch (_) {}
+          if (header) {
+            const asSeconds = parseInt(header, 10);
+            if (Number.isFinite(asSeconds) && asSeconds >= 0) {
+              waitMs = asSeconds * 1000;
+            } else {
+              const asDate = Date.parse(header);
+              if (Number.isFinite(asDate)) waitMs = asDate - Date.now();
+            }
+          }
+        }
+        waitMs = Math.max(1000, Math.min(RATE_LIMIT_CAP_MS, waitMs));
+        rateLimitUntil = Math.max(rateLimitUntil, Date.now() + waitMs);
+        return waitMs;
+      };
+      const isOnline = () => {
+        try { return typeof navigator === "undefined" || navigator.onLine !== false; } catch (_) { return true; }
+      };
+      const httpError = (status, message) => {
+        const err = new Error(message || ("HTTP " + status));
+        err.status = status;
+        return err;
+      };
+      // Read the small plaintext error body the server returns on
+      // 403/409/429 (e.g. automod rejection reasons, "Duplicate segment").
+      const readErrorText = async (response) => {
+        try {
+          const txt = await response.text();
+          return String(txt || "").slice(0, 300);
+        } catch (_) { return ""; }
+      };
 
       const hashPrefix = async (videoId) => {
         try {
@@ -714,6 +766,10 @@
         }
 
         try {
+          if (!isOnline()) throw httpError(0, "Offline");
+          if (!opts.ignoreRateLimit && isRateLimited()) {
+            throw httpError(429, "Rate limited by SponsorBlock server");
+          }
           Metrics.recordApiRequest();
           const response = await he(url, {
             method: opts.method || "GET",
@@ -722,20 +778,16 @@
             signal: controller.signal,
           });
 
-          if (response.status === 404) {
-            const err = new Error("HTTP 404");
-            err.status = 404;
-            throw err;
+          if (response.status === 429) {
+            const waitMs = applyRateLimit(response);
+            throw httpError(429, "Rate limited; retry after " + Math.round(waitMs / 1000) + "s");
           }
-          if (response.status === 400) {
-            const err = new Error("HTTP 400");
-            err.status = 400;
-            throw err;
-          }
+          if (response.status === 404) throw httpError(404);
+          if (response.status === 400) throw httpError(400);
           if (!response.ok) {
-            const err = new Error("HTTP " + response.status);
-            err.status = response.status;
-            throw err;
+            // Surface the server's own reason for mutation rejections.
+            const detail = opts.readErrorBody ? await readErrorText(response) : "";
+            throw httpError(response.status, detail || undefined);
           }
 
           let body = null;
@@ -764,6 +816,10 @@
 
       const fetchSegments = async (videoId, abortSignal) => {
         if (!VIDEO_ID_RE.test(String(videoId || ""))) return [];
+        // Offline / rate-limited: do not burn the plan list. The stale cache
+        // fallback in fetchAndCache still serves any offline copy.
+        if (!isOnline()) throw httpError(0, "Offline");
+        if (isRateLimited()) throw httpError(429, "Rate limited by SponsorBlock server");
         const usePrivacy = !!S.sbPrivacy;
         const plans = await buildFetchPlans(videoId, usePrivacy, ALL_CATEGORIES, ALL_ACTION_TYPES);
         const trace = [];
@@ -800,6 +856,9 @@
             if (err && err.status === 404) notFoundCount++;
             trace.push({ plan: plan.id, status: err && err.status ? err.status : 0, error: err && err.message ? err.message : String(err) });
             lastError = err;
+            // A 429 is account/IP-wide; alternate encodings cannot fix it and
+            // the circuit already knows when retrying is allowed.
+            if (err && err.status === 429) break;
           }
         }
 
@@ -823,10 +882,22 @@
           } catch (err) {
             lastError = err;
             if (err && err.name === "AbortError") throw err;
-            if (attempt < MAX_RETRIES) {
-              const delay = RETRY_BASE_MS * Math.pow(2, attempt);
-              await new Promise(r => setTimeout(r, delay));
+            // 400 = malformed request: identical retries cannot succeed.
+            // 0 offline / 429: the stale-cache fallback handles recovery;
+            // retrying here would hit the circuit and count as an API error.
+            const fatal = err && (err.status === 400 || err.status === 0 || err.status === 429);
+            if (attempt < MAX_RETRIES && !fatal) {
+              // Honor the server's rate-limit hint instead of the fixed
+              // exponential delay when a 429 slipped through without a header.
+              const circuitMs = rateLimitUntil - Date.now();
+              const backoffMs = Math.max(RETRY_BASE_MS * Math.pow(2, attempt), circuitMs > 0 ? circuitMs : 0);
+              await new Promise(r => setTimeout(r, Math.min(backoffMs, RATE_LIMIT_CAP_MS)));
               if (abortSignal && abortSignal.aborted) throw new DOMException("Aborted", "AbortError");
+            } else if (fatal || attempt === MAX_RETRIES) {
+              // Offline (0) is expected on a flaky connection and the stale
+              // cache will cover it; that is not a server/API error.
+              if (!(err && err.status === 0)) Metrics.recordApiError();
+              throw err;
             }
           }
         }
@@ -835,6 +906,10 @@
       };
 
       const requestResponse = async (url, opts = {}, abortSignal = null) => {
+        if (!isOnline()) throw httpError(0, "Offline");
+        if (!opts.ignoreRateLimit && isRateLimited()) {
+          throw httpError(429, "Rate limited by SponsorBlock server");
+        }
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), opts.timeoutMs || API_TIMEOUT_MS);
         let onAbort = null;
@@ -854,9 +929,10 @@
             signal: controller.signal,
           });
           if (!response || !response.ok) {
-            const error = new Error("HTTP " + (response && response.status || 0));
-            error.status = response && response.status || 0;
-            throw error;
+            const status = response && response.status || 0;
+            if (status === 429) applyRateLimit(response);
+            const detail = opts.readErrorBody && response ? await readErrorText(response) : "";
+            throw httpError(status, detail || undefined);
           }
           return response;
         } finally {
@@ -867,42 +943,82 @@
         }
       };
 
+      // Mutation helper: every write (vote/submit/delete/view/username) goes
+      // through here so 429 backoff, offline detection and server reasons are
+      // handled exactly once. Never throws — returns a normalized result so
+      // UI callers cannot crash on a rejected promise.
+      const requestAction = async (url, opts = {}, abortSignal = null) => {
+        try {
+          const response = await requestResponse(url, Object.assign({ readErrorBody: true }, opts), abortSignal);
+          let text = "";
+          try { text = await response.text(); } catch (_) {}
+          let data = null;
+          if (text) { try { data = JSON.parse(text); } catch (_) { data = text; } }
+          return { ok: true, status: response.status, message: text, data };
+        } catch (err) {
+          if (err && err.name === "AbortError") {
+            return { ok: false, status: 0, message: "Cancelled", aborted: true };
+          }
+          return {
+            ok: false,
+            status: (err && err.status) || 0,
+            message: (err && err.message && err.message !== ("HTTP " + ((err && err.status) || 0)))
+              ? err.message
+              : ((err && err.status === 429) ? "SponsorBlock rate limit — try again shortly"
+                : (err && err.status === 0) ? "Network unavailable"
+                : "Request failed (" + ((err && err.status) || 0) + ")"),
+          };
+        }
+      };
+
       const currentVideoId = () => State.videoId || (ie && typeof ie.videoId === "function" ? ie.videoId() : null);
+
+      const isRealUUID = (uuid) => typeof uuid === "string" && !!uuid && !/^(idx-|preview-)/.test(uuid);
 
       const postVote = async (params) => {
         const videoId = currentVideoId();
-        if (!params || !params.UUID || !State.userId || !VIDEO_ID_RE.test(String(videoId || ""))) return false;
+        if (!params || !params.UUID || !State.userId || !VIDEO_ID_RE.test(String(videoId || ""))) {
+          return { ok: false, status: 0, message: "Not ready to vote" };
+        }
         // Synthetic ids (idx-* fallbacks, preview-*) are local-only; posting
         // them to the server is junk traffic keyed on unstable ordering.
-        if (/^(idx-|preview-)/.test(String(params.UUID))) return false;
+        if (!isRealUUID(String(params.UUID))) {
+          return { ok: false, status: 0, message: "Local-only segment cannot be voted on" };
+        }
         const base = Settings.getServerUrl();
         const query = new URLSearchParams(Object.assign({
           UUID: params.UUID,
           videoID: videoId,
           userID: State.userId,
         }, params));
-        try {
-          Metrics.recordVoteRequest();
-          await requestResponse(base + "/api/voteOnSponsorTime?" + query.toString(), { method: "POST" });
-          return true;
-        } catch (_) { return false; }
+        Metrics.recordVoteRequest();
+        return requestAction(base + "/api/voteOnSponsorTime?" + query.toString(), { method: "POST" });
       };
 
       const voteOnSegment = async (uuid, type) => postVote({ UUID: uuid, type: String(type) });
       const undoVote = async (uuid) => postVote({ UUID: uuid, type: "20" });
-      const changeCategory = async (uuid, category) => category ? postVote({ UUID: uuid, category: String(category) }) : false;
+      const changeCategory = async (uuid, category) => category
+        ? postVote({ UUID: uuid, category: String(category) })
+        : { ok: false, status: 0, message: "No category provided" };
+
+      const userAgentString = () =>
+        "YT-zen/" + (typeof GM_info !== "undefined" && GM_info.script ? GM_info.script.version : "0.0.0");
 
       const submitSegment = async (videoId, start, end, category, description = "") => {
-        if (!VIDEO_ID_RE.test(String(videoId || "")) || !State.userId) return false;
+        if (!VIDEO_ID_RE.test(String(videoId || "")) || !State.userId) {
+          return { ok: false, status: 0, message: "Missing video or user ID" };
+        }
         const cleanStart = Number(start);
         const cleanEnd = Number(end);
-        if (!Number.isFinite(cleanStart) || !Number.isFinite(cleanEnd) || cleanStart < 0 || cleanEnd <= cleanStart || cleanEnd > MAX_SEGMENT_TIME) return false;
+        if (!Number.isFinite(cleanStart) || !Number.isFinite(cleanEnd) || cleanStart < 0 || cleanEnd <= cleanStart || cleanEnd > MAX_SEGMENT_TIME) {
+          return { ok: false, status: 400, message: "Invalid segment times" };
+        }
         const base = Settings.getServerUrl();
         const duration = ie && typeof ie.el === "function" && ie.el() ? Number(ie.el().duration) : 0;
         const bodyData = {
           videoID: videoId,
           userID: State.userId,
-          userAgent: "YT-zen/" + (typeof GM_info !== "undefined" && GM_info.script ? GM_info.script.version : "3.9.1"),
+          userAgent: userAgentString(),
           service: "YouTube",
           videoDuration: Number.isFinite(duration) && duration > 0 ? duration : undefined,
           segments: [{
@@ -912,27 +1028,44 @@
             description: String(description || "").slice(0, 500),
           }],
         };
-        try {
-          Metrics.recordSubmitRequest();
-          await requestResponse(base + "/api/skipSegments", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(bodyData),
-          });
-          return true;
-        } catch (_) { return false; }
+        Metrics.recordSubmitRequest();
+        const result = await requestAction(base + "/api/skipSegments", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(bodyData),
+        });
+        // Translate documented statuses into the toast wording the editor UI
+        // shows; the automod reason (403) arrives in the response body.
+        if (!result.ok) {
+          if (result.status === 409) result.message = "Duplicate of an existing segment";
+          else if (result.status === 403) result.message = "Rejected by auto-moderator" + (result.message ? ": " + result.message : "");
+          else if (result.status === 400) result.message = "Server rejected the submission (400)";
+        }
+        return result;
       };
 
+      // A view is reported at most once per UUID per video session (gated by
+      // processedUUIDs in Player); this additionally coalesces rapid repeat
+      // calls so a seek loop can never turn into a view-report storm.
+      const viewedInFlight = new Set();
       const reportViewed = async (uuid) => {
         const videoId = currentVideoId();
-        if (!uuid || !VIDEO_ID_RE.test(String(videoId || ""))) return false;
-        if (/^(idx-|preview-)/.test(String(uuid))) return false;
+        if (!isRealUUID(uuid) || !VIDEO_ID_RE.test(String(videoId || ""))) {
+          return { ok: false, status: 0, message: "Skipped" };
+        }
+        const dedupeKey = videoId + ":" + uuid;
+        if (viewedInFlight.has(dedupeKey)) return { ok: false, status: 0, message: "Duplicate" };
+        viewedInFlight.add(dedupeKey);
         const base = Settings.getServerUrl();
         try {
           Metrics.recordViewedReport();
-          await requestResponse(base + "/api/viewedVideoSponsorTime?UUID=" + encodeURIComponent(uuid) + "&videoID=" + encodeURIComponent(videoId), { method: "POST" });
-          return true;
-        } catch (_) { return false; }
+          return await requestAction(
+            base + "/api/viewedVideoSponsorTime?UUID=" + encodeURIComponent(uuid) + "&videoID=" + encodeURIComponent(videoId),
+            { method: "POST" }
+          );
+        } finally {
+          viewedInFlight.delete(dedupeKey);
+        }
       };
 
       const getUserInfo = async (userId, abortSignal, force = false) => {
@@ -958,6 +1091,20 @@
         }
       };
 
+      // Normalize the two lockCategories response shapes documented by the
+      // API: direct lookup -> { categories, reason, actionTypes }; privacy
+      // hash-prefix lookup -> [{ videoID, hash, categories, reason }].
+      const normalizeLocks = (body, videoId) => {
+        if (Array.isArray(body)) {
+          if (body.length && body[0] && Array.isArray(body[0].categories)) {
+            const hit = body.find((e) => e && e.videoID === videoId) || body[0];
+            return Array.isArray(hit.categories) ? hit.categories : [];
+          }
+          return body.filter((c) => typeof c === "string");
+        }
+        return body && Array.isArray(body.categories) ? body.categories : [];
+      };
+
       // GET /api/lockCategories?videoID= — VIP-verified category locks for
       // this video. Locked categories reject non-VIP submissions, so the
       // editor checks this before sending.
@@ -967,16 +1114,129 @@
         try {
           Metrics.recordUserInfoRequest();
           const { body } = await requestJson(
-            base + "/api/lockCategories?videoID=" + encodeURIComponent(String(videoId)),
+            base + "/api/lockCategories?videoID=" + encodeURIComponent(String(videoId)) +
+              "&actionTypes=" + encodeURIComponent(JSON.stringify(["skip", "mute", "full", "poi", "chapter"])),
             abortSignal,
             { timeoutMs: API_TIMEOUT_MS }
           );
-          if (Array.isArray(body)) return body;
-          if (body && Array.isArray(body.categories)) return body.categories;
-          return [];
+          return normalizeLocks(body, videoId);
         } catch (_) {
           return [];
         }
+      };
+
+      // GET /api/lockReason?videoID= — who locked a category and why.
+      // Returns [] on 404/no locks (never throws into the UI).
+      const getLockReason = async (videoId, categories = null, abortSignal) => {
+        if (!VIDEO_ID_RE.test(String(videoId || ""))) return [];
+        const params = new URLSearchParams({ videoID: String(videoId) });
+        if (Array.isArray(categories) && categories.length) {
+          params.set("categories", JSON.stringify(categories));
+        }
+        try {
+          const { body } = await requestJson(
+            Settings.getServerUrl() + "/api/lockReason?" + params.toString(),
+            abortSignal,
+            { timeoutMs: API_TIMEOUT_MS }
+          );
+          return Array.isArray(body) ? body : [];
+        } catch (_) { return []; }
+      };
+
+      // GET /api/segmentInfo?UUID=… (max 10) — full server-side metadata
+      // (votes, views, locked, submitter) used by the vote/inspection UI.
+      const getSegmentInfo = async (uuids, abortSignal, force = false) => {
+        const list = (Array.isArray(uuids) ? uuids : [uuids])
+          .filter(isRealUUID)
+          .map((u) => String(u))
+          .slice(0, 10);
+        if (!list.length) return [];
+        const cacheKey = "seg:" + list.slice().sort().join("|");
+        if (!force) {
+          const cached = miscCache.get(cacheKey);
+          if (cached !== undefined) return cached;
+        }
+        const params = new URLSearchParams();
+        list.forEach((u) => params.append("UUID", u));
+        try {
+          const { body } = await requestJson(
+            Settings.getServerUrl() + "/api/segmentInfo?" + params.toString(),
+            abortSignal,
+            { timeoutMs: API_TIMEOUT_MS }
+          );
+          const rows = Array.isArray(body) ? body : [];
+          miscCache.set(cacheKey, rows, SEGMENT_INFO_TTL_MS);
+          return rows;
+        } catch (_) { return []; }
+      };
+
+      // GET /api/searchSegments — inspection-only full listing (the docs
+      // warn this is not for playback decisions; fetchSegments stays the
+      // playback path). Returns { segmentCount, page, segments } or null.
+      const searchSegments = async (videoId, filters = {}, abortSignal) => {
+        if (!VIDEO_ID_RE.test(String(videoId || ""))) return null;
+        const params = new URLSearchParams({ videoID: String(videoId) });
+        const setJson = (name, value) => { if (value !== undefined && value !== null) params.set(name, JSON.stringify(value)); };
+        setJson("categories", filters.categories);
+        setJson("actionTypes", filters.actionTypes);
+        ["page", "minVotes", "maxVotes", "minViews", "maxViews"].forEach((k) => {
+          if (Number.isFinite(Number(filters[k]))) params.set(k, String(Number(filters[k])));
+        });
+        ["locked", "hidden", "ignored"].forEach((k) => {
+          if (typeof filters[k] === "boolean") params.set(k, String(filters[k]));
+        });
+        try {
+          const { body } = await requestJson(
+            Settings.getServerUrl() + "/api/searchSegments?" + params.toString(),
+            abortSignal,
+            { timeoutMs: API_TIMEOUT_MS }
+          );
+          return body && typeof body === "object" ? body : null;
+        } catch (_) { return null; }
+      };
+
+      // GET /api/status — server health/commit; powers the health indicator
+      // and backs the offline/backoff UX. Cached briefly.
+      const getServerStatus = async (force = false, abortSignal) => {
+        if (!force) {
+          const cached = miscCache.get("status");
+          if (cached !== undefined) return cached;
+        }
+        try {
+          const { body } = await requestJson(
+            Settings.getServerUrl() + "/api/status",
+            abortSignal,
+            { timeoutMs: 4000 }
+          );
+          if (body && typeof body === "object") { miscCache.set("status", body); return body; }
+          return null;
+        } catch (_) { return null; }
+      };
+
+      // POST /api/setUsername / GET /api/getUsername for the local userID.
+      const setUsername = async (username) => {
+        if (!State.userId) return { ok: false, status: 0, message: "No local user ID" };
+        const name = String(username == null ? "" : username).slice(0, 64);
+        Metrics.recordUserInfoRequest();
+        const params = new URLSearchParams({ userID: State.userId, username: name });
+        return requestAction(Settings.getServerUrl() + "/api/setUsername?" + params.toString(), { method: "POST" });
+      };
+      const getUsername = async (abortSignal, force = false) => {
+        if (!State.userId) return "";
+        if (!force) {
+          const cached = miscCache.get("username");
+          if (cached !== undefined) return cached;
+        }
+        try {
+          const { body } = await requestJson(
+            Settings.getServerUrl() + "/api/getUsername?userID=" + encodeURIComponent(State.userId),
+            abortSignal,
+            { timeoutMs: API_TIMEOUT_MS }
+          );
+          const name = body && typeof body.userName === "string" ? body.userName : "";
+          miscCache.set("username", name, 10 * 60 * 1000);
+          return name;
+        } catch (_) { return ""; }
       };
 
       // GET /api/userStats — public per-user totals (hashed userID).
@@ -992,7 +1252,7 @@
           Metrics.recordUserInfoRequest();
           const { body } = await requestJson(
             base + "/api/userStats?userID=" + encodeURIComponent(cleanUserId) +
-              "&values=[\"overallStats\",\"categoryCount\",\"actionTypeCount\"]",
+              "&fetchCategoryStats=true&fetchActionTypeStats=true",
             abortSignal,
             { timeoutMs: API_TIMEOUT_MS }
           );
@@ -1007,41 +1267,56 @@
       // Locally submitted segment UUIDs (this browser only), so users can
       // delete their own submissions via DELETE /api/skipSegments/{uuid}.
       const MINE_KEY = "ytp_sb_my_submissions";
+      const normalizeMine = (raw) => {
+        // Entries are {uuid, videoId, at}; tolerate legacy bare-string rows.
+        return raw
+          .map((m) => (typeof m === "string" ? { uuid: m, videoId: "", at: 0 } : m))
+          .filter((m) => m && typeof m.uuid === "string" && m.uuid)
+          .slice(-200);
+      };
+      const localStore = () => {
+        try { return window.localStorage || (typeof localStorage !== "undefined" ? localStorage : null); }
+        catch (_) { try { return typeof localStorage !== "undefined" ? localStorage : null; } catch (e) { return null; } }
+      };
       const mySubmissions = () => {
         try {
-          const raw = window.localStorage.getItem(MINE_KEY);
+          const ls = localStore();
+          if (!ls) return [];
+          const raw = ls.getItem(MINE_KEY);
           const arr = raw ? JSON.parse(raw) : [];
-          return Array.isArray(arr) ? arr.filter((u) => typeof u === "string").slice(-200) : [];
+          return Array.isArray(arr) ? normalizeMine(arr) : [];
         } catch (_) { return []; }
       };
       const rememberSubmission = (uuid, videoId) => {
         try {
           const mine = mySubmissions().filter((m) => m.uuid !== uuid);
           mine.push({ uuid: String(uuid), videoId: String(videoId || ""), at: Date.now() });
-          window.localStorage.setItem(MINE_KEY, JSON.stringify(mine.slice(-200)));
+          const ls = localStore();
+          if (ls) ls.setItem(MINE_KEY, JSON.stringify(mine.slice(-200)));
         } catch (_) {}
       };
 
       // DELETE /api/skipSegments/{uuid}?userID= — removes a submission you
       // own (server checks userID ownership / VIP status).
       const deleteSegment = async (uuid) => {
-        if (!State.userId || /^(idx-|preview-)/.test(String(uuid))) return false;
+        if (!State.userId || !isRealUUID(String(uuid))) {
+          return { ok: false, status: 0, message: "Cannot delete local-only segment" };
+        }
         const base = Settings.getServerUrl();
-        try {
-          Metrics.recordVoteRequest();
-          await requestResponse(
-            base + "/api/skipSegments/" + encodeURIComponent(String(uuid)) +
-              "?userID=" + encodeURIComponent(State.userId),
-            { method: "DELETE" }
-          );
+        Metrics.recordVoteRequest();
+        const result = await requestAction(
+          base + "/api/skipSegments/" + encodeURIComponent(String(uuid)) +
+            "?userID=" + encodeURIComponent(State.userId),
+          { method: "DELETE" }
+        );
+        if (result.ok) {
           try {
             const mine = mySubmissions().filter((m) => m.uuid !== String(uuid));
-            window.localStorage.setItem(MINE_KEY, JSON.stringify(mine));
+            const ls = localStore();
+            if (ls) ls.setItem(MINE_KEY, JSON.stringify(mine));
           } catch (_) {}
-          return true;
-        } catch (_) {
-          return false;
         }
+        return result;
       };
 
       return {
@@ -1053,12 +1328,19 @@
         reportViewed,
         getUserInfo,
         getLockCategories,
+        getLockReason,
+        getSegmentInfo,
+        searchSegments,
+        getServerStatus,
+        setUsername,
+        getUsername,
         getUserStats,
         deleteSegment,
         rememberSubmission,
         mySubmissions,
         hashPrefix,
         normalizeSegments,
+        isRateLimited,
       };
     })();
 
@@ -1493,17 +1775,17 @@
         });
 
         // Bind Vote Actions
+        const reportVote = (label, result) => {
+          pe(result.ok ? label + " submitted" : ((result.message || "Vote failed") + ""),
+            result.ok ? 1500 : 3200, result.ok ? "success" : "error");
+        };
         hud.querySelector("#hud-vote-up").addEventListener("click", () => {
-          API.voteOnSegment(seg.UUID, 1).then(success => {
-            pe(success ? "Upvote submitted" : "Vote failed", 1500, success ? "success" : "error");
-          });
+          API.voteOnSegment(seg.UUID, 1).then((r) => reportVote("Upvote", r));
           hud.className = "";
         });
 
         hud.querySelector("#hud-vote-down").addEventListener("click", () => {
-          API.voteOnSegment(seg.UUID, 0).then(success => {
-            pe(success ? "Downvote submitted" : "Vote failed", 1500, success ? "success" : "error");
-          });
+          API.voteOnSegment(seg.UUID, 0).then((r) => reportVote("Downvote", r));
           hud.className = "";
         });
 
@@ -1639,9 +1921,10 @@
                 btn.className = "editor-btn danger-btn mini-btn";
                 btn.textContent = "Delete";
                 btn.addEventListener("click", () => {
-                  API.deleteSegment(sg.UUID).then((ok) => {
-                    pe(ok ? "Submission deleted" : "Delete failed (owner or VIP only)", 2200, ok ? "success" : "error");
-                    if (ok) { row.remove(); SponsorBlockEngine.invalidate(vid); SponsorBlockEngine.refreshCurrent(); }
+                  API.deleteSegment(sg.UUID).then((r) => {
+                    pe(r.ok ? "Submission deleted" : ("Delete failed: " + (r.message || "owner or VIP only")),
+                      r.ok ? 2200 : 3200, r.ok ? "success" : "error");
+                    if (r.ok) { row.remove(); SponsorBlockEngine.invalidate(vid); SponsorBlockEngine.refreshCurrent(); }
                   });
                 });
                 row.append(lbl, btn);
@@ -1701,33 +1984,38 @@
             const locks = await API.getLockCategories(videoId);
             const lockHit = locks.find((l) => (typeof l === "string" ? l : l && l.category) === State.editor.category);
             if (lockHit) {
-              pe("Category \"" + State.editor.category + "\" is locked for this video" +
-                (lockHit && lockHit.reason ? ": " + lockHit.reason : ""), 3200, "error");
+              pe("Category \"" + State.editor.category + "\" is locked for this video", 3200, "error");
               return;
             }
           } catch (_) {}
           pe("Submitting segment...", 1500, "info");
           const known = new Set(State.segments.map((sg) => sg.UUID));
           API.submitSegment(videoId, start, end, State.editor.category, State.editor.description)
-            .then(success => {
-              if (success) {
+            .then(result => {
+              if (result.ok) {
                 pe("Segment submitted successfully!", 2000, "success");
-                // The server mints the UUID, so identify our new submission
-                // by diffing the refreshed segment list against the
-                // pre-submit set, then remember it for delete-own support.
-                SponsorBlockEngine.invalidate(videoId);
-                SponsorBlockEngine.refreshCurrent && SponsorBlockEngine.refreshCurrent();
-                setTimeout(() => {
+                // Prefer the UUIDs returned directly by POST /api/skipSegments;
+                // fall back to diffing the refreshed segment list.
+                const remember = (uuids) => {
                   try {
-                    State.segments
-                      .map((sg) => sg.UUID)
-                      .filter((u) => !known.has(u) && !/^(idx-|preview-)/.test(u))
+                    uuids
+                      .filter((u) => typeof u === "string" && u && !known.has(u) && !/^(idx-|preview-)/.test(u))
                       .forEach((u) => API.rememberSubmission(u, videoId));
                   } catch (_) {}
-                }, 2500);
+                };
+                const returned = Array.isArray(result.data)
+                  ? result.data.map((r) => r && r.UUID).filter(Boolean)
+                  : [];
+                if (returned.length) {
+                  remember(returned);
+                } else {
+                  SponsorBlockEngine.invalidate(videoId);
+                  SponsorBlockEngine.refreshCurrent && SponsorBlockEngine.refreshCurrent();
+                  setTimeout(() => remember(State.segments.map((sg) => sg.UUID)), 2500);
+                }
                 closeSubmissionEditor();
               } else {
-                pe("Submission failed", 2000, "error");
+                pe("Submission failed: " + (result.message || "unknown error"), 3600, "error");
               }
             });
         });
@@ -2115,11 +2403,19 @@
         reportViewed: API.reportViewed,
         getUserInfo: API.getUserInfo,
         getLockCategories: (videoId) => API.getLockCategories(videoId, null),
+        getLockReason: (videoId, categories) => API.getLockReason(videoId, categories, null),
+        getSegmentInfo: (uuids, force = false) => API.getSegmentInfo(uuids, null, force),
+        searchSegments: (videoId, filters) => API.searchSegments(videoId, filters, null),
+        getServerStatus: (force = false) => API.getServerStatus(force, null),
+        setUsername: (name) => API.setUsername(name),
+        getUsername: (force = false) => API.getUsername(null, force),
         getUserStats: (userId, force = false) => API.getUserStats(userId, null, force),
         deleteSegment: (uuid) => API.deleteSegment(uuid),
         mySubmissions: () => API.mySubmissions(),
+        rememberSubmission: (uuid, videoId) => API.rememberSubmission(uuid, videoId),
         hashPrefix: API.hashPrefix,
         normalizeSegments: API.normalizeSegments,
+        isRateLimited: API.isRateLimited,
       },
       toggleSubmissionEditor: () => UI.toggleSubmissionEditor()
     };

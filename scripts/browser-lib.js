@@ -22,13 +22,16 @@ function bundleBody() {
   return body;
 }
 
-function shimSource({ seed = {}, vmContent = false } = {}) {
+function shimSource({ seed = {}, vmContent = false, drop = {} } = {}) {
   // The shim runs before the bundle. Bare GM_* identifiers resolve against
   // the global object in the page world; in the isolated world they resolve
   // as top-level lexical bindings we declare with var.
+  // `drop` simulates manager builds with APIs absent (e.g. older Violentmonkey
+  // did not always provide GM_addStyle under @inject-into content).
   return `
 (function () {
   "use strict";
+  var __drop = ${JSON.stringify(drop)};
   var __seed = ${JSON.stringify(JSON.stringify(seed))};
   var __store;
   try {
@@ -98,16 +101,16 @@ function shimSource({ seed = {}, vmContent = false } = {}) {
   // Classic GM_* globals are provided by BOTH Tampermonkey and Violentmonkey
   // (even in @inject-into content mode); in the isolated world these land on
   // the isolated global proxy and stay invisible to page scripts.
-  window.GM_setValue = __gmSetValue;
-  window.GM_getValue = __gmGetValue;
-  window.GM_deleteValue = __gmDeleteValue;
-  window.GM_listValues = __gmListValues;
-  window.GM_addStyle = __gmAddStyle;
-  window.GM_xmlhttpRequest = __gmXhr;
-  window.GM_registerMenuCommand = __register;
+  if (!__drop.setValue) window.GM_setValue = __gmSetValue;
+  if (!__drop.getValue) window.GM_getValue = __gmGetValue;
+  if (!__drop.deleteValue) window.GM_deleteValue = __gmDeleteValue;
+  if (!__drop.listValues) window.GM_listValues = __gmListValues;
+  if (!__drop.addStyle) window.GM_addStyle = __gmAddStyle;
+  if (!__drop.xhr) window.GM_xmlhttpRequest = __gmXhr;
+  if (!__drop.menu) window.GM_registerMenuCommand = __register;
   window.GM_info = __gmInfo;
   window.unsafeWindow = window;
-  if (${vmContent}) {
+  if (${vmContent} && !__drop.gmBridge) {
     // Violentmonkey also exposes the GM.* promise bridge. Emulate its quirk:
     // async getValue/setValue and xmlHttpRequest camelCase.
     var __gm = {
@@ -117,7 +120,7 @@ function shimSource({ seed = {}, vmContent = false } = {}) {
       listValues: async function () { return __gmListValues(); },
       xmlHttpRequest: __gmXhr,
       registerMenuCommand: __register,
-      addStyle: async function (css) { return __gmAddStyle(css); },
+      addStyle: __drop.addStyle ? undefined : async function (css) { return __gmAddStyle(css); },
       info: __gmInfo,
     };
     Object.defineProperty(window, "GM", { value: __gm });
@@ -143,12 +146,12 @@ async function launch(browserLog) {
 }
 
 // Inject shim + requires + bundle into a page at document-start.
-async function inject(page, { seed = {}, vmContent = false } = {}) {
+async function inject(page, { seed = {}, vmContent = false, drop = {} } = {}) {
   const lz = fs.readFileSync(path.join(ROOT, "scripts/fixtures/lz-string.min.js"), "utf8");
   const culori = fs.readFileSync(path.join(ROOT, "scripts/fixtures/culori.min.js"), "utf8");
   const body = bundleBody();
   if (!vmContent) {
-    await page.evaluateOnNewDocument(shimSource({ seed, vmContent: false }));
+    await page.evaluateOnNewDocument(shimSource({ seed, vmContent: false, drop }));
     await page.evaluateOnNewDocument(lz);
     await page.evaluateOnNewDocument(culori);
     await page.evaluateOnNewDocument(body);
@@ -166,10 +169,18 @@ async function inject(page, { seed = {}, vmContent = false } = {}) {
     contexts.delete(executionContextId);
   });
   cdp.on("Runtime.executionContextsCleared", () => contexts.clear());
-  for (const src of [shimSource({ seed, vmContent: true }), lz, culori, body]) {
+  for (const src of [shimSource({ seed, vmContent: true, drop }), lz, culori, body]) {
     await cdp.send("Page.addScriptToEvaluateOnNewDocument", { source: src, worldName: "ytzen-content" });
   }
   page.__zenCdp = cdp;
+  // Detach the CDP session before the target closes; otherwise a raced
+  // teardown can surface as "Session with given id not found" on a later
+  // createTarget (observed running multiple content scenarios in one run).
+  const _origClose = page.close.bind(page);
+  page.close = async () => {
+    try { await cdp.detach(); } catch (_) {}
+    return _origClose();
+  };
   page.evalContent = async function (expression) {
     let contextId;
     for (let i = 0; i < 50 && contextId === undefined; i++) {

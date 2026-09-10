@@ -46,12 +46,12 @@ function cfgSeed(extra) {
   return { "ytp.cfg": JSON.stringify(cfg) };
 }
 
-async function newPage(browser, seed, vmContent, log) {
+async function newPage(browser, seed, vmContent, log, drop) {
   const page = await browser.newPage();
   await page.setViewport({ width: 1366, height: 900 });
   await page.setCookie({ name: "CONSENT", value: "PENDING+987", domain: ".youtube.com", path: "/" });
   const entries = attachConsole(page, log);
-  await inject(page, { seed: seed || {}, vmContent: !!vmContent });
+  await inject(page, { seed: seed || {}, vmContent: !!vmContent, drop: drop || {} });
   page._entries = entries;
   // Network evidence log
   const reqs = [];
@@ -189,26 +189,54 @@ async function scenarioEarlyNav(browser) {
   const page = await newPage(browser, cfgSeed(), false, () => {});
   await page.goto(SEARCH, { waitUntil: "domcontentloaded", timeout: 60000 });
   for (let i = 0; i < 80; i++) { await wait(250); if ((await stateProbe(page)).applied) break; }
-  // Rapid-fire SPA navigations: click two results in quick succession.
-  const ok = await page.evaluate(() => {
-    const links = Array.from(document.querySelectorAll("ytd-video-renderer a#video-title[href*='watch']"));
-    return links.length >= 2;
-  });
-  await page.evaluate(() => {
-    const links = Array.from(document.querySelectorAll("ytd-video-renderer a#video-title[href*='watch']"));
-    if (links[0]) links[0].click();
-  });
-  await wait(600);
-  await page.evaluate(() => {
-    const links = Array.from(document.querySelectorAll("ytd-video-renderer a#video-title[href*='watch'],ytd-compact-video-renderer a[href*='watch']"));
-    if (links[0]) links[0].click();
-  });
-  let settled = false;
-  for (let i = 0; i < 80; i++) {
-    await wait(250);
-    const onWatch = await page.evaluate(() => /\/watch\?v=/.test(location.href));
-    if (onWatch) { settled = true; break; }
-  }
+  // Rapid-fire SPA navigations: capture two result hrefs, click two results
+  // in quick succession. Under full-suite load the first SPA transition can
+  // take seconds; re-query resiliently instead of assuming the search DOM is
+  // still mounted 600ms later.
+  const hrefs = await page.evaluate(() =>
+    Array.from(document.querySelectorAll("ytd-video-renderer a#video-title[href*='watch']")).map((a) => a.href));
+  const ok = hrefs.length >= 2;
+  const vidOf = (href) => { try { return new URL(href).searchParams.get("v"); } catch (_) { return ""; } };
+  // Click the preferred vid; if it has unmounted (search grid replaced by the
+  // watch page), click the first available result whose vid differs from the
+  // one we are leaving. Returns the vid navigated to, or "" after timeout.
+  const clickHref = async (preferredVid, excludeVid, timeoutMs) => {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const clicked = await page.evaluate(([pref, excl]) => {
+        const vids = (a) => { try { return new URL(a.href).searchParams.get("v"); } catch (_) { return ""; } };
+        const links = Array.from(document.querySelectorAll(
+          "ytd-video-renderer a#video-title[href*='watch'],ytd-compact-video-renderer a[href*='watch'],yt-lockup-view-model a[href*='watch']"));
+        const hit = links.find((a) => vids(a) === pref)
+          || links.find((a) => vids(a) && vids(a) !== excl);
+        if (hit) { const v = vids(hit); hit.click(); return v; }
+        return "";
+      }, [preferredVid, excludeVid]);
+      if (clicked) return clicked;
+      await wait(200);
+    }
+    return "";
+  };
+  const waitForVid = async (targetVid, timeoutMs, differentFrom = null) => {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const cur = await page.evaluate(() => location.href);
+      if (/\/watch\?v=/.test(cur)) {
+        const v = vidOf(cur);
+        if ((!targetVid || v === targetVid) && (!differentFrom || v !== differentFrom)) return true;
+      }
+      await wait(200);
+    }
+    return /\/watch\?v=/.test(await page.evaluate(() => location.href));
+  };
+  const firstVid = vidOf(hrefs[0]);
+  await clickHref(firstVid, null, 8000);
+  await waitForVid(firstVid, 15000);
+  await wait(600); // overlap the second nav with features still applying
+  // The second pre-captured search result may not survive the transition;
+  // accept any sidebar result different from the first destination.
+  await clickHref(vidOf(hrefs[1]), firstVid, 6000);
+  const settled = await waitForVid(null, 20000, firstVid);
   await wait(4000); // allow SB lookup for final destination
   const sbForFinal = page._reqs.filter((r) => /sponsor\.ajay\.app/.test(r.url)).length;
   const probe = await stateProbe(page);
@@ -242,15 +270,18 @@ async function scenarioStyleWipe(browser) {
   return { name, ok: repaired, markersBeforeWipe: wiped.markerCount, repaired };
 }
 
-async function scenarioDashboard(browser, vmContent) {
-  const name = vmContent ? "dashboard-content" : "dashboard-main";
+async function scenarioDashboard(browser, vmContent, drop) {
+  const name = drop && drop.addStyle
+    ? "dashboard-content-strictvm"
+    : (vmContent ? "dashboard-content" : "dashboard-main");
   const log = (...a) => console.log(`[${name}]`, ...a);
-  const page = await newPage(browser, cfgSeed(), vmContent, log);
+  const page = await newPage(browser, cfgSeed(), vmContent, log, drop);
   await page.goto(WATCH, { waitUntil: "domcontentloaded", timeout: 60000 });
   for (let i = 0; i < 100; i++) { await wait(250); if ((await stateProbe(page)).applied) break; }
   await wait(1500);
   const openExpr = `(async () => {
-    const out = { menuPresent: false, opened: false, rows: 0, threw: null, fallback: false };
+    const out = { menuPresent: false, opened: false, cards: 0, toggles: 0, threw: null, fallback: false,
+      dashCss: false, dashCssIsStyle: false, addStyleMissing: (typeof GM_addStyle === "undefined") };
     try {
       const open = window.__zenMenu && window.__zenMenu["Open YT-zen dashboard"];
       out.menuPresent = typeof open === "function";
@@ -266,13 +297,29 @@ async function scenarioDashboard(browser, vmContent) {
         if (fb) { try { fb(); await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
           const d = document.querySelector("aside.ytp-dash"); out.opened = !!d && d.classList.contains("open"); } catch (e) { out.threw = String(e && e.message || e); } }
       }
+      if (out.opened) {
+        const d = document.querySelector("aside.ytp-dash");
+        out.cards = d.querySelectorAll(".ytp-card").length;
+        out.toggles = d.querySelectorAll('input[type="checkbox"]').length;
+        const marker = document.getElementById("ytp-dash-style");
+        out.dashCss = !!marker;
+        // The raw <style> fallback must carry the actual CSS; the manager
+        // meta marker never does.
+        out.dashCssIsStyle = !!marker && marker.tagName === "STYLE" && marker.textContent.length > 1000;
+      }
     } catch (e) { out.threw = String(e && e.message || e); }
     return out;
   })()`;
   const result = page.evalContent ? await page.evalContent(openExpr) : await page.evaluate(openExpr);
   const errors = page._entries.filter((e) => e.type === "pageerror").map((e) => e.text);
   await page.close();
-  return Object.assign({ name, ok: result.opened && !result.threw }, result, { errors: errors.slice(0, 5) });
+  // Must fully build: the panel opens, feature cards + toggles render, and the
+  // dashboard stylesheet exists. When GM_addStyle is absent (strict VM) the
+  // raw <style> fallback must carry the CSS.
+  const built = result.opened && result.cards > 20 && result.toggles > 20 && !!result.dashCss;
+  const styleFallbackOk = !result.addStyleMissing ? result.dashCss : result.dashCssIsStyle;
+  const ok = built && styleFallbackOk && !result.threw;
+  return Object.assign({ name, ok }, result, { errors: errors.slice(0, 5) });
 }
 
 async function main() {
@@ -287,6 +334,9 @@ async function main() {
     ["style-wipe", () => scenarioStyleWipe(browser)],
     ["dashboard-main", () => scenarioDashboard(browser, false)],
     ["dashboard-content", () => scenarioDashboard(browser, true)],
+    // Strict Violentmonkey: content world, no GM_addStyle, no GM.* bridge —
+    // the historical "undefined is not a function" environment.
+    ["dashboard-content-strictvm", () => scenarioDashboard(browser, true, { addStyle: true, gmBridge: true })],
   ];
   const results = [];
   for (const [n, fn] of all) {

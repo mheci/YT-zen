@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YT-zen
 // @namespace    https://github.com/mheci/YT-zen
-// @version      3.16.19
+// @version      3.16.20
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      Unlicense
@@ -8103,6 +8103,14 @@ algoBlockChannels: "",
                 ", " + wN + " windows, gmx=" + (hasGmx ? "yes" : "no") +
                 ") for " + a,
             );
+            try {
+              console.log(
+                "[YT-zen] fw account-history: burst " + fired +
+                  " beacons (cpn " + (realCpn ? "real" : "MISSING") +
+                  ", " + wN + " windows, gmx=" + (hasGmx ? "yes" : "no") +
+                  ") for " + a,
+              );
+            } catch (e) {}
             // Per-press diagnostic: one readable line describing exactly
             // what this press did (toast + console).
             try {
@@ -8121,6 +8129,7 @@ algoBlockChannels: "",
                 })();
               pe("FW " + dbg, 4000, "info");
               u("fw diagnostic: " + dbg);
+              try { console.log("[YT-zen] fw diagnostic: " + dbg); } catch (e) {}
             } catch (e) {}
           } catch (e) {
             h("fw account-history player fetch", e);
@@ -28175,7 +28184,16 @@ const Nr = [
         if (!videoId) return;
         const pct = duration > 0 ? Math.min(100, Math.round((watchTime / duration) * 100)) : 0;
         if (!shouldRecordWatch(videoId, pct)) return;
-        const topics = ContentClassifier.classifyFromPage();
+        // Sanitize to plain data: classifyFromPage() can carry Xray-wrapped
+        // page objects (Firefox content mode); storing those throws
+        // "Not allowed to define cross-origin object as property" and
+        // kills the signals update.
+        let topics = null;
+        try {
+          topics = JSON.parse(JSON.stringify(ContentClassifier.classifyFromPage() || null));
+        } catch (_) {
+          topics = null;
+        }
         let channelId = "";
         let channelName = "";
         try {
@@ -28185,8 +28203,21 @@ const Nr = [
             channelName = vd.author || "";
           }
         } catch (_) {}
+        const rec = {
+          watchTime: Number(watchTime) || 0,
+          duration: Number(duration) || 0,
+          pct: pct,
+          topics: topics,
+          channelId: String(channelId || ""),
+          channelName: String(channelName || ""),
+          ts: Date.now(),
+        };
         store.update(d => {
-          d.watchHistory[videoId] = { watchTime, duration, pct, topics, channelId, channelName, ts: Date.now() };
+          try {
+            d.watchHistory[videoId] = rec;
+          } catch (_) {
+            return;
+          }
           // Keep only last 500 entries
           const keys = Object.keys(d.watchHistory);
           if (keys.length > 500) {
@@ -28691,7 +28722,12 @@ const Nr = [
           const duration = vid.duration;
           if (!isFinite(duration) || duration < 10) return;
 
-          const topics = ContentClassifier.classifyFromPage();
+          let topics = null;
+          try {
+            topics = JSON.parse(JSON.stringify(ContentClassifier.classifyFromPage() || {}));
+          } catch (_) {
+            topics = {};
+          }
           const profile = SignalTracker.getProfile();
 
           // Determine if this content aligns with desired profile
@@ -31830,6 +31866,16 @@ const Nr = [
     } catch (e) {}
     try {
       u("inject mode: " + ((typeof GM_info !== "undefined" && GM_info && GM_info.injectInto) || "unknown"));
+    } catch (e) {}
+    try {
+      // Unconditional: lets any user verify the installed version and
+      // inject mode in the console without enabling verbose logging.
+      console.log(
+        "[YT-zen] v" +
+          ((typeof GM_info !== "undefined" && GM_info && GM_info.script && GM_info.script.version) || "?") +
+          " | inject: " +
+          ((typeof GM_info !== "undefined" && GM_info && GM_info.injectInto) || "?"),
+      );
     } catch (e) {}
     try {
       u(

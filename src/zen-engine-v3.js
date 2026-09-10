@@ -1027,7 +1027,16 @@
         if (!videoId) return;
         const pct = duration > 0 ? Math.min(100, Math.round((watchTime / duration) * 100)) : 0;
         if (!shouldRecordWatch(videoId, pct)) return;
-        const topics = ContentClassifier.classifyFromPage();
+        // Sanitize to plain data: classifyFromPage() can carry Xray-wrapped
+        // page objects (Firefox content mode); storing those throws
+        // "Not allowed to define cross-origin object as property" and
+        // kills the signals update.
+        let topics = null;
+        try {
+          topics = JSON.parse(JSON.stringify(ContentClassifier.classifyFromPage() || null));
+        } catch (_) {
+          topics = null;
+        }
         let channelId = "";
         let channelName = "";
         try {
@@ -1037,8 +1046,21 @@
             channelName = vd.author || "";
           }
         } catch (_) {}
+        const rec = {
+          watchTime: Number(watchTime) || 0,
+          duration: Number(duration) || 0,
+          pct: pct,
+          topics: topics,
+          channelId: String(channelId || ""),
+          channelName: String(channelName || ""),
+          ts: Date.now(),
+        };
         store.update(d => {
-          d.watchHistory[videoId] = { watchTime, duration, pct, topics, channelId, channelName, ts: Date.now() };
+          try {
+            d.watchHistory[videoId] = rec;
+          } catch (_) {
+            return;
+          }
           // Keep only last 500 entries
           const keys = Object.keys(d.watchHistory);
           if (keys.length > 500) {
@@ -1543,7 +1565,12 @@
           const duration = vid.duration;
           if (!isFinite(duration) || duration < 10) return;
 
-          const topics = ContentClassifier.classifyFromPage();
+          let topics = null;
+          try {
+            topics = JSON.parse(JSON.stringify(ContentClassifier.classifyFromPage() || {}));
+          } catch (_) {
+            topics = {};
+          }
           const profile = SignalTracker.getProfile();
 
           // Determine if this content aligns with desired profile

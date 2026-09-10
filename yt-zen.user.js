@@ -3846,7 +3846,11 @@ algoBlockChannels: "",
       if (v && v.duration === Infinity) return true;
     } catch (e) {}
     try {
-      if (document.querySelector(".ytp-live-badge")) return true;
+      // The badge NODE exists in the player chrome even on VODs (kept at
+      // display:none). Only a *rendered* badge means live — presence alone
+      // force-blocked the feature on ordinary videos.
+      const b = document.querySelector(".ytp-live-badge");
+      if (b && b.getClientRects().length > 0) return true;
     } catch (e) {}
     return false;
   }
@@ -7549,10 +7553,66 @@ algoBlockChannels: "",
           : clearInterval(i));
     }, 50);
   }
+  // ORGANIC CHANNEL (force-watched): actually play through the tail so the
+  // real player fires `ended` and YouTube finalizes watchtime itself with
+  // the genuine session — the one signal that works in every injection
+  // mode (the media element is shared even under content injection, where
+  // page-world APIs and synthetic page events are unreachable/ignored).
+  async function KtOrganic(e, t) {
+    let done = false;
+    const fwLog = (m) => { try { (window.__fwLog = window.__fwLog || []).slice(-39); (window.__fwLog = window.__fwLog || []).push(Math.round(performance.now()) + " " + m); } catch (_) {} };
+    const wasMuted = e.muted, wasRate = e.playbackRate, wasPaused = e.paused;
+    const sprint = (rate, runway, waitMs) => new Promise((resolve) => {
+      let settled = false;
+      const finish = (ok) => {
+        if (settled) return;
+        settled = true;
+        try { e.removeEventListener("ended", onEnd); } catch (_) {}
+        clearInterval(poll);
+        clearTimeout(to);
+        resolve(ok);
+      };
+      const onEnd = () => finish(true);
+      const poll = setInterval(() => {
+        try { if (e.ended || t - e.currentTime <= 0.06) finish(true); } catch (_) {}
+      }, 80);
+      const to = setTimeout(() => finish(false), waitMs);
+      try { e.addEventListener("ended", onEnd, { once: true }); } catch (_) {}
+      try { e.muted = true; } catch (_) {}
+      try { e.loop = false; } catch (_) {}
+      try { e.playbackRate = rate; } catch (_) {}
+      try { e.currentTime = Math.max(0, t - runway); } catch (_) {}
+      try { const p = e.play(); p && p.catch && p.catch(() => {}); } catch (_) {}
+    });
+    try { e.loop = false; } catch (_) {}
+    fwLog("sprint1 start t=" + (+e.currentTime).toFixed(1) + "/" + t);
+    done = await sprint(8, 1.5, 4000);
+    fwLog("sprint1 done=" + done + " t=" + (+e.currentTime).toFixed(1));
+    if (!done) { fwLog("sprint2 start"); done = await sprint(4, 3, 6000); fwLog("sprint2 done=" + done + " t=" + (+e.currentTime).toFixed(1)); }
+    // Settle: restore everything; pause right after the ended state so
+    // autoplay can't immediately yank the user to the next video.
+    setTimeout(() => {
+      try { e.pause(); } catch (_) {}
+      try { e.playbackRate = wasRate; } catch (_) {}
+      try { e.muted = wasMuted; } catch (_) {}
+      try { if (!wasPaused && t - e.currentTime > 1) e.currentTime = Math.max(0, t - 0.5); } catch (_) {}
+      try { if (typeof jt !== "undefined") jt = !1; } catch (_) {}
+      fwLog("settle t=" + (+e.currentTime).toFixed(1) + " paused=" + e.paused);
+    }, 500);
+    if (done) {
+      pe("Marked as fully watched.", 2200, "success");
+    } else {
+      pe("Watchtime signals sent — history may take a moment.", 2600, "info");
+    }
+    return done;
+  }
   function Kt(e, t, a, n) {
+    if (_isLiveStream()) {
+      return void pe("Live streams can't be marked as watched.", 2000, "info");
+    }
     jt = !0;
 
-    pe("Marked as watched.", 1500, "success");
+    pe("Marking as watched…", 1200, "info");
     const r = {
       loop: e.loop,
       playbackRate: e.playbackRate,
@@ -7569,6 +7629,9 @@ algoBlockChannels: "",
       loopCfg: S.loopVideo,
       skipIntroCfg: S.skipIntroOn,
     };
+    // Organic channel starts AFTER the snapshot above — sprint 8× must not
+    // leak into r.playbackRate or Kt's own restore would pin it forever.
+    try { KtOrganic(e, n).catch(() => {}); } catch (_) {}
     try {
       e.loop = !1;
     } catch (e) {}
@@ -7803,6 +7866,15 @@ algoBlockChannels: "",
             }
           }
         } catch (e) {}
+        try {
+          // Content injection (Firefox+VM): page API is unreachable, but
+          // the live player response is readable cross-world via Xray.
+          // A phantom cpn gets the watchtime beacon discarded — anchor it
+          // to the genuine playback session whenever we can.
+          const w = typeof unsafeWindow !== "undefined" ? unsafeWindow : window;
+          const c = w && w.ytInitialPlayerResponse && w.ytInitialPlayerResponse.playerConfig && w.ytInitialPlayerResponse.playerConfig.cpn;
+          if (c) return c;
+        } catch (e) {}
         return Tt();
       })(),
       d = [Tt(), Tt()],
@@ -8013,56 +8085,6 @@ algoBlockChannels: "",
         t.seekTo = r.apiSeekTo;
       } catch (e) {}
     }
-    const p = Math.max(0, n - 0.5);
-    try {
-      e.currentTime = p;
-    } catch (e) {}
-    if (_isLiveStream()) return;
-    try {
-      e.playbackRate = 16;
-    } catch (e) {}
-    try {
-      e.play().catch(() => {});
-    } catch (e) {}
-    try {
-      t && t.playVideo && t.playVideo();
-    } catch (e) {}
-    try {
-      e.dispatchEvent(new Event("timeupdate", { bubbles: !0 }));
-    } catch (e) {}
-    try {
-      e.dispatchEvent(new Event("progress", { bubbles: !0 }));
-    } catch (e) {}
-    try {
-      e.dispatchEvent(new Event("seeking", { bubbles: !0 }));
-    } catch (e) {}
-    try {
-      e.dispatchEvent(new Event("seeked", { bubbles: !0 }));
-    } catch (e) {}
-    setTimeout(() => {
-      try {
-        if (ie.videoId() === a) {
-          const v2 = document.querySelector("video.html5-main-video");
-          if (
-            v2 &&
-            isFinite(v2.duration) &&
-            v2.duration > 0.5 &&
-            v2.currentTime < v2.duration - 0.05
-          ) {
-            u("fw forced end: " + v2.currentTime.toFixed(1) + "/" + v2.duration.toFixed(1));
-            const p2 = v2.play();
-            const finish = () => {
-              try {
-                v2.currentTime = v2.duration;
-                v2.dispatchEvent(new Event("ended", { bubbles: !0 }));
-              } catch (e) {}
-            };
-            if (p2 && "function" == typeof p2.then) p2.then(finish, finish);
-            else finish();
-          }
-        }
-      } catch (e) {}
-    }, 700);
     !(function (e, t) {
       try {
         const a = new URL(location.href);
@@ -8901,6 +8923,7 @@ algoBlockChannels: "",
             // e.play() on every tick inside [A,B], so the video could not be
             // paused while the loop was engaged.
             if (!e || _isLiveStream()) return;
+            if (jt) return; // force-watched sprint owns the playhead right now
             if (e.currentTime >= S.abB) {
               try { e.currentTime = S.abA; } catch (_) { return; }
               if (e.paused) e.play().catch(() => {});
@@ -31552,6 +31575,16 @@ const Nr = [
     } catch (e) {}
     try {
       u("inject mode: " + ((typeof GM_info !== "undefined" && GM_info && GM_info.injectInto) || "unknown"));
+    } catch (e) {}
+    try {
+      u(
+        "force-watched cfg: on=" +
+          !!S.forceWatchedOn +
+          " local=" +
+          !!S.forceWatchedLocalHistory +
+          " account=" +
+          !!S.forceWatchedAccountHistory,
+      );
     } catch (e) {}
     try {
       !(function () {

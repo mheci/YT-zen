@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YT-zen
 // @namespace    https://github.com/mheci/YT-zen
-// @version      3.16.18
+// @version      3.16.19
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      Unlicense
@@ -7764,6 +7764,29 @@ algoBlockChannels: "",
       return void pe("Live streams can't be marked as watched.", 2000, "info");
     }
     jt = !0;
+    // EARLY session-signature stash, Xray-proof: read the playbackTracking
+    // templates straight off the page window (data reads are allowed
+    // cross-world). Firefox content mode: ie.api().getPlayerResponse() can
+    // THROW "Not allowed to define cross-origin object as property"
+    // (XrayWrapper), which used to kill the whole local-template path and
+    // left every campaign beacon unsigned (hardcoded of) = discarded.
+    try {
+      if (!_fwTpl) {
+        const w = typeof unsafeWindow !== "undefined" ? unsafeWindow : window;
+        const pts =
+          w &&
+          w.ytInitialPlayerResponse &&
+          w.ytInitialPlayerResponse.playbackTracking;
+        _fwTplSet(
+          (pts &&
+            pts.videostatsWatchtimeUrl &&
+            pts.videostatsWatchtimeUrl.baseUrl) ||
+            (pts &&
+              pts.videostatsPlaybackUrl &&
+              pts.videostatsPlaybackUrl.baseUrl),
+        );
+      }
+    } catch (_) {}
 
     pe("Fast-forwarding to the end…", 1400, "info");
     const r = {
@@ -7864,18 +7887,25 @@ algoBlockChannels: "",
                   return out;
                 })(),
               });
+              // Local sources first: the page's own player response carries
+              // live, correctly-signed templates (of/vm/ei/plid). Each
+              // source gets its OWN try — in Firefox content mode
+              // api.getPlayerResponse() can throw the XrayWrapper error,
+              // and it must not take the data read down with it.
               try {
-                // Local sources first: the InnerTube re-fetch usually comes
-                // back UNPLAYABLE (no session context), while the page's own
-                // player response carries live, correctly-signed templates
-                // (of/vm/ei/plid) that the client completes with cpn.
-                const p = ie.api(),
-                  pr =
-                    (p &&
-                      "function" == typeof p.getPlayerResponse &&
-                      p.getPlayerResponse()) ||
-                    window.ytInitialPlayerResponse ||
-                    null;
+                let pr = null;
+                try {
+                  const w =
+                    typeof unsafeWindow !== "undefined" ? unsafeWindow : window;
+                  pr = (w && w.ytInitialPlayerResponse) || window.ytInitialPlayerResponse || null;
+                } catch (e) {}
+                if (!pr) {
+                  try {
+                    const p = ie.api();
+                    if (p && "function" == typeof p.getPlayerResponse)
+                      pr = p.getPlayerResponse();
+                  } catch (e) {}
+                }
                 if (pr && pr.playbackTracking) {
                   const vd = pr.videoDetails || {};
                   try {
@@ -7929,7 +7959,8 @@ algoBlockChannels: "",
               return null;
             })(a);
             if (!track || (!track.playbackUrl && !track.watchtimeUrl)) {
-
+              pe("FW tpl=none — signed qt campaign only", 4000, "info");
+              u("fw diagnostic: tpl=none — template channel unavailable, qt campaign carries the press");
               return;
             }
             const dur = track.lengthSec > 0 ? track.lengthSec : n;
@@ -8047,8 +8078,10 @@ algoBlockChannels: "",
               if (wi % 4 === 3) fire(track.qoeUrl, { cmt: et, rt: (et + 1 + Math.random() * 2).toFixed(3) });
             }
             try {
+              // /pagead remarketing pixels are third-party (ETP blocks them
+              // in Firefox anyway) and carry no watchtime weight — skip.
               for (const eu of track.extraUrls || [])
-                isPix(eu) ? fire(eu, {}) : fire(eu, { cmt: DU, rt: rtNow() });
+                if (!isPix(eu)) fire(eu, { cmt: DU, rt: rtNow() });
             } catch (e) {}
             fire(track.engagedviewUrl, { cmt: DU, et: DU, st: 0, rt: (DU + 1 + Math.random() * 2).toFixed(3), state: "playing" });
             fire(track.ptrackingUrl, {});

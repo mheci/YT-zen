@@ -122,23 +122,28 @@ async function scenarioSpaNav(browser) {
   await page.goto(SEARCH, { waitUntil: "domcontentloaded", timeout: 60000 });
   for (let i = 0; i < 80; i++) { await wait(250); if ((await stateProbe(page)).applied) break; }
   const before = await stateProbe(page);
-  // Find first real video result link and click it (genuine SPA navigation)
-  const clicked = await page.evaluate(() => {
-    const a = document.querySelector("ytd-video-renderer a#video-title, ytd-video-renderer a#thumbnail[href*='watch']");
-    if (!a) return false;
-    a.click();
-    return true;
-  });
+  // Find first real video result link and click it (genuine SPA navigation).
+  // Retry briefly: under full-suite load the search grid hydrates slowly.
+  let clicked = false;
+  for (let i = 0; i < 30 && !clicked; i++) {
+    clicked = await page.evaluate(() => {
+      const a = document.querySelector("ytd-video-renderer a#video-title, ytd-video-renderer a#thumbnail[href*='watch']");
+      if (!a) return false;
+      a.click();
+      return true;
+    });
+    if (!clicked) await wait(250);
+  }
   let navd = false;
   if (clicked) {
-    for (let i = 0; i < 80; i++) {
+    for (let i = 0; i < 100; i++) {
       await wait(250);
       const onWatch = await page.evaluate(() => /\/watch\?v=/.test(location.href));
       const probe = await stateProbe(page);
       if (onWatch && probe.markerCount > 0) { navd = true; break; }
     }
   }
-  await wait(3000);
+  await wait(1500);
   const after = await stateProbe(page);
   const url = page.url();
   // Count style markers duplicates: each registered style id must exist once
@@ -189,13 +194,19 @@ async function scenarioEarlyNav(browser) {
   const page = await newPage(browser, cfgSeed(), false, () => {});
   await page.goto(SEARCH, { waitUntil: "domcontentloaded", timeout: 60000 });
   for (let i = 0; i < 80; i++) { await wait(250); if ((await stateProbe(page)).applied) break; }
-  // Rapid-fire SPA navigations: capture two result hrefs, click two results
+  // Wait until at least two results are actually rendered (search hydration
+  // can lag badly under full-suite CPU load).
+  let hrefs = [];
+  for (let i = 0; i < 80 && hrefs.length < 2; i++) {
+    hrefs = await page.evaluate(() =>
+      Array.from(document.querySelectorAll("ytd-video-renderer a#video-title[href*='watch']")).map((a) => a.href));
+    if (hrefs.length < 2) await wait(250);
+  }
+  const ok = hrefs.length >= 2;
+  // Rapid-fire SPA navigations: with two hrefs captured, click two results
   // in quick succession. Under full-suite load the first SPA transition can
   // take seconds; re-query resiliently instead of assuming the search DOM is
   // still mounted 600ms later.
-  const hrefs = await page.evaluate(() =>
-    Array.from(document.querySelectorAll("ytd-video-renderer a#video-title[href*='watch']")).map((a) => a.href));
-  const ok = hrefs.length >= 2;
   const vidOf = (href) => { try { return new URL(href).searchParams.get("v"); } catch (_) { return ""; } };
   // Click the preferred vid; if it has unmounted (search grid replaced by the
   // watch page), click the first available result whose vid differs from the
@@ -246,6 +257,86 @@ async function scenarioEarlyNav(browser) {
   });
   await page.close();
   return { name, ok: ok && settled && probe.markerCount > 0 && dupes === 0, linksFound: ok, settled, sbRequests: sbForFinal, dupes };
+}
+
+async function scenarioSeekbarMarks(browser) {
+  // Headless signed-out playback is gated (video.duration stays 0), which
+  // legitimately suppresses seekbar marks in production. Here we stub the
+  // sponsor.ajay.app response and video.duration to verify the full
+  // lookup -> normalize -> render pipeline creates correctly positioned
+  // colored marks inside .ytp-progress-list.
+  const name = "seekbar-marks";
+  const page = await browser.newPage();
+  await page.setViewport({ width: 1366, height: 900 });
+  await page.setCookie({ name: "CONSENT", value: "PENDING+987", domain: ".youtube.com", path: "/" });
+  attachConsole(page, () => {});
+  const VID = "JQb9eGeclQw";
+  const segs = [
+    { UUID: "mark-1", segment: [60, 90], category: "sponsor", actionType: "skip", votes: 10 },
+    { UUID: "mark-2", segment: [300, 320], category: "intro", actionType: "skip", votes: 5 },
+    { UUID: "mark-3", segment: [500, 500], category: "poi_highlight", actionType: "poi", votes: 8 },
+  ];
+  await page.setRequestInterception(true);
+  const safeRespond = (req, payload) => { try { return req.respond(payload); } catch (_) {} return Promise.resolve(); };
+  const safeContinue = (req) => { try { return req.continue(); } catch (_) {} return Promise.resolve(); };
+  page.on("request", (req) => {
+    const u = req.url();
+    if (u.includes("sponsor.ajay.app/api/skipSegments")) {
+      const body = /\/skipSegments\/[0-9a-f]{4}/.test(u) ? [{ videoID: VID, segments: segs }] : segs;
+      // Cross-origin page-fetch fallback requires CORS headers (the real
+      // sponsor.ajay.app sends Access-Control-Allow-Origin: *). Aborted
+      // duplicate-plan requests reject respond(); ignore those.
+      return safeRespond(req, {
+        status: 200,
+        contentType: "application/json",
+        headers: { "Access-Control-Allow-Origin": "*" },
+        body: JSON.stringify(body),
+      });
+    }
+    if (u.includes("sponsor.ajay.app")) {
+      return safeRespond(req, { status: 200, headers: { "Access-Control-Allow-Origin": "*" }, body: "" });
+    }
+    return safeContinue(req);
+  });
+  await inject(page, { seed: cfgSeed(), vmContent: false });
+  await page.goto(WATCH, { waitUntil: "domcontentloaded", timeout: 60000 });
+  for (let i = 0; i < 100; i++) { await wait(250); if ((await stateProbe(page)).applied) break; }
+  // Stub duration once the player/video element exists.
+  let stubbed = false;
+  for (let i = 0; i < 60 && !stubbed; i++) {
+    stubbed = await page.evaluate((dur) => {
+      const v = document.querySelector("video");
+      if (!v) return false;
+      try { Object.defineProperty(v, "duration", { configurable: true, get: () => dur }); } catch (_) {}
+      v.dispatchEvent(new Event("loadedmetadata", { bubbles: true }));
+      v.dispatchEvent(new Event("timeupdate", { bubbles: true }));
+      return true;
+    }, 600);
+    if (!stubbed) await wait(250);
+  }
+  // Re-dispatch periodically and also let the 3s seekbar watchdog render.
+  let out = { marks: 0, positioned: 0, inList: false, colors: [], stubbed, segCount: 0 };
+  for (let i = 0; i < 48; i++) {
+    await wait(500);
+    await page.evaluate(() => {
+      const v = document.querySelector("video");
+      if (v) v.dispatchEvent(new Event("timeupdate", { bubbles: true }));
+    });
+    out = await page.evaluate(() => {
+      const marks = Array.from(document.querySelectorAll(".ytp-sb-mark"));
+      const list = document.querySelector(".ytp-progress-list,.ytp-progress-bar");
+      return {
+        marks: marks.length,
+        positioned: marks.filter((m) => /left:\s*[\d.]+%/.test(m.style.cssText) && /width:\s*[\d.]+%/.test(m.style.cssText)).length,
+        inList: !!(list && marks.every((m) => list.contains(m))),
+        colors: marks.map((m) => m.style.background).slice(0, 5),
+      };
+    });
+    if (out.marks >= 2) break;
+  }
+  await page.close();
+  const ok = stubbed && out.marks >= 2 && out.positioned >= 2 && out.inList;
+  return { name, ok, stubbed, marks: out.marks, positioned: out.positioned, inList: out.inList, colors: out.colors };
 }
 
 async function scenarioStyleWipe(browser) {
@@ -331,6 +422,7 @@ async function main() {
     ["spa-nav", () => scenarioSpaNav(browser)],
     ["early-nav", () => scenarioEarlyNav(browser)],
     ["delayed-shell", () => scenarioDelayedShell(browser)],
+    ["seekbar-marks", () => scenarioSeekbarMarks(browser)],
     ["style-wipe", () => scenarioStyleWipe(browser)],
     ["dashboard-main", () => scenarioDashboard(browser, false)],
     ["dashboard-content", () => scenarioDashboard(browser, true)],

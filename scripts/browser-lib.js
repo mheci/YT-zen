@@ -145,16 +145,23 @@ async function launch(browserLog) {
   return browser;
 }
 
+// The userscript header declares @noframes: real managers inject only the
+// top frame. CDP addScriptToEvaluateOnNewDocument instead runs in EVERY
+// frame (including same-origin about:blank children), where duplicate
+// engines race the cross-tab config sync and revert each other's settings.
+// Wrap every injected source in a top-frame guard to match @noframes.
+const topFrameOnly = (src) => `if (window.top === window.self) {\n${src}\n}\n`;
+
 // Inject shim + requires + bundle into a page at document-start.
 async function inject(page, { seed = {}, vmContent = false, drop = {} } = {}) {
   const lz = fs.readFileSync(path.join(ROOT, "scripts/fixtures/lz-string.min.js"), "utf8");
   const culori = fs.readFileSync(path.join(ROOT, "scripts/fixtures/culori.min.js"), "utf8");
   const body = bundleBody();
   if (!vmContent) {
-    await page.evaluateOnNewDocument(shimSource({ seed, vmContent: false, drop }));
-    await page.evaluateOnNewDocument(lz);
-    await page.evaluateOnNewDocument(culori);
-    await page.evaluateOnNewDocument(body);
+    await page.evaluateOnNewDocument(topFrameOnly(shimSource({ seed, vmContent: false, drop })));
+    await page.evaluateOnNewDocument(topFrameOnly(lz));
+    await page.evaluateOnNewDocument(topFrameOnly(culori));
+    await page.evaluateOnNewDocument(topFrameOnly(body));
     return null;
   }
   // CDP isolated world — emulate @inject-into content precisely.
@@ -170,7 +177,7 @@ async function inject(page, { seed = {}, vmContent = false, drop = {} } = {}) {
   });
   cdp.on("Runtime.executionContextsCleared", () => contexts.clear());
   for (const src of [shimSource({ seed, vmContent: true, drop }), lz, culori, body]) {
-    await cdp.send("Page.addScriptToEvaluateOnNewDocument", { source: src, worldName: "ytzen-content" });
+    await cdp.send("Page.addScriptToEvaluateOnNewDocument", { source: topFrameOnly(src), worldName: "ytzen-content" });
   }
   page.__zenCdp = cdp;
   // Detach the CDP session before the target closes; otherwise a raced

@@ -1091,7 +1091,7 @@
         }
       };
 
-      // GET /api/getIsUserVIP — the official VIP check (/api/userInfo does
+      // GET /api/isUserVIP — the official VIP check (/api/userInfo does
       // not include vip state). The server hashes the local userID itself
       // and returns {hashedUserID, vip}. Cached like user info; a failed
       // request resolves to false so editor UI never blocks on it.
@@ -1106,7 +1106,7 @@
         const base = Settings.getServerUrl();
         try {
           const { body } = await requestJson(
-            base + "/api/getIsUserVIP?userID=" + encodeURIComponent(cleanUserId),
+            base + "/api/isUserVIP?userID=" + encodeURIComponent(cleanUserId),
             abortSignal,
             { timeoutMs: API_TIMEOUT_MS }
           );

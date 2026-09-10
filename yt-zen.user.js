@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YT-zen
 // @namespace    https://github.com/mheci/YT-zen
-// @version      3.16.11
+// @version      3.16.12
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      Unlicense
@@ -7376,7 +7376,16 @@ algoBlockChannels: "",
         "ei=" + encodeURIComponent(i.ei),
         "fmt=" + ((o && o.fmt) || "243"),
         "fs=0",
-        "rt=" + c,
+        "rt=" +
+          (o && null != o.rt
+            ? o.rt
+            : (function () {
+                try {
+                  return (performance.now() / 1000).toFixed(3);
+                } catch (e) {
+                  return String(c);
+                }
+              })()),
         "rtn=" + s,
         "of=" + encodeURIComponent("MS3lEPwEKa0vQUe3qbeAVA"),
         "euri=",
@@ -7398,7 +7407,7 @@ algoBlockChannels: "",
         "cplatform=DESKTOP",
         "hl=" + encodeURIComponent(i.hl),
         "cr=" + encodeURIComponent(i.gl),
-        "len=" + d,
+        "len=" + (t && isFinite(t) ? Math.round(t * 1000) / 1000 : d),
         "cmt=" + c,
         "mt=" + c,
         "st=" + Math.max(0, c - s),
@@ -7470,7 +7479,14 @@ algoBlockChannels: "",
             "docid=" + encodeURIComponent(e),
             "ver=2",
             "cmt=" + d,
-            "rt=" + d,
+            "rt=" +
+              (function () {
+                try {
+                  return (performance.now() / 1000).toFixed(3);
+                } catch (e) {
+                  return String(d);
+                }
+              })(),
             "len=" + i,
             "c=WEB",
             "cver=" + encodeURIComponent(o.ver),
@@ -7589,16 +7605,19 @@ algoBlockChannels: "",
     done = await sprint(8, 1.5, 4000);
     fwLog("sprint1 done=" + done + " t=" + (+e.currentTime).toFixed(1));
     if (!done) { fwLog("sprint2 start"); done = await sprint(4, 3, 6000); fwLog("sprint2 done=" + done + " t=" + (+e.currentTime).toFixed(1)); }
+    if (!done) { fwLog("sprint3 start"); done = await sprint(2, 6, 9000); fwLog("sprint3 done=" + done + " t=" + (+e.currentTime).toFixed(1)); }
     // Settle: restore everything; pause right after the ended state so
-    // autoplay can't immediately yank the user to the next video.
+    // autoplay can't immediately yank the user to the next video. If the
+    // sprints never reached a real `ended` (tail buffering stalled), give
+    // the video extra muted seconds to finish naturally instead of faking
+    // the position — a faked seek reads back as "partially watched".
     setTimeout(() => {
       try { e.pause(); } catch (_) {}
       try { e.playbackRate = wasRate; } catch (_) {}
       try { e.muted = wasMuted; } catch (_) {}
-      try { if (!wasPaused && t - e.currentTime > 1) e.currentTime = Math.max(0, t - 0.5); } catch (_) {}
       try { if (typeof jt !== "undefined") jt = !1; } catch (_) {}
-      fwLog("settle t=" + (+e.currentTime).toFixed(1) + " paused=" + e.paused);
-    }, 500);
+      fwLog("settle t=" + (+e.currentTime).toFixed(1) + " paused=" + e.paused + " done=" + done);
+    }, done ? 900 : 11000);
     if (done) {
       pe("Marked as fully watched.", 2200, "success");
     } else {
@@ -7694,6 +7713,26 @@ algoBlockChannels: "",
                 lengthSec: d,
               });
               try {
+                // Local sources first: the InnerTube re-fetch usually comes
+                // back UNPLAYABLE (no session context), while the page's own
+                // player response carries live, correctly-signed templates
+                // (of/vm/ei/plid) that the client completes with cpn.
+                const p = ie.api(),
+                  pr =
+                    (p &&
+                      "function" == typeof p.getPlayerResponse &&
+                      p.getPlayerResponse()) ||
+                    window.ytInitialPlayerResponse ||
+                    null;
+                if (pr && pr.playbackTracking) {
+                  const vd = pr.videoDetails || {};
+                  return make(
+                    pr.playbackTracking,
+                    parseInt(vd.lengthSeconds || "0", 10) || 0,
+                  );
+                }
+              } catch (e) {}
+              try {
                 const t = Mt(),
                   a = await Ot(
                     "player",
@@ -7727,119 +7766,92 @@ algoBlockChannels: "",
                   }
                 }
               } catch (e) {}
-              try {
-                const p = ie.api(),
-                  pr =
-                    (p &&
-                      "function" == typeof p.getPlayerResponse &&
-                      p.getPlayerResponse()) ||
-                    window.ytInitialPlayerResponse ||
-                    null;
-                if (pr && pr.playbackTracking) {
-                  const vd = pr.videoDetails || {};
-                  return make(
-                    pr.playbackTracking,
-                    parseInt(vd.lengthSeconds || "0", 10) || 0,
-                  );
-                }
-              } catch (e) {}
               return null;
             })(a);
             if (!track || (!track.playbackUrl && !track.watchtimeUrl)) {
 
               return;
             }
-            const dur = track.lengthSec > 0 ? track.lengthSec : n,
-              half = Math.max(15, Math.floor(dur)),
-              tail = Math.max(1, half - 1);
+            const dur = track.lengthSec > 0 ? track.lengthSec : n;
+            // The playbackTracking templates ship WITHOUT cpn — the client
+            // must append the real session cpn or the beacon can't be tied
+            // to a playback session and is discarded. rt must be honest
+            // wall-clock seconds (the server can compare it to the session
+            // age); faking rt=duration on a seconds-old session is an
+            // instant discard signature.
+            const realCpn = (function () {
+              try {
+                const w =
+                  typeof unsafeWindow !== "undefined" ? unsafeWindow : window;
+                const c =
+                  w &&
+                  w.ytInitialPlayerResponse &&
+                  w.ytInitialPlayerResponse.playerConfig &&
+                  w.ytInitialPlayerResponse.playerConfig.cpn;
+                if (c) return String(c);
+              } catch (e) {}
+              try {
+                if (typeof i === "string" && i) return i;
+              } catch (e) {}
+              return "";
+            })();
+            const rtNow = () => {
+              try {
+                return (performance.now() / 1000).toFixed(3);
+              } catch (_) {}
+              return String(Math.max(1, Math.floor(dur)));
+            };
             let fired = 0;
-            try {
-              track.playbackUrl && (Qa(Za(Za(track.playbackUrl, "len", half), "rt", 0)), fired++);
-            } catch (e) {}
-            try {
-              track.atrUrl && (Qa(Za(Za(track.atrUrl, "len", half), "rt", 0)), fired++);
-            } catch (e) {}
-            try {
-              track.delayplayUrl && (Qa(track.delayplayUrl), fired++);
-            } catch (e) {}
-            if (track.watchtimeUrl) {
+            const DU = Math.round(dur * 1000) / 1000;
+            const fwMid = Math.max(5, Math.floor(DU / 2));
+            const fwEndSt = Math.max(0, Math.round((DU - 5) * 1000) / 1000);
+            const fire = (u2, params) => {
               try {
-                const e = Math.max(5, Math.floor(half / 2));
-                Qa(
-                  Za(
-                    Za(
-                      Za(
-                        Za(Za(track.watchtimeUrl, "cmt", e), "et", e),
-                        "st",
-                        0,
-                      ),
-                      "mt",
-                      e,
-                    ),
-                    "state",
-                    "playing",
-                  ),
-                );
+                let s = String(u2 || "");
+                if (!s || !/^https?:/i.test(s)) return;
+                if (realCpn) s = Za(s, "cpn", realCpn);
+                const o2 = params || {};
+                for (const k of ["cmt", "et", "st", "mt", "rt", "lact", "state"])
+                  if (null != o2[k]) s = Za(s, k, o2[k]);
+                Qa(s);
                 fired++;
               } catch (e) {}
-              try {
-                Qa(
-                  Za(
-                    Za(
-                      Za(
-                        Za(Za(track.watchtimeUrl, "cmt", tail), "et", tail),
-                        "st",
-                        Math.max(0, tail - 5),
-                      ),
-                      "mt",
-                      tail,
-                    ),
-                    "state",
-                    "ended",
-                  ),
-                );
-                fired++;
-              } catch (e) {}
-              try {
-                Qa(
-                  Za(
-                    Za(
-                      Za(
-                        Za(Za(track.watchtimeUrl, "cmt", half), "et", half),
-                        "st",
-                        Math.max(0, half - 1),
-                      ),
-                      "mt",
-                      half,
-                    ),
-                    "state",
-                    "ended",
-                  ),
-                );
-                fired++;
-              } catch (e) {}
-            }
-            try {
-              track.qoeUrl && (Qa(Za(Za(track.qoeUrl, "cmt", tail), "rt", tail)), fired++);
-            } catch (e) {}
-            try {
-              track.ptrackingUrl && (Qa(track.ptrackingUrl), fired++);
-            } catch (e) {}
-            try {
-              track.engagedviewUrl &&
-                (Qa(
-                  Za(
-                    Za(Za(Za(track.engagedviewUrl, "cmt", half), "et", half), "st", 0),
-                    "state",
-                    "playing",
-                  ),
-                ),
-                  fired++);
-            } catch (e) {}
-            try {
-              track.wtfUrl && (Qa(track.wtfUrl), fired++);
-            } catch (e) {}
-            u("fw account-history tracking URLs fired: " + fired + " for " + a);
+            };
+            // handshake beacons (real player shape: cmt/rt/lact only)
+            fire(track.playbackUrl, { cmt: 0, rt: rtNow(), lact: 1400 });
+            fire(track.atrUrl, { cmt: 0, rt: rtNow(), lact: 800 });
+            // one mid-video playing segment, then the authoritative ENDED
+            fire(track.watchtimeUrl, {
+              cmt: fwMid, et: fwMid, st: 0, mt: fwMid, rt: rtNow(), lact: 900, state: "playing",
+            });
+            fire(track.watchtimeUrl, {
+              cmt: DU, et: DU, st: fwEndSt, mt: DU, rt: rtNow(), lact: 30, state: "ended",
+            });
+            fire(track.qoeUrl, { cmt: DU, rt: rtNow() });
+            fire(track.ptrackingUrl, {});
+            fire(track.delayplayUrl, {});
+            fire(track.engagedviewUrl, {
+              cmt: DU, et: DU, st: 0, state: "playing",
+            });
+            fire(track.wtfUrl, {});
+            // last-write-wins: repeat the ended beacon AFTER the real
+            // player's own final beacon (~0.5-1s post-end) so a stale
+            // in-flight beacon can't overwrite the recorded position.
+            setTimeout(() => {
+              fire(track.watchtimeUrl, {
+                cmt: DU, et: DU, st: fwEndSt, mt: DU, rt: rtNow(), lact: 20, state: "ended",
+              });
+            }, 1300);
+            setTimeout(() => {
+              fire(track.watchtimeUrl, {
+                cmt: DU, et: DU, st: fwEndSt, mt: DU, rt: rtNow(), lact: 10, state: "ended",
+              });
+            }, 3000);
+            u(
+              "fw account-history: " + fired + " beacons + 2 ended repeats (cpn " +
+                (realCpn ? "real" : "MISSING") +
+                ") for " + a,
+            );
           } catch (e) {
             h("fw account-history player fetch", e);
           }

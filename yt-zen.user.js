@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YT-zen
 // @namespace    https://github.com/mheci/YT-zen
-// @version      3.16.20
+// @version      3.16.21
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      Unlicense
@@ -8104,7 +8104,7 @@ algoBlockChannels: "",
                 ") for " + a,
             );
             try {
-              console.log(
+              console.warn(
                 "[YT-zen] fw account-history: burst " + fired +
                   " beacons (cpn " + (realCpn ? "real" : "MISSING") +
                   ", " + wN + " windows, gmx=" + (hasGmx ? "yes" : "no") +
@@ -8129,7 +8129,7 @@ algoBlockChannels: "",
                 })();
               pe("FW " + dbg, 4000, "info");
               u("fw diagnostic: " + dbg);
-              try { console.log("[YT-zen] fw diagnostic: " + dbg); } catch (e) {}
+              try { console.warn("[YT-zen] fw diagnostic: " + dbg); } catch (e) {}
             } catch (e) {}
           } catch (e) {
             h("fw account-history player fetch", e);
@@ -31870,7 +31870,7 @@ const Nr = [
     try {
       // Unconditional: lets any user verify the installed version and
       // inject mode in the console without enabling verbose logging.
-      console.log(
+      console.warn(
         "[YT-zen] v" +
           ((typeof GM_info !== "undefined" && GM_info && GM_info.script && GM_info.script.version) || "?") +
           " | inject: " +

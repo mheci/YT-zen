@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YT-zen
 // @namespace    https://github.com/mheci/YT-zen
-// @version      3.16.17
+// @version      3.16.18
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      Unlicense
@@ -8036,27 +8036,32 @@ algoBlockChannels: "",
               const st = Math.round(DU * (wi / wN) * 1000) / 1000;
               const et = Math.round(DU * ((wi + 1) / wN) * 1000) / 1000;
               fire(track.watchtimeUrl, {
-                cmt: et, et: et, st: st, mt: et, rt: rtNow(),
+                cmt: et, et: et, st: st, mt: et,
+                // rt must be plausible against the CLAIMED media time: a
+                // window claiming 579s of coverage with rt=10s (session
+                // age) is an implausible claim the backend can discard.
+                rt: (et + 1.5 + Math.random() * 2.5).toFixed(3),
                 lact: 150 + Math.floor(700 * Math.random()),
                 state: wi % 9 === 7 && wi < wN - 1 ? "paused" : "playing",
               });
-              if (wi % 4 === 3) fire(track.qoeUrl, { cmt: et, rt: rtNow() });
+              if (wi % 4 === 3) fire(track.qoeUrl, { cmt: et, rt: (et + 1 + Math.random() * 2).toFixed(3) });
             }
             try {
               for (const eu of track.extraUrls || [])
                 isPix(eu) ? fire(eu, {}) : fire(eu, { cmt: DU, rt: rtNow() });
             } catch (e) {}
-            fire(track.engagedviewUrl, { cmt: DU, et: DU, st: 0, state: "playing" });
+            fire(track.engagedviewUrl, { cmt: DU, et: DU, st: 0, rt: (DU + 1 + Math.random() * 2).toFixed(3), state: "playing" });
             fire(track.ptrackingUrl, {});
             fire(track.wtfUrl, {});
             fire(track.qoeUrl, { cmt: DU, rt: rtNow() });
             // authoritative ENDED pair + genuine-shape final writes — all
             // in the same burst. The real player's own scrub/pause flush
             // at the tail is full-length anyway, so ordering cannot lose.
-            fire(track.watchtimeUrl, { cmt: DU, et: DU, st: fwEndSt, mt: DU, rt: rtNow(), lact: 30, state: "ended" }, !0);
-            fire(track.watchtimeUrl, { cmt: DU, et: DU, st: fwEndSt, mt: DU, rt: rtNow(), lact: 20, state: "ended" }, !0);
-            fire(track.watchtimeUrl, { cmt: DU, et: DU, st: fwEndSt, mt: DU, rt: rtNow(), lact: 21, state: "paused" }, !0);
-            fire(track.watchtimeUrl, { cmt: DU, et: DU, st: fwEndSt, mt: DU, rt: rtNow(), lact: 11, state: "paused" }, !0);
+            const endRt = () => (DU + 1.5 + Math.random() * 2.5).toFixed(3);
+            fire(track.watchtimeUrl, { cmt: DU, et: DU, st: fwEndSt, mt: DU, rt: endRt(), lact: 30, state: "ended" }, !0);
+            fire(track.watchtimeUrl, { cmt: DU, et: DU, st: fwEndSt, mt: DU, rt: endRt(), lact: 20, state: "ended" }, !0);
+            fire(track.watchtimeUrl, { cmt: DU, et: DU, st: fwEndSt, mt: DU, rt: endRt(), lact: 21, state: "paused" }, !0);
+            fire(track.watchtimeUrl, { cmt: DU, et: DU, st: fwEndSt, mt: DU, rt: endRt(), lact: 11, state: "paused" }, !0);
             fire(track.qoeUrl, { cmt: DU, rt: rtNow() }, !0);
             const hasGmx = typeof GM_xmlhttpRequest === "function";
             u(
@@ -8234,6 +8239,7 @@ algoBlockChannels: "",
                 plid: s,
                 volume: 100,
                 subscribed: !1,
+                rt: Math.round(t.to + 2 + Math.random() * 3),
               }, !0);
             } catch (e) {}
         }
@@ -8241,14 +8247,14 @@ algoBlockChannels: "",
       (() => {
         for (const e of c) {
           try {
-            qt(a, n, Math.floor(n), "paused", e, { rtnDelta: 0, lact: 100, plid: s });
+            qt(a, n, Math.floor(n), "paused", e, { rtnDelta: 0, lact: 100, plid: s, rt: Math.round(n + 2 + Math.random() * 3) });
           } catch (e) {}
           try {
-            qt(a, n, Math.floor(n), "ended", e, { rtnDelta: 0, lact: 0, plid: s });
+            qt(a, n, Math.floor(n), "ended", e, { rtnDelta: 0, lact: 0, plid: s, rt: Math.round(n + 2 + Math.random() * 3) });
           } catch (e) {}
         }
         try {
-          qt(a, n, Math.floor(n), "ended", i, { rtnDelta: 0, lact: 0, plid: s });
+          qt(a, n, Math.floor(n), "ended", i, { rtnDelta: 0, lact: 0, plid: s, rt: Math.round(n + 2 + Math.random() * 3) });
         } catch (e) {}
         try {
           Vt(a, n, n, i, "streamingstats");

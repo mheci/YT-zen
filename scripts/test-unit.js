@@ -267,6 +267,11 @@ let keepAlive;
       return ok200({ overallStats: { minutesSaved: 9 } });
     }
     if (u.includes("/api/lockReason")) return ok200([{ category: "sponsor", locked: 1, reason: "r" }]);
+    if (u.includes("/api/getIsUserVIP")) {
+      return u.includes("userID=local-user-id")
+        ? ok200({ hashedUserID: "h", vip: true })
+        : { ok: false, status: 404, headers: { get: () => null }, text: async () => "", json: async () => null };
+    }
     return { ok: false, status: 404, headers: { get: () => null }, text: async () => "", json: async () => null };
   };
   function ok206or(fn, v) { return fn(v); }
@@ -294,6 +299,16 @@ let keepAlive;
   assert.strictEqual(stats.overallStats.minutesSaved, 9, "userStats returns totals");
   const reasons = await engine.api.getLockReason("abcdefghijk");
   assert.strictEqual(reasons[0].category, "sponsor", "lockReason returns rows");
+  const vip = await engine.api.getIsUserVIP("local-user-id");
+  assert.strictEqual(vip, true, "getIsUserVIP returns the vip flag");
+  const vipCached = await engine.api.getIsUserVIP("local-user-id");
+  assert.strictEqual(vipCached, true, "vip result is cached");
+  assert.strictEqual(
+    seenUrls.filter(([u]) => String(u).includes("/api/getIsUserVIP")).length,
+    1, "vip lookup makes exactly one request within the cache TTL"
+  );
+  const vipUnknown = await engine.api.getIsUserVIP("nobody-user-id");
+  assert.strictEqual(vipUnknown, false, "failed/404 vip lookup resolves to false, never throws");
 
   // Submission failures surface the documented server reason.
   context.he = async (url) => ({

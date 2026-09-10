@@ -6269,6 +6269,33 @@ algoBlockChannels: "",
         }
       };
 
+      // GET /api/getIsUserVIP — the official VIP check (/api/userInfo does
+      // not include vip state). The server hashes the local userID itself
+      // and returns {hashedUserID, vip}. Cached like user info; a failed
+      // request resolves to false so editor UI never blocks on it.
+      const getIsUserVIP = async (userId, abortSignal, force = false) => {
+        const cleanUserId = typeof userId === "string" ? userId.trim() : "";
+        if (!cleanUserId) return false;
+        const cacheKey = "vip:" + cleanUserId;
+        if (!force) {
+          const cached = userInfoCache.get(cacheKey);
+          if (cached !== undefined) return !!cached;
+        }
+        const base = Settings.getServerUrl();
+        try {
+          const { body } = await requestJson(
+            base + "/api/getIsUserVIP?userID=" + encodeURIComponent(cleanUserId),
+            abortSignal,
+            { timeoutMs: API_TIMEOUT_MS }
+          );
+          const vip = !!(body && body.vip);
+          userInfoCache.set(cacheKey, vip);
+          return vip;
+        } catch (_) {
+          return false;
+        }
+      };
+
       // Normalize the two lockCategories response shapes documented by the
       // API: direct lookup -> { categories, reason, actionTypes }; privacy
       // hash-prefix lookup -> [{ videoID, hash, categories, reason }].
@@ -6505,6 +6532,7 @@ algoBlockChannels: "",
         submitSegment,
         reportViewed,
         getUserInfo,
+        getIsUserVIP,
         getLockCategories,
         getLockReason,
         getSegmentInfo,
@@ -7110,11 +7138,14 @@ algoBlockChannels: "",
               });
             }
             const info = State.userId ? await API.getUserInfo(State.userId) : null;
+            // /api/userInfo carries no vip flag — resolve it from the
+            // dedicated endpoint (cached, failure resolves to false).
+            const isVip = State.userId ? await API.getIsUserVIP(State.userId) : false;
             const statsEl = panel.querySelector("#ed-sbstats");
             if (statsEl && info) {
               statsEl.textContent = "Your SB impact: " + (info.viewCount || 0) + " segment views · " +
                 (info.minutesSaved || 0) + " min saved · " + (info.segmentCount || 0) + " submitted" +
-                (info.vip ? " · VIP" : "");
+                (isVip ? " · VIP" : "");
             }
           } catch (_) {}
         })();
@@ -7563,6 +7594,7 @@ algoBlockChannels: "",
       copyLocalUserId,
       isVideoHidden: (videoId) => HiddenVideos.isHidden(videoId),
       getUserInfo: (userId, force = false) => API.getUserInfo(userId, null, force),
+      getIsUserVIP: (userId, force = false) => API.getIsUserVIP(userId, null, force),
       voteUp: (uuid) => API.voteOnSegment(uuid, 1),
       voteDown: (uuid) => API.voteOnSegment(uuid, 0),
       undoVote: (uuid) => API.undoVote(uuid),
@@ -7580,6 +7612,7 @@ algoBlockChannels: "",
         submitSegment: API.submitSegment,
         reportViewed: API.reportViewed,
         getUserInfo: API.getUserInfo,
+        getIsUserVIP: API.getIsUserVIP,
         getLockCategories: (videoId) => API.getLockCategories(videoId, null),
         getLockReason: (videoId, categories) => API.getLockReason(videoId, categories, null),
         getSegmentInfo: (uuids, force = false) => API.getSegmentInfo(uuids, null, force),

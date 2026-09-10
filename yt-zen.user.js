@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YT-zen
 // @namespace    https://github.com/mheci/YT-zen
-// @version      3.16.21
+// @version      3.17.0
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      Unlicense
@@ -1177,6 +1177,12 @@ algoBlockChannels: "",
         shortsScheduleMode: "block",
         shortsScheduleStart: "09:00",
         shortsScheduleEnd: "17:00",
+        aioPlayerToolsOn: !1,
+        aioShortsCleanupOn: !1,
+        aioFeedCleanupOn: !1,
+        aioCompactDenseOn: !1,
+        aioPrivacyShieldOn: !1,
+        themeCompactOn: !0,
         // === v3.16 feature pack defaults ===
         silenceSkipOn: !1, silenceSkipRate: 4,
         chapterAutoSkipOn: !1, chapterSkipWords: "intro, outro, sponsor,",
@@ -1903,8 +1909,81 @@ algoBlockChannels: "",
       da && da.clear(),
       g.emit("nav.changed", { url: location.href }));
   }
+
+  // ─── YT-zen Early Navigation Manager (fix 2026-09-10) ───────────────
+  // Reliability: buffers navigation events that fire BEFORE the async boot
+  // attached its yt-navigate-finish listener. Without this, a cold load
+  // that navigates (YouTube SPA bootstraps after document-start) loses
+  // the first navigation and features never re-apply until a hard refresh.
+  // Deterministic, idempotent, no timers except the URL-poll fallback.
+  let _zenEarlyNavArmed = false;
+  let _zenNavPollTimer = 0;
+  let _zenLastHref = location.href;
+  try {
+    if (!_zenEarlyNavArmed) {
+      _zenEarlyNavArmed = true;
+      // Patch History API once — deduplicates SPA navigations that do NOT fire yt-navigate-finish
+      try {
+        const _origPush = History.prototype.pushState;
+        const _origReplace = History.prototype.replaceState;
+        if (_origPush && !_origPush.__zenPatched) {
+          History.prototype.pushState = function(...__a) {
+            const __r = _origPush.apply(this, __a);
+            try {
+              if (location.href !== _zenLastHref) {
+                _zenLastHref = location.href;
+                Q();
+                try { g.emit("nav.changed", { url: location.href, source: "pushState" }); } catch (_) {}
+              }
+            } catch(_) {}
+            return __r;
+          };
+          History.prototype.pushState.__zenPatched = true;
+        }
+        if (_origReplace && !_origReplace.__zenPatched) {
+          History.prototype.replaceState = function(...__a) {
+            const __r = _origReplace.apply(this, __a);
+            try {
+              if (location.href !== _zenLastHref) {
+                _zenLastHref = location.href;
+                Q();
+                try { g.emit("nav.changed", { url: location.href, source: "replaceState" }); } catch (_) {}
+              }
+            } catch(_) {}
+            return __r;
+          };
+          History.prototype.replaceState.__zenPatched = true;
+        }
+      } catch (_) {}
+      // yt-navigate-* events — attach at DOCUMENT level in capture phase at document-start
+      try {
+        document.addEventListener("yt-navigate-finish", () => { try { _zenLastHref = location.href; Q(); g.emit("nav.changed", { url: location.href, source: "yt-navigate-finish" }); } catch(_) {} }, true);
+        document.addEventListener("yt-navigate-start", () => { try { Q(); } catch(_) {} }, true);
+        document.addEventListener("yt-page-data-updated", () => { try { g.emit("nav.changed", { url: location.href, source: "page-data" }); } catch(_) {} }, true);
+      } catch (_) {}
+      try { window.addEventListener("popstate", () => { try { _zenLastHref = location.href; Q(); g.emit("nav.changed", { url: location.href, source: "popstate" }); } catch(_) {} }, true); } catch (_) {}
+      // Poll fallback: YouTube's history patch or soft-nav can bypass all events (e.g. location.replace inside player)
+      // Poll every 400ms but only act on genuine URL change; de-duplicated via _zenLastHref
+      try {
+        if (!_zenNavPollTimer) {
+          _zenNavPollTimer = setInterval(() => {
+            try {
+              if (typeof document !== "undefined" && document.hidden) return;
+              if (location.href !== _zenLastHref) {
+                _zenLastHref = location.href;
+                Q();
+                g.emit("nav.changed", { url: location.href, source: "poll" });
+              }
+            } catch (_) {}
+          }, 500);
+          try { _zenNavPollTimer.unref && _zenNavPollTimer.unref(); } catch (_) {}
+        }
+      } catch (_) {}
+    }
+  } catch (_) {}
   let J = !1;
   function $(e, t) {
+
     let a,
       n = 0,
       r = null;
@@ -7621,8 +7700,9 @@ algoBlockChannels: "",
   const Wt = new Map();
   function Ut() {
     const e = Date.now();
-    if (e - zt < 300) return;
+    if (e - zt < 400) return;
     zt = e;
+    try { if (typeof _isLiveStream !== "undefined" && _isLiveStream && _isLiveStream()) return void pe("Live streams can't be marked as watched.", 2000, "info"); } catch(_) {}
     const t = ie.el(),
       a = ie.api(),
       n = ie.videoId();
@@ -7713,6 +7793,12 @@ algoBlockChannels: "",
   // sessions) fires in the same instant from the campaign below.
   async function KtOrganic(e, t) {
     const fwLog = (m) => { try { (window.__fwLog = window.__fwLog || []).slice(-39); (window.__fwLog = window.__fwLog || []).push(Math.round(performance.now()) + " " + m); } catch (_) {} };
+    try {
+      const __vid = ie.videoId && ie.videoId();
+      const __now = Date.now();
+      if (window.__fwLastVid === __vid && __now - (window.__fwLastTs||0) < 8000) { pe("Already marked this video.", 1400, "info"); return false; }
+      window.__fwLastVid = __vid; window.__fwLastTs = __now;
+    } catch(_) {}
     const wasMuted = e.muted, wasRate = e.playbackRate;
     let done = false, d = t, cur = -1, scrubs = 0;
     try {
@@ -7756,7 +7842,26 @@ algoBlockChannels: "",
       fwLog("scrub scrubs=" + scrubs + " t=" + (isFinite(cur) ? cur.toFixed(1) : "?") + "/" + d.toFixed(0));
       fwLog("settle done=" + done + " t=" + (isFinite(cur) ? cur.toFixed(2) : "?") + "/" + d.toFixed(0));
     } catch (_) {}
-    pe(done ? "Marked as fully watched." : "Watchtime signals sent.", 2200, done ? "success" : "info");
+    try {
+      if (done) {
+        pe("Marked as fully watched.", 2200, "success");
+      } else {
+        pe("Watchtime signals sent — verifying…", 1800, "info");
+        let __tries = 0;
+        const __vid2 = ie.videoId && ie.videoId();
+        const __iv = setInterval(() => {
+          __tries++;
+          try {
+            const cur = e.currentTime;
+            const dur = e.duration || d;
+            const nearEnd = dur - cur <= Math.max(2.5, dur * 0.015);
+            if (nearEnd) { clearInterval(__iv); pe("Verified near end — " + cur.toFixed(1) + " / " + dur.toFixed(0) + "s", 1600, "success"); }
+            else if (__tries > 6) { clearInterval(__iv); pe("Signals sent (verify in History in a few seconds).", 2200, "info"); }
+          } catch(_) { if (__tries > 6) clearInterval(__iv); }
+        }, 250);
+        setTimeout(() => { try { clearInterval(__iv); } catch(_){} }, 2200);
+      }
+    } catch(_) { try { pe(done ? "Marked as fully watched." : "Watchtime signals sent.", 2200, done ? "success" : "info"); } catch(_){} }
     return done;
   }
   function Kt(e, t, a, n) {
@@ -8987,7 +9092,7 @@ algoBlockChannels: "",
   (xa.register({
     id: "speed-controller",
     name: "Playback Speed",
-    summary: "Default speed plus per-video speed memory.",
+    summary: "Default speed and per-video memory.",
     masterKey: "speedRemember",
     keys: ["speedDefault", "speedRemember", "speedStep"],
     apply(e) {
@@ -15767,7 +15872,7 @@ algoBlockChannels: "",
       apply(e) {
         S.denseVideoGridOn &&
           e.addStyle(
-            "ytd-rich-grid-renderer{--ytd-rich-grid-items-per-row:6!important;--ytd-rich-grid-posts-per-row:6!important}ytd-rich-item-renderer{margin-bottom:10px!important}ytd-video-renderer{margin:4px 0!important}h3.ytd-rich-grid-media{margin:6px 0 2px!important}@media(min-width:1600px){ytd-rich-grid-renderer{--ytd-rich-grid-items-per-row:8!important;--ytd-rich-grid-posts-per-row:8!important}}@media(min-width:2100px){ytd-rich-grid-renderer{--ytd-rich-grid-items-per-row:10!important;--ytd-rich-grid-posts-per-row:10!important}}",
+            "ytd-rich-grid-renderer{--ytd-rich-grid-items-per-row:6!important;--ytd-rich-grid-posts-per-row:6!important;--ytd-rich-grid-gutter:8px!important} ytd-rich-grid-renderer #contents{gap:8px!important} ytd-rich-item-renderer{margin-bottom:4px!important} ytd-rich-item-renderer #meta{padding:4px 0 0!important} ytd-video-renderer{margin:2px 0!important} h3.ytd-rich-grid-media{margin:4px 0 1px!important;font-size:14px!important;line-height:1.28!important} ytd-thumbnail{margin-bottom:4px!important} @media(min-width:1600px){ytd-rich-grid-renderer{--ytd-rich-grid-items-per-row:8!important;--ytd-rich-grid-posts-per-row:8!important}}@media(min-width:2100px){ytd-rich-grid-renderer{--ytd-rich-grid-items-per-row:10!important;--ytd-rich-grid-posts-per-row:10!important}} @media(min-width:1300px){ytd-rich-grid-renderer{--ytd-rich-grid-items-per-row:6!important}}",
           );
       },
       settings() {},
@@ -20907,12 +21012,14 @@ const Nr = [
   // ended up fighting YouTube's layout and clipped/misaligned them.
   const _zenThemeExtras = () => [
     ...(S.themeCompactOn === false ? [] : [
-      "ytd-rich-item-renderer{margin-bottom:10px!important}",
-      "h3.ytd-rich-grid-media{margin:6px 0 2px!important}",
-      "ytd-video-renderer{margin:4px 0!important}",
+      "ytd-rich-item-renderer{margin-bottom:6px!important}",
+      "ytd-rich-item-renderer #meta{padding-top:6px!important}",
+      "h3.ytd-rich-grid-media{margin:4px 0 1px!important;line-height:1.25!important}",
+      "ytd-rich-grid-media #metadata{padding-top:4px!important}",
+      "ytd-video-renderer{margin:2px 0!important}",
     ]),
-    "#comments ytd-comment-thread-renderer,#comments ytd-comment-view-model,#comments ytd-comment-renderer,#comment-content,ytd-comment-text,#comments yt-attributed-string,#comments yt-formatted-string{background:transparent!important}",
-    "ytd-rich-item-renderer,ytd-rich-item-renderer #content,ytd-rich-item-renderer yt-lockup-view-model,ytd-rich-item-renderer .ytLockupViewModelHost,ytd-rich-grid-media,#dismissible.ytd-rich-grid-media,#dismissible.ytd-rich-item-renderer{background:transparent!important;border:0!important;outline:0!important;box-shadow:none!important}",
+    "#comments ytd-comment-thread-renderer,#comments ytd-comment-view-model,#comments ytd-comment-renderer,#comments #comment-content,#comments #content,#comments #main,#comments #body,#comments #content-text,#comments yt-attributed-string,#comments yt-formatted-string,#comments span,#comments #author-text,#comments #header-author,#comments ytd-comment-view-model #content-text{background:transparent!important;background-color:transparent!important;border:0!important;box-shadow:none!important}","#comments ytd-comment-renderer #main,#comments ytd-comment-renderer #body,#comments ytd-comment-renderer #content,#comments yt-attributed-string span{background:transparent!important;background-color:transparent!important}",
+    "ytd-rich-item-renderer,ytd-rich-item-renderer #content,ytd-rich-item-renderer #dismissible,ytd-rich-item-renderer yt-lockup-view-model,ytd-rich-item-renderer .ytLockupViewModelHost,ytd-rich-item-renderer yt-lockup-view-model-wiz,ytd-rich-grid-media,#dismissible.ytd-rich-grid-media,#dismissible.ytd-rich-item-renderer,ytd-rich-grid-renderer #contents,ytd-rich-item-renderer .yt-lockup-view-model__inner{background:transparent!important;background-color:transparent!important;border:0!important;outline:0!important;box-shadow:none!important}","ytd-rich-item-renderer yt-interaction:hover,ytd-rich-item-renderer yt-touch-feedback-shape .ytSpecTouchFeedbackShapeFill{background:transparent!important}",
     "ytd-rich-item-renderer yt-touch-feedback-shape .ytSpecTouchFeedbackShapeFill,ytd-rich-item-renderer yt-touch-feedback-shape .ytSpecTouchFeedbackShapeHoverEffect{background:transparent!important;background-color:transparent!important}",
     "ytd-rich-item-renderer yt-touch-feedback-shape .ytSpecTouchFeedbackShapeStroke{border-color:transparent!important}",
     "ytd-rich-section-renderer,ytd-rich-shelf-renderer,ytd-chips-shelf-with-video-shelf-renderer{background:transparent!important;box-shadow:none!important}",
@@ -21015,7 +21122,7 @@ const Nr = [
       out.push(
         "html,html[dark]{--yt-spec-base-background:#111318}",
         "ytd-app,#content{background:linear-gradient(180deg,rgba(20,22,28,.92),rgba(14,15,19,.97))!important}",
-        "ytd-rich-item-renderer,ytd-video-renderer,ytd-compact-video-renderer,ytd-playlist-video-renderer,ytd-grid-video-renderer,ytd-comment-renderer,ytd-comment-thread-renderer{border-radius:14px!important;transition:" + _ease + "}",
+        "ytd-rich-item-renderer,ytd-video-renderer,ytd-compact-video-renderer,ytd-playlist-video-renderer,ytd-grid-video-renderer{border-radius:14px!important;transition:" + _ease + "}",
         "ytd-rich-item-renderer:hover,ytd-video-renderer:hover{transform:translateY(-1px);box-shadow:0 8px 24px rgba(0,0,0,.35)}",
         "ytd-thumbnail,#thumbnail,ytd-thumbnail img{border-radius:12px!important}",
         "ytd-masthead{background:rgba(20,22,28,.6)!important;backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px)}",
@@ -21291,7 +21398,7 @@ const Nr = [
       }
       let r = "";
       const _memoKey = JSON.stringify(a && a.vars ? [a.id, a.mode] : a) + "|v2";
-      if (_themeCssMemo.k === _memoKey && _themeCssMemo.v) {
+      if (_themeCssMemo.k === _memoKey && _themeCssMemo.v && r !== null) {
         r = _themeCssMemo.v;
       } else
       try {
@@ -29286,7 +29393,7 @@ const Nr = [
         "One toggle for discovery. Browse 8+ categories inside or outside your niche; every pick is filtered against your watch history and never repeats a video you have already seen."));
     } });
 
-  xa.register({ id: "credibility-layer", name: "Credibility Layer", summary: "Shows upload age and channel trust badges on cards.", masterKey: "credLayerOn", keys: ["credLayerOn"],
+  xa.register({ id: "credibility-layer", name: "Credibility Layer", summary: "Upload age and channel trust badges on cards.", masterKey: "credLayerOn", keys: ["credLayerOn"],
     apply(ctx) {
       if (!S.credLayerOn) return;
       ZenEngine.injectCSS();
@@ -31849,7 +31956,7 @@ const Nr = [
   // ─── 32. AIO: Shorts Cleanup ─────────────────────────────────────────────
   xa.register({
     id: "aio-shorts-cleanup", name: "Shorts Cleanup (All-in-One)",
-    summary: "One switch: Shorts open in the player, start muted, no comments.",
+    summary: "Shorts: muted, no comments, in-player.",
     masterKey: "aioShortsCleanupOn",
     keys: ["aioShortsCleanupOn", "redirectShortsOn", "shortsAutoMuteOn", "shortsHideCommentsOn"],
     apply() {
@@ -31860,6 +31967,62 @@ const Nr = [
     },
     settings(en) { en.appendChild(Io("Turn on every Shorts cleanup", "aioShortsCleanupOn")); },
   });
+
+  // ─── 33. AIO: Feed Cleanup ───────────────────────────────────────────────
+  // Consolidates overlapping hide-feed toggles into one sensible switch.
+  // Previously: hideRecs, hideLiveContentOn, hidePremieresOn, hideTopLiveGamesOn, hideAutoDubbedOn.
+  // Unified so users can clean the feed without hunting through five separate toggles.
+  // Granular toggles remain for users who want fine control.
+  xa.register({
+    id: "aio-feed-cleanup", name: "Clean Feed (All-in-One)",
+    summary: "One switch: hide recommendations, live, premieres, Top live games, auto-dubbed.",
+    masterKey: "aioFeedCleanupOn",
+    keys: ["aioFeedCleanupOn", "hideRecs", "hideLiveContentOn", "hidePremieresOn", "hideTopLiveGamesOn", "hideAutoDubbedOn"],
+    apply() {
+      if (!S.aioFeedCleanupOn) return;
+      for (const k of ["hideRecs", "hideLiveContentOn", "hidePremieresOn", "hideTopLiveGamesOn", "hideAutoDubbedOn"]) {
+        if (!S[k]) Ta(k, true);
+      }
+    },
+    settings(en) { en.appendChild(Io("Hide extra feed shelves and live noise", "aioFeedCleanupOn")); },
+  });
+
+  // ─── 34. AIO: Compact & Dense ────────────────────────────────────────────
+  // Membership: compactUI + denseVideoGrid + compactPlaylist + compactMode + themeCompact.
+  // These five all control spacing/density — grouping them avoids toggling five places.
+  xa.register({
+    id: "aio-compact-dense", name: "Compact Layout (All-in-One)",
+    summary: "Tighter spacing, denser grid, compact playlists.",
+    masterKey: "aioCompactDenseOn",
+    keys: ["aioCompactDenseOn", "compactUI", "denseVideoGridOn", "compactPlaylistOn", "compactModeOn", "themeCompactOn"],
+    apply() {
+      if (!S.aioCompactDenseOn) return;
+      for (const k of ["compactUI", "denseVideoGridOn", "compactPlaylistOn", "compactModeOn"]) {
+        if (!S[k]) Ta(k, true);
+      }
+      if (S.themeCompactOn === false) Ta("themeCompactOn", true);
+    },
+    settings(en) { en.appendChild(Io("Turn on all compact/density options", "aioCompactDenseOn")); },
+  });
+
+  // ─── 35. AIO: Privacy Shield ────────────────────────────────────────────
+  // Consolidates privacy-adjacent toggles: privacyShieldOn, channelBlockerOn, keywordFilterOn,
+  // removeRedirectUrlsOn, shortenShareUrlOn, blockYTAIOn.
+  // Users who want privacy can flip one switch instead of hunting six.
+  xa.register({
+    id: "aio-privacy-shield", name: "Privacy Shield (All-in-One)",
+    summary: "Block trackers, redirects, AI recommendations, plus channel/keyword filters.",
+    masterKey: "aioPrivacyShieldOn",
+    keys: ["aioPrivacyShieldOn", "privacyShieldOn", "removeRedirectUrlsOn", "shortenShareUrlOn", "blockYTAIOn"],
+    apply() {
+      if (!S.aioPrivacyShieldOn) return;
+      for (const k of ["privacyShieldOn", "removeRedirectUrlsOn", "shortenShareUrlOn", "blockYTAIOn"]) {
+        if (!S[k]) Ta(k, true);
+      }
+    },
+    settings(en) { en.appendChild(Io("Enable core privacy protections", "aioPrivacyShieldOn")); },
+  });
+
   (async function () {
     try {
       z();
@@ -31889,25 +32052,45 @@ const Nr = [
     } catch (e) {}
     try {
       !(function () {
-        if ("function" == typeof GM_registerMenuCommand) {
-          // Every command goes through a defensive launcher: a failure in a
+        if ("function" == typeof GM_registerMenuCommand || (typeof GM !== "undefined" && GM && typeof GM.registerMenuCommand === "function")) {
+          // Every command goes through a defensive launcher (dual-path for Violentmonkey): a failure in a
           // handler is logged with its stack and surfaced as a readable
           // toast, instead of bubbling into the userscript manager's menu
           // as an opaque "undefined is not a function".
           const _regCmd = (label, fn) => {
+            const _wrap = function () {
+              try {
+                return fn.apply(null, arguments);
+              } catch (err) {
+                try { m("menu:" + label, err); } catch (_) {}
+                try { console.error("[YT-zen] menu '" + label + "' failed:", err); } catch (_) {}
+                try { pe(label + " failed: " + (err && err.message ? err.message : err), 5000, "error"); } catch (_) {}
+              }
+            };
+            let _registered = false;
+            // Path 1: classic GM_registerMenuCommand (Tampermonkey, Greasemonkey, Violentmonkey legacy)
             try {
-              GM_registerMenuCommand(label, function () {
-                try {
-                  return fn.apply(null, arguments);
-                } catch (err) {
-                  try { m("menu:" + label, err); } catch (_) {}
-                  try { console.error("[YT-zen] menu '" + label + "' failed:", err); } catch (_) {}
-                  try { pe(label + " failed: " + (err && err.message ? err.message : err), 5000, "error"); } catch (_) {}
-                }
-              });
-            } catch (e) {
-              try { m("register " + label, e); } catch (_) {}
-            }
+              if (typeof GM_registerMenuCommand === "function") {
+                GM_registerMenuCommand(label, _wrap);
+                _registered = true;
+              }
+            } catch (e) { try { m("register GM_registerMenuCommand " + label, e); } catch (_) {} }
+            // Path 2: GM.* promise API (Violentmonkey modern, FireMonkey) — GM.registerMenuCommand
+            try {
+              if (!_registered && typeof GM !== "undefined" && GM && typeof GM.registerMenuCommand === "function") {
+                GM.registerMenuCommand(label, _wrap);
+                _registered = true;
+              }
+            } catch (e) { try { m("register GM.registerMenuCommand " + label, e); } catch (_) {} }
+            // Path 3: exposable global for Violentmonkey content-mode where menu is page-bound
+            try {
+              if (typeof unsafeWindow !== "undefined" && unsafeWindow) {
+                unsafeWindow.__YTZEN_DASHBOARD__ = Uo;
+                unsafeWindow.__YTZEN_MENU_WRAPPERS__ = unsafeWindow.__YTZEN_MENU_WRAPPERS__ || {};
+                unsafeWindow.__YTZEN_MENU_WRAPPERS__[label] = _wrap;
+              }
+            } catch (_) {}
+            if (!_registered) try { m("menu not registered: " + label); } catch (_) {}
           };
           _regCmd("Open YT-zen dashboard", function () {
             try {
@@ -32233,19 +32416,31 @@ const Nr = [
     };
     await new Promise((resolve) => {
       let _settled = !1;
+      let _obs = null;
       const _done = () => {
         if (_settled) return;
         _settled = !0;
         clearTimeout(_to);
-        clearInterval(_iv);
+        try { if (_obs) _obs.disconnect(); } catch (_) {}
+        try { document.removeEventListener("DOMContentLoaded", _check); } catch (_) {}
         resolve();
       };
       const _check = () => {
         if (_ytShellReady()) _done();
       };
       const _to = setTimeout(_done, 8000);
-      const _iv = setInterval(_check, 60);
       document.addEventListener("DOMContentLoaded", _check, { once: !0 });
+      // Coalesced observer: any new ytd-app / page-manager / #contents insertion triggers _check once per frame.
+      try {
+        if (typeof MutationObserver === "function") {
+          let _raf = 0;
+          _obs = new MutationObserver(() => {
+            if (_raf) return;
+            _raf = requestAnimationFrame(() => { _raf = 0; _check(); });
+          });
+          _obs.observe(document.documentElement || document, { childList: true, subtree: true });
+        }
+      } catch (_) {}
       _check();
     });
     try {

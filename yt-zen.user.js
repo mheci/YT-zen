@@ -21518,6 +21518,340 @@ const Nr = [
     "ytd-rich-item-renderer yt-thumbnail-view-model,ytd-rich-item-renderer #thumbnail,ytd-video-renderer yt-thumbnail-view-model,ytd-compact-video-renderer #thumbnail,#related yt-thumbnail-view-model,yt-lockup-view-model yt-thumbnail-view-model,ytm-rich-item-renderer .ytThumbnailViewModelHost{background-color:var(--yt-spec-static-overlay-background-solid,transparent)!important}",
     "ytd-rich-section-renderer,ytd-rich-shelf-renderer,ytd-chips-shelf-with-video-shelf-renderer{background:transparent!important;box-shadow:none!important}",
   ].join("\n");
+  // ── Hashed design-token bridge ─────────────────────────────────────────
+  // Redesigned YouTube surfaces (masthead #background, ytd-tabbed-page-header
+  // containers, history/explore page headers) are colored through build-hashed
+  // custom properties (e.g. --t3e41d7b17b187f69), declared as
+  // :root{--t:#fff} [dark]{--t:#0f0f0f}. Those names rotate with every YT
+  // deploy, so we remap by VALUE PAIRS discovered from the live CSSOM: a token
+  // counts as a surface background only when BOTH its dark and light
+  // declarations are stock neutral surface colors. Mode-constant blacks and
+  // whites (static overlays, CTA inverses, scrims, player) are left alone.
+  //
+  // Robustness contract:
+  //  - a built stylesheet is STICKY: empty/intermittent builds during head
+  //    churn never remove the node or clear the cached CSS;
+  //  - discovery scans are budgeted AND time-spaced (the head MO fires dozens
+  //    of times during boot); remounting a missing node from cache is free;
+  //  - repeated apply() calls with the same theme are idempotent;
+  //  - everything stops on theme switch-off via _brStop().
+  const _brQr = "ytp-theme-token-bridge";
+  let _brEl = null,
+    _brMO = null,
+    _brScans = 0,
+    _brRAF = 0,
+    _brTheme = null,
+    _brCss = "",
+    _brTools = null,
+    _brLastScan = 0,
+    _brKey = "";
+  const _BR_BUDGET = 30;      // discovery scans per page life
+  const _BR_MIN_GAP = 400;   // ms between discovery scans
+  const _BR_SCAN_WINDOW = 20000; // no first-time scans later than this
+  function _brNorm(v) {
+    v = String(v || "").trim().toLowerCase();
+    let m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/.exec(v);
+    if (m) {
+      let h = m[1];
+      if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+      const ch = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16));
+      return "rgb(" + ch.join(",") + ")";
+    }
+    m = /^rgba?\(([^)]+)\)$/.exec(v);
+    if (m) {
+      const pp = m[1].split(",").map((x) => x.trim());
+      const ch = pp.slice(0, 3).map((x) => String(Math.round(parseFloat(x))));
+      return "rgba(" + ch.join(",") + "," + (pp.length === 4 ? pp[3] : "1") + ")";
+    }
+    return v;
+  }
+  // Stock YouTube dark surface colors mapped to the theme palette slot that
+  // replaces them: a=base, n=raised, r=menu/chip.
+  const _BR_DARK_SURFACE = {
+    "rgb(9,9,10)": "a",
+    "rgb(15,15,15)": "a",
+    "rgb(23,28,35)": "n",
+    "rgb(33,33,33)": "n",
+    "rgb(43,49,56)": "n",
+    "rgb(39,39,39)": "r",
+    "rgb(40,40,40)": "r",
+    "rgb(48,53,59)": "r",
+    "rgb(81,85,97)": "r",
+  };
+  const _BR_LIGHT_SURFACE = new Set([
+    "rgb(255,255,255)",
+    "rgb(249,249,249)",
+    "rgb(242,242,242)",
+    "rgb(241,241,241)",
+    "rgb(236,241,251)",
+    "rgb(233,233,233)",
+    "rgb(229,229,229)",
+    "rgb(217,217,217)",
+    "rgb(202,206,214)",
+    "rgb(218,223,230)",
+  ]);
+  const _BR_DARK_LAYER = /^rgba\(0,0,0,0\.?(0?5|1|15)\)$/;
+  const _BR_LIGHT_LAYER = /^rgba\(255,255,255,0?\.?(0?5|1|15|2|3)\)$/;
+  function _brCollect() {
+    // name -> { d: dark value, l: light value, ds: [dark-scoped selectors],
+    //           ls: [light-scoped selectors] }
+    const out = new Map();
+    let sheets;
+    try {
+      sheets = document.styleSheets;
+    } catch (e) {
+      return out;
+    }
+    const addScope = (arr, sel) => {
+      // Only reuse simple, self-scoped selectors (optionally with a host
+      // combinator chain). Drop keyframes/content pseudo noise; cap size.
+      if (arr.length >= 12) return;
+      if (sel.length > 160) return;
+      if (arr.indexOf(sel) === -1) arr.push(sel);
+    };
+    for (const sheet of sheets) {
+      let rules;
+      try {
+        rules = sheet.cssRules;
+      } catch (e) {
+        continue;
+      }
+      if (!rules) continue;
+      const walk = (rs) => {
+        for (const rule of rs) {
+          if (rule.cssRules && !rule.selectorText) {
+            // Descend into @media/@layer/@supports while still reading each
+            // nested style rule's own selector below.
+            try { walk(rule.cssRules); } catch (e) {}
+            continue;
+          }
+          const st = rule.style;
+          if (!st || !rule.selectorText) continue;
+          const comps = rule.selectorText.split(",").map((x) => x.trim());
+          for (const comp of comps) {
+            const notDark = /:not\(\s*\[dark\]\s*\)/.test(comp);
+            const side = !notDark && /\[dark\]/.test(comp) ? "d" : "l";
+            for (let i = 0; i < st.length; i++) {
+              const name = st[i];
+              if (!/^--t[0-9a-f]{8,}$/i.test(name)) continue;
+              let e = out.get(name);
+              if (!e) {
+                e = { d: "", l: "", ds: [], ls: [] };
+                out.set(name, e);
+              }
+              const val = _brNorm(st.getPropertyValue(name));
+              if (side === "d") {
+                if (val && val !== "unset" && val !== "initial") { e.d = val; addScope(e.ds, comp); }
+              } else if (val && val !== "unset" && val !== "initial") {
+                e.l = val;
+                addScope(e.ls, comp);
+              }
+            }
+          }
+        }
+      };
+      try {
+        walk(rules);
+      } catch (e) {}
+    }
+    return out;
+  }
+  function _brRgba(hex, alpha) {
+    const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || "").trim());
+    if (!m) return null;
+    const ch = [0, 2, 4].map((i) => parseInt(m[1].slice(i, i + 2), 16));
+    return "rgba(" + ch.join(",") + "," + alpha + ")";
+  }
+  function _brBuild(def) {
+    const tv = def.vars || {};
+    const a = tv["base-background"],
+      n = tv["raised-background"],
+      r = tv["menu-background"],
+      g = tv["10-percent-layer"];
+    if (!a) return "";
+    const solid = { a: [], n: [], r: [] };
+    const bars = [];
+    const layers = [];
+    const darkScopes = new Set(["[dark]"]);
+    const lightScopes = new Set([":root"]);
+    _brCollect().forEach((sides, name) => {
+      const d = sides.d,
+        l = sides.l;
+      if (!d || !l) return;
+      const remember = (s) => {
+        (s === "d" ? sides.ds : sides.ls).forEach((sel) => {
+          // Keep only host-level scopes that DIRECTLY carry the attribute
+          // (ending in [dark] / :not([dark]) / :root); descendant-heavy
+          // rules are redundant with our catch-all and bloat output.
+          if (/\[(dark|light)\]$/.test(sel) || /:not\(\s*\[dark\]\s*\)\s*$/.test(sel) ||
+              sel === ":root" || /^[a-z][a-z0-9-]*\[dark\]$/.test(sel)) {
+            (s === "d" ? darkScopes : lightScopes).add(sel);
+          }
+        });
+      };
+      if (_BR_DARK_SURFACE[d] && _BR_LIGHT_SURFACE.has(l)) {
+        solid[_BR_DARK_SURFACE[d]].push(name);
+        remember("d"); remember("l");
+      } else {
+        const mb = /^rgba\(15,15,15,(0?\.\d+)\)$/.exec(d);
+        if (mb && /^rgba\(255,255,255,0?\.\d+\)$/.test(l)) {
+          const tinted = _brRgba(a, mb[1]);
+          if (tinted) { bars.push(name + ":" + tinted); remember("d"); remember("l"); }
+          return;
+        }
+        if (_BR_DARK_LAYER.test(d) && _BR_LIGHT_LAYER.test(l) && g) {
+          layers.push(name + ":" + g);
+          remember("d"); remember("l");
+        }
+      }
+    });
+    const decls = [];
+    for (const slot of ["a", "n", "r"]) {
+      const color = slot === "a" ? a : slot === "n" ? n : r;
+      if (!color) continue;
+      for (const name of solid[slot]) decls.push(name + ":" + color);
+    }
+    for (const d of bars) decls.push(d);
+    for (const d of layers) decls.push(d);
+    if (!decls.length) return "";
+    // [dark] matches EVERY element carrying the attribute directly, including
+    // sub-hosts like ytd-masthead[dark]; a direct !important value there beats
+    // YouTube's direct non-important token declaration (inheritance alone
+    // loses to direct declarations, so html[dark]-only scoping is insufficient).
+    const scopes = def.mode === "light"
+      ? [":root"].concat([...lightScopes].filter((x) => x !== ":root").slice(0, 14))
+      : ["[dark]"].concat([...darkScopes].filter((x) => x !== "[dark]").slice(0, 14));
+    return scopes.join(",") + "{" + decls.map((d) => d + "!important").join(";") + "}";
+  }
+  function _brMount(css) {
+    const head = document.head || document.documentElement;
+    if (!head) return;
+    if (_brEl && _brEl.isConnected) {
+      if (_brEl.textContent !== css) _brEl.textContent = css;
+      return;
+    }
+    const el = document.createElement("style");
+    el.id = _brQr;
+    el.setAttribute("data-ytp-theme", "1");
+    el.textContent = css;
+    head.appendChild(el);
+    _brEl = el;
+  }
+  function _brEnsureMounted() {
+    // Free, unlimited: the node must exist whenever we have good CSS. YouTube
+    // periodically strips <style> nodes during shell/head rewrites.
+    if (_brCss && (!_brEl || !_brEl.isConnected)) {
+      try {
+        _brMount(_brCss);
+      } catch (e) {}
+    }
+  }
+  function _brScan() {
+    if (!_brTheme) return;
+    if (_brScans >= _BR_BUDGET) return;
+    const now = (window.performance && performance.now()) || Date.now();
+    if (_brScans > 0 && now - _brLastScan < _BR_MIN_GAP) return;
+    if (!_brCss && now > _BR_SCAN_WINDOW && _brScans > 0) return;
+    _brLastScan = now;
+    _brScans++;
+    let css = "";
+    try {
+      css = _brBuild(_brTheme);
+    } catch (e) {
+      try { h("themeTokenBridge", e && e.message); } catch (e2) {}
+      return;
+    }
+    // Sticky: only adopt a NON-EMPTY result. An empty build during churn is
+    // ignored and retried later; it never removes an already-good stylesheet.
+    if (css) {
+      if (css !== _brCss) {
+        _brCss = css;
+        _brMount(css);
+      } else {
+        _brEnsureMounted();
+      }
+    } else {
+      _brEnsureMounted();
+    }
+  }
+  function _brSchedule(deep) {
+    if (_brRAF) return;
+    _brRAF = (window.requestAnimationFrame || ((cb) => setTimeout(cb, 16)))(() => {
+      _brRAF = 0;
+      _brEnsureMounted();
+      if (deep) _brScan();
+      const tt = (_brTools && _brTools.addTimeout) || ((fn) => setTimeout(fn, 0));
+      tt(_brEnsureMounted, 150);
+      tt(_brEnsureMounted, 800);
+    });
+  }
+  function _brStop() {
+    _brTheme = null;
+    _brTools = null;
+    _brCss = "";
+    _brKey = "";
+    _brScans = 0;
+    _brLastScan = 0;
+    if (_brMO) { try { _brMO.disconnect(); } catch (e) {} _brMO = null; }
+    if (_brEl) { try { _brEl.remove(); } catch (e) {} _brEl = null; }
+  }
+  function _brStart(def, tools) {
+    if (!def || !def.vars || (def.mode !== "dark" && def.mode !== "light")) {
+      _brStop();
+      return;
+    }
+    const key = def.id + "|" + def.mode;
+    const same = _brKey === key;
+    _brTools = tools || _brTools || null;
+    _brTheme = def;
+    // Re-apply with the identical theme (e.g. an unrelated settings toggle):
+    // nothing to (re)build — just make sure the sheet is still mounted.
+    if (same && _brCss && _brMO) {
+      _brEnsureMounted();
+      return;
+    }
+    if (!same) {
+      // Genuine theme change: drop the old sheet and rediscover.
+      if (_brMO) { try { _brMO.disconnect(); } catch (e) {} _brMO = null; }
+      if (_brEl) { try { _brEl.remove(); } catch (e) {} _brEl = null; }
+      _brCss = "";
+      _brScans = 0;
+      _brLastScan = 0;
+      _brKey = key;
+    }
+    _brEnsureMounted();
+    _brScan();
+    const tt = (_brTools && _brTools.addTimeout) || ((fn) => setTimeout(fn, 0));
+    // Spaced discovery retries covering late-loading stylesheet bundles.
+    for (const ms of [120, 400, 900, 1800, 3500, 6000, 10000, 15000]) tt(_brScan, ms);
+    // Pure mount safety net (no scans).
+    for (const ms of [250, 700, 2500, 5000, 8000, 12000, 18000]) tt(_brEnsureMounted, ms);
+    if (_brMO || !("MutationObserver" in window)) return;
+    try {
+      let observedHead = document.head;
+      _brMO = new MutationObserver((muts) => {
+        // YouTube can replace <head> itself during shell boot; an observer on
+        // the old head would then never fire again.
+        if (document.head && document.head !== observedHead) {
+          try { _brMO.disconnect(); } catch (e) {}
+          observedHead = document.head;
+          try { _brMO.observe(observedHead, { childList: true }); } catch (e) {}
+          _brSchedule(true);
+          return;
+        }
+        let stylesheetAdded = false;
+        for (const rec of muts)
+          for (const node of rec.addedNodes)
+            if (node.nodeType === 1 &&
+              (node.tagName === "LINK" || node.tagName === "STYLE" ||
+                (node.querySelector && node.querySelector("link,style"))))
+              stylesheetAdded = true;
+        if (!_brEl || !_brEl.isConnected || stylesheetAdded)
+          _brSchedule(stylesheetAdded);
+      });
+      if (observedHead) _brMO.observe(observedHead, { childList: true });
+    } catch (e) {}
+  }
   const qr = "ytp-theme-engine-style";
   function Vr(e) {
     try {
@@ -22927,6 +23261,7 @@ const Nr = [
       r &&
         (Vr(r),
         Fr(),
+        _brStart(a, t),
         (function () {
           jr();
           try {
@@ -22962,10 +23297,12 @@ const Nr = [
               (document.getElementById(qr) || Vr(r),
                 S.themeOverhaulOn && !document.getElementById(Wr) && Gr(),
             S.themeGlassOverhaulOn && Xr(),
-                Fr());
+                Fr(),
+                (_brScans = 0, _brLastScan = 0, _brSchedule(true)));
             }, e);
         }),
         Yt["theme-engine"].push(zr),
+        Yt["theme-engine"].push(_brStop),
         Yt["theme-engine"].push(Zr),
         Yt["theme-engine"].push(() => {
           const o = _themeOrig;

@@ -664,6 +664,89 @@ async function scenarioDenseGrid(browser) {
   };
 }
 
+async function scenarioThemeBridge(browser) {
+  // Regression for the pure-black bands painted over redesigned surfaces
+  // (watch history header, channel/explore headers, masthead) when a theme
+  // is applied: those components read build-hashed design tokens instead of
+  // --yt-spec-* vars, so the bridge remaps them. Locks: dark theme colors the
+  // masthead + tabbed channel header on load AND after SPA navigation; light
+  // theme likewise; theme off leaves no bridge and native colors.
+  const name = "theme-bridge";
+  const BASE = "rgb(45, 43, 85)"; // d-shades-of-purple base-background #2d2b55
+  const BASE_MOB = "rgba(45, 43, 85, 0.8)"; // frosted masthead variant
+  const PAPER = "rgb(245, 245, 240)"; // l-paper base
+  const page = async (seed) => {
+    const ctx = await browser.createBrowserContext();
+    const p = await ctx.newPage();
+    await p.setViewport({ width: 1500, height: 1000 });
+    await p.setCookie({ name: "CONSENT", value: "PENDING+987", domain: ".youtube.com", path: "/" });
+    attachConsole(p, () => {});
+    await inject(p, { seed: { "ytp.cfg": JSON.stringify(Object.assign(
+      { __ver: 1000, __ts: Date.now() }, seed)) } });
+    const out = { ctx, p };
+    out.close = async () => { await p.close(); try { await ctx.close(); } catch (_) {} };
+    return out;
+  };
+  const probe = (p) => p.evaluate(() => {
+    const bg = (sel) => {
+      const el = document.querySelector(sel);
+      return el ? getComputedStyle(el).backgroundColor : null;
+    };
+    return {
+      bridge: !!document.getElementById("ytp-theme-token-bridge"),
+      main: !!document.getElementById("ytp-theme-engine-style"),
+      masthead: bg("#background.ytd-masthead"),
+      tabHeader: bg("#page-header-container"),
+      tabs: bg("#tabs-container"),
+    };
+  });
+  const isStockBlack = (c) => /^rgba?\(\s*(0|9|15)\s*,\s*(0|9|15)\s*,\s*(0|10|15)\s*(,|0?\.\d+)?\)/.test(c || "");
+  const ok = (c, ...allowed) => allowed.includes(c);
+  let failures = [];
+
+  // 1) Dark theme, channel with tabbed header
+  let s = await page({ themeEngineOn: true, themeSelected: "d-shades-of-purple" });
+  await s.p.goto("https://www.youtube.com/@YouTubeMusic", { waitUntil: "domcontentloaded", timeout: 60000 });
+  for (let i = 0; i < 50; i++) { await wait(300); const q = await probe(s.p); if (q.tabHeader) break; }
+  let m = await probe(s.p);
+  if (!m.bridge) failures.push("bridge missing on channel");
+  if (!ok(m.tabHeader, BASE)) failures.push("tabHeader=" + m.tabHeader);
+  if (!ok(m.masthead, BASE, BASE_MOB)) failures.push("masthead=" + m.masthead);
+
+  // 2) SPA navigation (in-app click) to home, then history: the bridge must
+  //    keep winning on ytd-masthead[dark], which carries the attr directly.
+  await s.p.evaluate(() => { const a = document.querySelector('a[href="/"]'); a && a.click(); });
+  await wait(5500);
+  m = await probe(s.p);
+  if (!m.bridge || isStockBlack(m.masthead)) failures.push("after SPA home masthead=" + m.masthead + " bridge=" + m.bridge);
+  await s.p.evaluate(() => { const a = document.querySelector('a[href="/feed/history"]'); a && a.click(); });
+  await wait(5500);
+  m = await probe(s.p);
+  if (!m.bridge || isStockBlack(m.masthead)) failures.push("after SPA history masthead=" + m.masthead + " bridge=" + m.bridge);
+  await s.close();
+
+  // 3) Light theme
+  s = await page({ themeEngineOn: true, themeSelected: "l-paper" });
+  await s.p.goto("https://www.youtube.com/@YouTubeMusic", { waitUntil: "domcontentloaded", timeout: 60000 });
+  for (let i = 0; i < 50; i++) { await wait(300); const q = await probe(s.p); if (q.tabHeader) break; }
+  m = await probe(s.p);
+  if (!m.bridge) failures.push("light: bridge missing");
+  if (!ok(m.tabHeader, PAPER) || !ok(m.masthead, PAPER, "rgba(245, 245, 240, 0.8)"))
+    failures.push("light header=" + m.tabHeader + " mast=" + m.masthead);
+  await s.close();
+
+  // 4) Theme off: no bridge, native surfaces
+  s = await page({ themeEngineOn: false });
+  await s.p.goto("https://www.youtube.com/@YouTubeMusic", { waitUntil: "domcontentloaded", timeout: 60000 });
+  await wait(7000);
+  m = await probe(s.p);
+  if (m.bridge) failures.push("bridge present with theme off");
+  if (m.tabHeader !== "rgb(255, 255, 255)") failures.push("off: tabHeader=" + m.tabHeader);
+  await s.close();
+
+  return { name, ok: failures.length === 0, failures };
+}
+
 async function scenarioStyleWipe(browser) {
   const name = "style-wipe";
   const log = (...a) => console.log(`[${name}]`, ...a);
@@ -750,6 +833,7 @@ async function main() {
     ["seekbar-marks", () => scenarioSeekbarMarks(browser)],
     ["aio-bundles", () => scenarioAioBundles(browser)],
     ["dense-grid", () => scenarioDenseGrid(browser)],
+    ["theme-bridge", () => scenarioThemeBridge(browser)],
     ["style-wipe", () => scenarioStyleWipe(browser)],
     ["dashboard-main", () => scenarioDashboard(browser, false)],
     ["dashboard-content", () => scenarioDashboard(browser, true)],

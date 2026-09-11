@@ -1087,6 +1087,7 @@ algoBlockChannels: "",
         remoteSelectorsSHA: "",
         adaptiveThrottleOn: !1,
         disableVideoPreviewsOn: !1,
+        heroHealOn: !0,
         autoDismissPauseOn: !1,
         alwaysShowProgressBar: !1,
         redirectShortsOn: !1,
@@ -4279,6 +4280,11 @@ algoBlockChannels: "",
         const orig = HTMLMediaElement.prototype.play;
         HTMLMediaElement.prototype.play = function () {
           try {
+            // Gate the MAIN watch player only. Channel hero panels, hover
+            // previews and other inline players live outside #movie_player;
+            // swallowing their play() leaves them on a permanent black frame.
+            if (this && this.closest && !this.closest("#movie_player"))
+              return orig.apply(this, arguments);
             if (Ma && Ma.awaitingResume) {
               // Safety timeout: auto-clear if stuck for more than 30 seconds
               if (Ma.awaitingResumeSince && Date.now() - Ma.awaitingResumeSince > 30000) {
@@ -4845,6 +4851,9 @@ algoBlockChannels: "",
         window.__ytpRealPlay = _orig;
         HTMLMediaElement.prototype.play = function () {
           try {
+            // Same scope guard as the session-restore gate above.
+            if (this && this.closest && !this.closest("#movie_player"))
+              return _orig.apply(this, arguments);
             if (Ma && Ma.awaitingResume) {
               // Safety timeout: auto-clear if stuck for more than 30 seconds
               if (Ma.awaitingResumeSince && Date.now() - Ma.awaitingResumeSince > 30000) {
@@ -15616,6 +15625,95 @@ algoBlockChannels: "",
               "Unlike Pause (which keeps the buffer ready), Stop tears down the media source, releasing all buffered video/audio data. YouTube re-fetches from the start if you press Play afterwards. Useful when you're done watching and want to free RAM/bandwidth without closing the tab.",
             ),
           ));
+      },
+    }),
+    xa.register({
+      id: "hero-artwork-heal",
+      name: "Fix Broken Channel Hero",
+      summary: "Restores the featured-video artwork on channel pages when YouTube's inline preview fails to bind.",
+      masterKey: "heroHealOn",
+      keys: ["heroHealOn"],
+      apply(ctx) {
+        if (!S.heroHealOn) return;
+        // The Music (and similar) channel pages feature a large hero built
+        // from ytd-default-promo-panel-renderer: YouTube paints #hero with
+        // the video's i.ytimg.com artwork, then covers it with an inline
+        // muted preview player. When that binding is interrupted (renderer
+        // stamping aborted under load / extension interaction), neither the
+        // background nor the player appears and only the panel's hardcoded
+        // black frame remains - the reported "black preview box". This
+        // self-heal restores YouTube's OWN artwork using the video id from
+        // the panel's title link; a healthy panel is never touched.
+        const QUAL = ["maxresdefault", "sddefault", "hqdefault"];
+        const preload = (url) =>
+          new Promise((res) => {
+            try {
+              const im = new Image();
+              let done = false;
+              const finish = (ok) => { if (!done) { done = true; res(!!ok); } };
+              im.onload = () => finish(im.naturalWidth >= 640);
+              im.onerror = () => finish(false);
+              im.src = url;
+              ctx.addTimeout(() => finish(false), 9000);
+            } catch (_) {
+              res(false);
+            }
+          });
+        const heal = async (panel) => {
+          try {
+            if (panel.dataset.ytpHeroHealed === "1") return;
+            const hero = panel.querySelector("#hero");
+            if (!hero) return;
+            const r = hero.getBoundingClientRect();
+            if (r.width < 400 || r.height < 200) return;
+            const cs = getComputedStyle(hero);
+            const hasBg = cs.backgroundImage && cs.backgroundImage !== "none";
+            const v = panel.querySelector("video");
+            const videoAlive = !!(v && (v.readyState >= 1 || v.currentSrc || v.poster));
+            if (hasBg || videoAlive) { panel.dataset.ytpHeroHealed = "1"; return; }
+            // Require two consecutive broken scans (>=2 s apart) so a
+            // healthy but slowly-binding panel is never overwritten.
+            const checks = parseInt(panel.dataset.ytpHeroChecks || "0", 10) + 1;
+            panel.dataset.ytpHeroChecks = String(checks);
+            if (checks < 2) return;
+            const a = panel.querySelector('a[href*="watch?v="]');
+            if (!a) return;
+            let id = "";
+            try { id = new URL(a.href, location.href).searchParams.get("v") || ""; } catch (_) {}
+            if (!/^[\w-]{6,}$/.test(id)) return;
+            for (const q of QUAL) {
+              const url = "https://i.ytimg.com/vi/" + id + "/" + q + ".jpg";
+              if (await preload(url)) {
+                hero.style.backgroundImage = 'url("' + url + '")';
+                hero.style.backgroundSize = "cover";
+                hero.style.backgroundPosition = "center";
+                panel.dataset.ytpHeroHealed = "1";
+                try { pe("✨ Restored channel hero artwork", 2200, "success"); } catch (_) {}
+                return;
+              }
+            }
+          } catch (_) {}
+        };
+        const seen = new WeakSet();
+        const scan = () => {
+          try {
+            const panels = document.querySelectorAll("ytd-default-promo-panel-renderer");
+            panels.forEach((panel) => {
+              if (seen.has(panel)) return;
+              seen.add(panel);
+              [2500, 6000, 11000].forEach((ms) => ctx.addTimeout(() => heal(panel), ms));
+            });
+          } catch (_) {}
+        };
+        scan();
+        ctx.addTimeout(scan, 3000);
+        ctx.onNav(scan);
+        if (document.body) {
+          ctx.addObserver(document.body, ee(scan, 500), { childList: true, subtree: true });
+        }
+      },
+      settings(en) {
+        en.appendChild(Io("Self-heal broken channel hero artwork", "heroHealOn"));
       },
     }),
     xa.register({
@@ -26642,6 +26740,18 @@ const Nr = [
     // error as a toast.
     let _dashAttempted = false;
     const _dashBuild = () => {
+      if (!document.body) {
+        // Menu commands can fire at document-start (script runs at
+        // document-start); wait for <body> instead of throwing into the
+        // userscript manager as an opaque "undefined is not a function".
+        const _retryOpen = () => {
+          try { Uo(); } catch (e) { try { m("dashboard open retry", e); } catch (_) {} }
+        };
+        if (document.readyState === "loading")
+          document.addEventListener("DOMContentLoaded", _retryOpen, { once: true });
+        else setTimeout(_retryOpen, 120);
+        return;
+      }
       _dashAttempted = true;
       wo = wo || null;
       (function () {
@@ -26934,8 +27044,28 @@ const Nr = [
           }));
       })();
     };
+    const _dismissOverlayGuide = () => {
+      try {
+        // On narrower widths (and briefly at wide widths while YouTube
+        // settles guide persistence) the guide is a MODAL drawer whose
+        // full-page rgba(0,0,0,.5) scrim covers all content. Opening the
+        // dashboard on top leaves that scrim stuck over the site. Close
+        // the modal drawer via YouTube's own toggle; the pinned
+        // (persistent) guide is never touched.
+        const drawer = document.querySelector("tp-yt-app-drawer#guide") ||
+          document.querySelector("tp-yt-app-drawer");
+        if (drawer && drawer.hasAttribute("opened") && !drawer.hasAttribute("persistent")) {
+          const btn = document.querySelector("#guide-button");
+          if (btn) btn.click();
+        }
+      } catch (_) {}
+    };
     try {
       if (!wo) _dashBuild();
+      if (wo) {
+        requestAnimationFrame(_dismissOverlayGuide);
+        setTimeout(_dismissOverlayGuide, 350);
+      }
     } catch (_dashErr1) {
       try { wo && wo.remove(); } catch (_) {}
       wo = null;
@@ -32983,14 +33113,27 @@ const Nr = [
           // toast, instead of bubbling into the userscript manager's menu
           // as an opaque "undefined is not a function".
           const _regCmd = (label, fn) => {
+            const _menuFail = (err) => {
+              try { m("menu:" + label, err); } catch (_) {}
+              try { console.error("[YT-zen] menu '" + label + "' failed:", err); } catch (_) {}
+              try { pe(label + " failed: " + (err && err.message ? err.message : err), 5000, "error"); } catch (_) {}
+            };
             const _wrap = function () {
+              let _result;
               try {
-                return fn.apply(null, arguments);
+                _result = fn.apply(null, arguments);
               } catch (err) {
-                try { m("menu:" + label, err); } catch (_) {}
-                try { console.error("[YT-zen] menu '" + label + "' failed:", err); } catch (_) {}
-                try { pe(label + " failed: " + (err && err.message ? err.message : err), 5000, "error"); } catch (_) {}
+                _menuFail(err);
+                return;
               }
+              // Several handlers (e.g. Export settings) are async. A rejected
+              // promise returned to Violentmonkey becomes an unhandled
+              // rejection in the manager UI (the recurring opaque red
+              // "undefined is not a function" strip): surface it ourselves.
+              if (_result && typeof _result.then === "function") {
+                return Promise.resolve(_result).catch(_menuFail);
+              }
+              return _result;
             };
             let _registered = false;
             // Path 1: classic GM_registerMenuCommand (Tampermonkey, Greasemonkey, Violentmonkey legacy)

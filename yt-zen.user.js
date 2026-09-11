@@ -15659,15 +15659,42 @@ algoBlockChannels: "",
               res(false);
             }
           });
+        // YouTube styles `#hero` (the right-side artwork layer) purely by
+        // id/class; a newly inserted element with its own id+classes gets
+        // the exact native geometry and responsive behavior.
+        const ensureHero = (panel) => {
+          let hero = panel.querySelector("#hero");
+          if (hero) return hero;
+          const item = panel.closest("ytd-carousel-item-renderer") || panel;
+          const ir = item.getBoundingClientRect();
+          hero = document.createElement("div");
+          hero.id = "hero";
+          hero.className = "style-scope ytd-default-promo-panel-renderer";
+          hero.dataset.ytpInjectedHero = "1";
+          panel.insertBefore(hero, panel.firstChild);
+          // Fallback geometry if YouTube's own rule never applied:
+          // art fills the right ~60% of the panel; the left text column
+          // keeps its native black/gradient backdrop.
+          const cs = getComputedStyle(hero);
+          const hr = hero.getBoundingClientRect();
+          if (cs.position === "static" || hr.width < Math.min(300, ir.width * 0.3)) {
+            hero.style.position = "absolute";
+            hero.style.top = "0";
+            hero.style.bottom = "0";
+            hero.style.right = "0";
+            hero.style.left = Math.round(ir.width * 0.4) + "px";
+          }
+          return hero;
+        };
         const heal = async (panel) => {
           try {
             if (panel.dataset.ytpHeroHealed === "1") return;
-            const hero = panel.querySelector("#hero");
-            if (!hero) return;
-            const r = hero.getBoundingClientRect();
-            if (r.width < 400 || r.height < 200) return;
-            const cs = getComputedStyle(hero);
-            const hasBg = cs.backgroundImage && cs.backgroundImage !== "none";
+            const item = panel.closest("ytd-carousel-item-renderer") || panel;
+            const ir = item.getBoundingClientRect();
+            if (ir.width < 600 || ir.height < 200) return;
+            let hero = panel.querySelector("#hero");
+            const cs = hero ? getComputedStyle(hero) : null;
+            const hasBg = !!(cs && cs.backgroundImage && cs.backgroundImage !== "none");
             const v = panel.querySelector("video");
             const videoAlive = !!(v && (v.readyState >= 1 || v.currentSrc || v.poster));
             if (hasBg || videoAlive) { panel.dataset.ytpHeroHealed = "1"; return; }
@@ -15684,6 +15711,7 @@ algoBlockChannels: "",
             for (const q of QUAL) {
               const url = "https://i.ytimg.com/vi/" + id + "/" + q + ".jpg";
               if (await preload(url)) {
+                hero = ensureHero(panel);
                 hero.style.backgroundImage = 'url("' + url + '")';
                 hero.style.backgroundSize = "cover";
                 hero.style.backgroundPosition = "center";

@@ -82,6 +82,20 @@ YT-zen runs at `document-start` on every matched YouTube surface and applies aft
 
 ## Changelog
 
+### 3.18.7
+
+Firefox content-mode compatibility (page failed to load, `Permission denied to access object/property` at `www.youtube.com:21/22`, `serverContract`, property `"delay"`/`"then"`):
+
+- The script intentionally stays in the isolated content/userscript realm (`@inject-into content` / `@sandbox JavaScript`), because YouTube's CSP blocks page-context injection on cold loads. Every callable and property accessor handed to a page object is now exported across the Xray boundary (`exportFunction`/`cloneInto`/exported descriptors): navigation `history` hooks, the `ytInitialData` accessor (the boot-time assignment that aborted hydration), all `fetch`/`XMLHttpRequest`/`sendBeacon` hooks, the three `HTMLMediaElement.play` gates, the player method neutralizers, `navigator.language(s)`, the `Intl.*Format` replacements (now constructible), and the debug player API.
+- Wrapped `play()` gates return a page-realm promise; the startup banner reports the effective JS realm (`realm: page` / `content`).
+- Tracking beacons reject non-http(s) targets (stops the `data:text/plain;base64,Cg==` and `file:///` console spam), and the Force-Watched watchtime burst is staggered so it can no longer starve the player's own `videoplayback` requests.
+
+Dashboard completeness:
+
+- Every built-in feature card is now shown and controllable. Previously ~47 cards (CSS toggles such as Compact UI / Hide comments / Hide watermark / Always-visible progress bar, player tools, diagnostics overlays, Shorts/comment/privacy members) were either fully hidden or reachable only through an All-in-One card.
+- Cards without a settings panel of their own auto-render an **Enable** switch bound to their master key.
+- New `npm run audit:dashboard` gate (part of `npm test`) fails the build if any statically registered feature is hidden from the GUI.
+
 ### 3.16.4
 
 Feature unification:
@@ -175,7 +189,7 @@ npm test
 node scripts/test-sponsorblock.js JQb9eGeclQw
 ```
 
-`npm test` rebuilds the userscript, checks every JavaScript file for syntax, verifies release invariants, and runs deterministic tests for resource ownership, cache behavior, bus/logger/state-store behavior, segment normalization, direct API lookups, privacy lookup matching, and hidden-video lookup behavior.
+`npm test` rebuilds the userscript, checks every JavaScript file for syntax, verifies release invariants, audits that every registered feature is reachable in the dashboard GUI, and runs deterministic tests for resource ownership, cache behavior, bus/logger/state-store behavior, segment normalization, direct API lookups, privacy lookup matching, and hidden-video lookup behavior.
 
 The live harness checks the official direct repeated-query, direct JSON, privacy path repeated-query, and privacy path JSON forms. Network availability is required only for the live harness; the normal test gate is deterministic.
 

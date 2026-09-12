@@ -11294,7 +11294,6 @@ algoBlockChannels: "",
       id: "ambient-mode",
       name: "Ambient Glow",
       summary: "Ambient glow that matches the video's colors.",
-      hidden: !0,
       masterKey: "ambientMode",
       keys: ["ambientMode", "ambientBlur", "ambientOp"],
       apply(e) {
@@ -11380,7 +11379,6 @@ algoBlockChannels: "",
       name: t,
       summary: a,
       masterKey: n,
-      hidden: !0,
       keys: [n],
       apply(e) {
         S[n] && e.addStyle(r);
@@ -13294,7 +13292,6 @@ algoBlockChannels: "",
     },
   }),
     xa.register({
-      hidden: !0,
       id: "stats-overlay",
       name: "Playback Performance Overlay",
       summary: "Shows FPS, bitrate, resolution, buffer, and speed.",
@@ -13336,7 +13333,6 @@ algoBlockChannels: "",
       id: "diag-console",
       name: "Activity Monitor",
       summary: "Live console of what YT-zen is doing.",
-      hidden: !0,
       masterKey: "diagConsole",
       keys: ["diagConsole"],
       apply(e) {
@@ -13367,7 +13363,6 @@ algoBlockChannels: "",
       settings() {},
     }),
     xa.register({
-      hidden: !0,
       id: "perf-profiler",
       name: "Feature Performance Tracker",
       summary: "Watches how much work each feature costs.",
@@ -13386,7 +13381,6 @@ algoBlockChannels: "",
       },
     }),
     xa.register({
-      hidden: !0,
       id: "fps-counter",
       name: "Live FPS Counter",
       summary: "Small live FPS counter.",
@@ -13488,7 +13482,6 @@ algoBlockChannels: "",
       },
     }),
     xa.register({
-      hidden: !0,
       id: "buffer-health",
       name: "Buffer Health Monitor",
       summary: "Live buffer and rebuffer statistics.",
@@ -13627,7 +13620,6 @@ algoBlockChannels: "",
     }),
     
     xa.register({
-      hidden: !0,
       id: "dropped-frame-counter",
       name: "Dropped Frame Counter",
       summary: "Counts dropped frames to diagnose stutter.",
@@ -13807,7 +13799,6 @@ algoBlockChannels: "",
     }),
     xa.register({
       id: "remove-redirect-urls",
-      hidden: !0,
       name: "Skip YouTube /redirect URLs",
       summary: "Opens redirect links directly.",
       masterKey: "removeRedirectUrlsOn",
@@ -13853,7 +13844,6 @@ algoBlockChannels: "",
     }),
     xa.register({
       id: "shorten-share-url",
-      hidden: !0,
       name: "Shorten Share URLs",
       summary: "Copied links lose ?si= and ?feature= tracking.",
       masterKey: "shortenShareUrlOn",
@@ -13986,7 +13976,6 @@ algoBlockChannels: "",
     }),
 
     xa.register({
-      hidden: !0,
       id: "hide-top-live-games",
       name: "Hide Top Live Games",
       summary: "Removes gaming live carousels from feeds.",
@@ -14383,7 +14372,6 @@ algoBlockChannels: "",
       id: "api-explorer",
       name: "Developer Player Control",
       summary: "Expose the player to devtools for debugging.",
-      hidden: !0,
       masterKey: "apiExplorer",
       keys: ["apiExplorer", "apiExplorerMutations"],
       apply(t) {
@@ -15292,7 +15280,6 @@ algoBlockChannels: "",
       id: "adaptive-throttle",
       name: "Adaptive Throttle",
       summary: "Saves battery: lighter processing on low power.",
-      hidden: !0,
       masterKey: "adaptiveThrottleOn",
       keys: ["adaptiveThrottleOn"],
       apply(e) {
@@ -15657,7 +15644,6 @@ algoBlockChannels: "",
     }),
     xa.register({
       id: "stop-button",
-      hidden: !0,
       name: "Stop Button",
       summary: "Adds a player Stop button that halts and unloads the video.",
       masterKey: "stopButtonOn",
@@ -15830,7 +15816,6 @@ algoBlockChannels: "",
       },
     }),
     xa.register({
-      hidden: !0,
       id: "disable-video-previews",
       name: "No Preview on Hover",
       summary: "Stops videos previewing when you hover thumbnails.",
@@ -15857,7 +15842,6 @@ algoBlockChannels: "",
     ),
     xa.register({
       id: "redirect-shorts",
-      hidden: !0,
       name: "Redirect Shorts to Player",
       summary: "Opens Shorts in the normal player.",
       masterKey: "redirectShortsOn",
@@ -16287,7 +16271,6 @@ algoBlockChannels: "",
   }),
     xa.register({
       id: "auto-resume-autopaused",
-      hidden: !0,
       name: "Auto Resume Auto-Paused",
       summary: "Resumes when you come back to the tab.",
       masterKey: "autoResumeAutoPausedOn",
@@ -16358,7 +16341,6 @@ algoBlockChannels: "",
     
     xa.register({
       id: "copy-timestamp-button",
-      hidden: !0,
       name: "Copy Timestamp Button",
       summary: "Copy a link to the exact moment you are on.",
       masterKey: "copyTimestampButtonOn",
@@ -16385,7 +16367,6 @@ algoBlockChannels: "",
     }),
     xa.register({
       id: "copy-video-info-button",
-      hidden: !0,
       name: "Copy Video Info Button",
       summary: "Copy title, channel, and a clean link with one click.",
       masterKey: "copyVideoInfoButtonOn",
@@ -16413,7 +16394,6 @@ algoBlockChannels: "",
     }),
     xa.register({
       id: "open-transcript-button",
-      hidden: !0,
       name: "Open Transcript Button",
       summary: "One-click button to open the transcript.",
       masterKey: "openTranscriptButtonOn",
@@ -16447,7 +16427,6 @@ algoBlockChannels: "",
     }),
     xa.register({
       id: "video-notes",
-      hidden: !0,
       name: "Video Notes",
       summary: "Private notes per video, stored locally.",
       masterKey: "videoNotesOn",
@@ -16468,7 +16447,6 @@ algoBlockChannels: "",
     }),
     xa.register({
       id: "channel-notes",
-      hidden: !0,
       name: "Channel Notes",
       summary: "Private notes per channel, shown on their page.",
       masterKey: "channelNotesOn",
@@ -16489,7 +16467,6 @@ algoBlockChannels: "",
     }),
     xa.register({
       id: "chapter-hotkeys",
-      hidden: !0,
       name: "Chapter Hotkeys",
       summary: "Jump chapters with the - and = keys.",
       masterKey: "chapterHotkeysOn",
@@ -16499,7 +16476,6 @@ algoBlockChannels: "",
     }),
     xa.register({
       id: "chapter-buttons",
-      hidden: !0,
       name: "Chapter Buttons",
       summary: "Previous/next chapter buttons in the player.",
       masterKey: "chapterButtonsOn",
@@ -16528,7 +16504,6 @@ algoBlockChannels: "",
     
     xa.register({
       id: "number-search-results",
-      hidden: !0,
       name: "Number Feed Results",
       summary: "Numbers the videos in search results and grids.",
       masterKey: "numberSearchResultsOn",
@@ -16542,7 +16517,6 @@ algoBlockChannels: "",
     }),
     xa.register({
       id: "dense-video-grid",
-      hidden: !0,
       name: "Dense Video Grid",
       summary: "Fits more thumbnails per row on big screens.",
       masterKey: "denseVideoGridOn",
@@ -16635,7 +16609,6 @@ ytd-video-renderer{margin:2px 0!important}
     }),
     xa.register({
       id: "hide-live-content",
-      hidden: !0,
       name: "Hide Live Content",
       summary: "Hides live streams from feeds and search.",
       masterKey: "hideLiveContentOn",
@@ -16647,7 +16620,6 @@ ytd-video-renderer{margin:2px 0!important}
     }),
     xa.register({
       id: "hide-premieres",
-      hidden: !0,
       name: "Hide Premieres",
       summary: "Hides upcoming premiere cards.",
       masterKey: "hidePremieresOn",
@@ -16659,7 +16631,6 @@ ytd-video-renderer{margin:2px 0!important}
     }),
     xa.register({
       id: "playlist-autoscroll",
-      hidden: !0,
       name: "Playlist Autoscroll Current",
       summary: "Keeps the playing video centered in the playlist.",
       masterKey: "playlistAutoscrollOn",
@@ -16678,7 +16649,6 @@ ytd-video-renderer{margin:2px 0!important}
     }),
     xa.register({
       id: "compact-playlist",
-      hidden: !0,
       name: "Compact Playlist",
       summary: "Fits more items in the playlist drawer.",
       masterKey: "compactPlaylistOn",
@@ -16693,7 +16663,6 @@ ytd-video-renderer{margin:2px 0!important}
     }),
     xa.register({
       id: "shorts-auto-mute",
-      hidden: !0,
       name: "Shorts Auto Mute",
       summary: "Shorts always start muted.",
       masterKey: "shortsAutoMuteOn",
@@ -16720,7 +16689,6 @@ ytd-video-renderer{margin:2px 0!important}
     }),
     xa.register({
       id: "shorts-hide-comments",
-      hidden: !0,
       name: "Shorts Hide Comments Panel",
       summary: "Removes the comments drawer on Shorts.",
       masterKey: "shortsHideCommentsOn",
@@ -16735,7 +16703,6 @@ ytd-video-renderer{margin:2px 0!important}
     }),
     xa.register({
       id: "collapse-long-comments",
-      hidden: !0,
       name: "Collapse Long Comments",
       summary: "Collapses very long comments behind an Expand button.",
       masterKey: "collapseLongCommentsOn",
@@ -16786,7 +16753,6 @@ ytd-video-renderer{margin:2px 0!important}
     }),
     xa.register({
       id: "highlight-creator-comments",
-      hidden: !0,
       name: "Highlight Creator Comments",
       summary: "Highlights replies from the video's creator.",
       masterKey: "highlightCreatorCommentsOn",
@@ -16801,7 +16767,6 @@ ytd-video-renderer{margin:2px 0!important}
     }),
     xa.register({
       id: "highlight-timestamp-links",
-      hidden: !0,
       name: "Highlight Timestamp Links",
       summary: "Makes timestamp links stand out.",
       masterKey: "highlightTimestampLinksOn",
@@ -23839,7 +23804,6 @@ const Nr = [
 
   xa.register({
       id: "block-yt-ai",
-      hidden: !0,
       name: "Hide YouTube AI Features",
       summary: "Hides YouTube's AI buttons and summaries.",
       masterKey: "blockYTAIOn",
@@ -26708,6 +26672,17 @@ const Nr = [
             c = !0;
             try {
               e.settings(d);
+              // Features with no panel of their own (CSS-only toggles and
+              // members otherwise reachable solely through an AIO card)
+              // still need a working enable switch on their own card.
+              if (
+                !r &&
+                "string" == typeof e.masterKey &&
+                "boolean" == typeof s[e.masterKey] &&
+                !d.querySelector('[data-key="' + e.masterKey + '"]')
+              ) {
+                d.insertBefore(Io("Enable", e.masterKey), d.firstChild);
+              }
             } catch (t) {
               m("settings " + e.id, t);
             }
@@ -28308,7 +28283,6 @@ const Nr = [
 
     xa.register({
       id: "hide-auto-dubbed",
-      hidden: !0,
       name: "Hide Auto-Dubbed Videos",
       summary: "Filters auto-dubbed videos; prefers original audio.",
       masterKey: "hideAutoDubbedOn",

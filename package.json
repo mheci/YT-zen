@@ -7,8 +7,9 @@
   "scripts": {
     "build": "node scripts/build-userscript.js",
     "check": "node scripts/check.js && node scripts/check-release.js",
+    "audit:dashboard": "node scripts/audit-dashboard.cjs",
     "test:unit": "node scripts/test-unit.js",
-    "test": "npm run build && npm run check && npm run test:unit && npm run test:zen && npm run test:boot",
+    "test": "npm run build && npm run check && npm run audit:dashboard && npm run test:unit && npm run test:zen && npm run test:boot",
     "test:boot": "node scripts/harness-boot.js",
     "test:zen": "node scripts/test-zen.js",
     "test:browser": "node scripts/harness-browser.js",

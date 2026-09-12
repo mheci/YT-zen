@@ -3809,10 +3809,12 @@
       let myPatch = null;
       const patch = () => {
         if (patched) return; patched = true;
-        myPatch = function (...args) {
-          if (gateActive) { return Promise.resolve(); }
+        // Keep the exported reference: unpatch() compares prototype.play
+        // against this exact value.
+        myPatch = _exportPageFn(function (...args) {
+          if (gateActive) { return _pagePromise(); }
           return protoPlay.apply(this, args);
-        };
+        });
         HTMLMediaElement.prototype.play = myPatch;
       };
       // Only uninstall while we still own prototype.play: if a later gate

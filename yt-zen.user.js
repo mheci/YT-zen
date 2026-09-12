@@ -49,12 +49,47 @@
   // break YouTube's own boot scripts. Route callables through
   // exportFunction when the manager exposes it; otherwise fall back to
   // the raw function (page-world managers don't need the export).
-  const _exportPageFn = (fn) => {
+  const _exportPageFn = (fn, opts) => {
     try {
       if ("function" == typeof exportFunction && "object" == typeof e && e && fn)
-        return exportFunction(fn, e);
+        return exportFunction(fn, e, opts || undefined);
     } catch (_) {}
     return fn;
+  };
+  // Constructor callables (new X()) need allowConstruct when exported.
+  const _exportPageCtor = (fn) => _exportPageFn(fn, { allowConstruct: true });
+  // Clone a content-realm data object/array into the page realm (Xray
+  // read-access works without this, but cloning yields a plain page object
+  // that page code can iterate/mutate exactly like its own).
+  const _clonePage = (v) => {
+    try {
+      if ("function" == typeof cloneInto && v && "object" == typeof v)
+        return cloneInto(v, e, { cloneFunctions: true });
+    } catch (_) {}
+    return v;
+  };
+  // Install a property on a page object with page-callable get/set/value.
+  // A raw content-realm accessor on a page object throws "Permission denied
+  // to access object" the moment the page invokes it (this is what killed
+  // YouTube's boot at the ytInitialData assignment).
+  const _pageDefine = (obj, key, desc) => {
+    try {
+      const d = { configurable: desc.configurable !== false, enumerable: !!desc.enumerable };
+      if ("value" in desc) d.value = desc.value;
+      if ("function" == typeof desc.get) d.get = _exportPageFn(desc.get);
+      if ("function" == typeof desc.set) d.set = _exportPageFn(desc.set);
+      Object.defineProperty(obj, key, d);
+      return true;
+    } catch (_) { return false; }
+  };
+  // Promise resolved in the page realm: one returned from a wrapped
+  // HTMLMediaElement.play() must be page-realm or YouTube's player hits
+  // "Permission denied to access property 'then'".
+  const _pagePromise = (v) => {
+    try {
+      const w = (typeof wrappedJSObject !== "undefined" && wrappedJSObject) || e;
+      return (w.Promise || Promise).resolve(v);
+    } catch (_) { return Promise.resolve(v); }
   };
   // Native-call wrapper: a captured page native invoked with a mismatched
   // compartment for `this`/args throws across the X-ray boundary. Fall
@@ -1978,6 +2013,7 @@ algoBlockChannels: "",
   //   finish/settled         -> exactly one "nav.changed" re-scan event
   // A bounded fallback timer commits navigations whose finish never arrives.
   let _zenEarlyNavArmed = false;
+  let _zenHistPatched = false;
   let _zenNavPollTimer = 0;
   const _zenNav = {
     committedHref: location.href,
@@ -2077,20 +2113,23 @@ algoBlockChannels: "",
       // and older desktop rollouts that navigate without yt-navigate events.
       // (Current desktop uses the events; the probe recorded no pushState.)
       try {
+        // YouTube's SPA invokes these from the page realm, so the wrappers
+        // must be exported across the Xray boundary.
         const _wrapHistory = function (orig, kind) {
-          const fn = function () {
+          return _exportPageFn(function () {
             const r = orig.apply(this, arguments);
             try { if (location.href !== _zenNav.committedHref) _zenNavSignal(kind); } catch (er) {}
             return r;
-          };
-          fn.__zenPatched = true;
-          return fn;
+          });
         };
-        if (History.prototype.pushState && !History.prototype.pushState.__zenPatched) {
-          History.prototype.pushState = _wrapHistory(History.prototype.pushState, "pushState");
-        }
-        if (History.prototype.replaceState && !History.prototype.replaceState.__zenPatched) {
-          History.prototype.replaceState = _wrapHistory(History.prototype.replaceState, "replaceState");
+        if (!_zenHistPatched) {
+          if (History.prototype.pushState) {
+            History.prototype.pushState = _wrapHistory(History.prototype.pushState, "pushState");
+          }
+          if (History.prototype.replaceState) {
+            History.prototype.replaceState = _wrapHistory(History.prototype.replaceState, "replaceState");
+          }
+          _zenHistPatched = true;
         }
       } catch (er) {}
       // yt-navigate-* events — document-level capture at document-start.
@@ -4306,7 +4345,7 @@ algoBlockChannels: "",
       Ke._gateInstalled = !0;
       try {
         const orig = HTMLMediaElement.prototype.play;
-        HTMLMediaElement.prototype.play = function () {
+        HTMLMediaElement.prototype.play = _exportPageFn(function () {
           try {
             // Gate the MAIN watch player only. Channel hero panels, hover
             // previews and other inline players live outside #movie_player;
@@ -4321,13 +4360,13 @@ algoBlockChannels: "",
               } else {
                 try {
                   this.pause && this.pause();
-                } catch (e) {}
-                return Promise.resolve();
+                } catch (e2) {}
+                return _pagePromise();
               }
             }
-          } catch (e) {}
+          } catch (e2) {}
           return orig.apply(this, arguments);
-        };
+        });
       } catch (e) {}
     }
 
@@ -4877,7 +4916,7 @@ algoBlockChannels: "",
       try {
         const _orig = window.__ytpRealPlay || HTMLMediaElement.prototype.play;
         window.__ytpRealPlay = _orig;
-        HTMLMediaElement.prototype.play = function () {
+        HTMLMediaElement.prototype.play = _exportPageFn(function () {
           try {
             // Same scope guard as the session-restore gate above.
             if (this && this.closest && !this.closest("#movie_player"))
@@ -4888,13 +4927,13 @@ algoBlockChannels: "",
                 Ma.awaitingResume = !1;
                 Ma.awaitingResumeVid = null;
               } else {
-                try { this.pause && this.pause(); } catch (e) {}
-                return Promise.resolve();
+                try { this.pause && this.pause(); } catch (e2) {}
+                return _pagePromise();
               }
             }
-          } catch (e) {}
+          } catch (e2) {}
           return _orig.apply(this, arguments);
-        };
+        });
       } catch (e) {}
     }
 
@@ -4907,7 +4946,7 @@ algoBlockChannels: "",
           for (const k of ["playVideo", "playVideoAt"]) {
             if ("function" == typeof e[k]) {
               a[k] = e[k];
-              e[k] = function () {};
+              e[k] = _exportPageFn(function () {});
             }
           }
         }
@@ -12446,6 +12485,8 @@ algoBlockChannels: "",
     fn = null,
     _origDtf = null,
     _origNf = null,
+    _geoDtfWrapped = !1,
+    _geoNfWrapped = !1,
     bn = { language: null, languages: null };
   function vn() {
     return (S.geoRegion || "US").toUpperCase();
@@ -12707,25 +12748,29 @@ algoBlockChannels: "",
     } catch (_e1) {}
     try {
       if (hn) {
-        Object.defineProperty(navigator, "language", {
+        _pageDefine(navigator, "language", {
           get: () => bn.language,
           configurable: !0,
+          enumerable: !0,
         });
-        Object.defineProperty(navigator, "languages", {
-          get: () => bn.languages,
+        _pageDefine(navigator, "languages", {
+          get: () => _clonePage(bn.languages),
           configurable: !0,
+          enumerable: !0,
         });
         hn = !1;
       }
     } catch (_e2) {}
     try {
-      if (_origDtf && Intl.DateTimeFormat && Intl.DateTimeFormat.__ytpGeo) {
+      if (_geoDtfWrapped && _origDtf && Intl.DateTimeFormat) {
         Intl.DateTimeFormat = _origDtf;
         _origDtf = null;
+        _geoDtfWrapped = !1;
       }
-      if (_origNf && Intl.NumberFormat && Intl.NumberFormat.__ytpGeo) {
+      if (_geoNfWrapped && _origNf && Intl.NumberFormat) {
         Intl.NumberFormat = _origNf;
         _origNf = null;
+        _geoNfWrapped = !1;
       }
     } catch (_e3) {}
   }
@@ -13031,42 +13076,38 @@ algoBlockChannels: "",
             bn.languages = navigator.languages;
           } catch (e) {}
           try {
-            (Object.defineProperty(navigator, "language", {
+            (_pageDefine(navigator, "language", {
               get: () => (xn() ? kn() : bn.language || "en"),
               configurable: !0,
+              enumerable: !0,
             }),
-              Object.defineProperty(navigator, "languages", {
+              _pageDefine(navigator, "languages", {
                 get() {
-                  if (!xn()) return bn.languages || ["en"];
+                  if (!xn()) return _clonePage(bn.languages || ["en"]);
                   const e = kn(),
                     t = e.split("-")[0];
-                  return t === e ? [e] : [e, t];
+                  return _clonePage(t === e ? [e] : [e, t]);
                 },
                 configurable: !0,
+                enumerable: !0,
               }));
           } catch (e) {}
           try {
             const e2 = Intl.DateTimeFormat;
-            if (e2 && !e2.__ytpGeo) {
-              const t = function (t, a) {
+            if (e2 && !_geoDtfWrapped) {
+              const t = _exportPageCtor(function (t, a) {
                 return (xn() && !t && (t = kn()), new e2(t, a));
-              };
-              ((_origDtf = e2),
-                (t.__ytpGeo = !0),
-                (t.prototype = e2.prototype),
-                (t.supportedLocalesOf = e2.supportedLocalesOf.bind(e2)),
-                (Intl.DateTimeFormat = t));
+              });
+              try { t.supportedLocalesOf = _exportPageFn(e2.supportedLocalesOf.bind(e2)); } catch (e3) {}
+              ((_origDtf = e2), (Intl.DateTimeFormat = t), (_geoDtfWrapped = !0));
             }
             const tf = Intl.NumberFormat;
-            if (tf && !tf.__ytpGeo) {
-              const ef = function (e2, a) {
-                return (xn() && !e2 && (e2 = kn()), new tf(e2, a));
-              };
-              ((_origNf = tf),
-                (ef.__ytpGeo = !0),
-                (ef.prototype = tf.prototype),
-                (ef.supportedLocalesOf = tf.supportedLocalesOf.bind(tf)),
-                (Intl.NumberFormat = ef));
+            if (tf && !_geoNfWrapped) {
+              const ef = _exportPageCtor(function (e3, a) {
+                return (xn() && !e3 && (e3 = kn()), new tf(e3, a));
+              });
+              try { ef.supportedLocalesOf = _exportPageFn(tf.supportedLocalesOf.bind(tf)); } catch (e3) {}
+              ((_origNf = tf), (Intl.NumberFormat = ef), (_geoNfWrapped = !0));
             }
           } catch (e) {}
         }
@@ -13099,7 +13140,7 @@ algoBlockChannels: "",
             ((pn = !0),
             (yn = XMLHttpRequest.prototype.open),
             (gn = XMLHttpRequest.prototype.send),
-            (XMLHttpRequest.prototype.open = function () {
+            (XMLHttpRequest.prototype.open = _exportPageFn(function () {
               try {
                 xn() &&
                   S.geoPatchXHR &&
@@ -13107,19 +13148,19 @@ algoBlockChannels: "",
                   /^https?:/i.test(arguments[1]) &&
                   Cn(arguments[1]) &&
                   ((arguments[1] = Sn(arguments[1])), (this.__ytpGeoSafe = !0));
-              } catch (e) {}
+              } catch (e2) {}
               return yn.apply(this, arguments);
-            }),
-            (XMLHttpRequest.prototype.send = function () {
+            })),
+            (XMLHttpRequest.prototype.send = _exportPageFn(function () {
               try {
                 xn() &&
                   this.__ytpGeoSafe &&
                   "string" == typeof arguments[0] &&
                   "{" === arguments[0].charAt(0) &&
                   (arguments[0] = Tn(arguments[0]));
-              } catch (e) {}
+              } catch (e2) {}
               return gn.apply(this, arguments);
-            }))
+            })))
           : Bn(),
         S.geoPatchBeacon
           ? (function () {
@@ -13130,7 +13171,7 @@ algoBlockChannels: "",
                 } catch (e) {
                   return void (un = !1);
                 }
-                navigator.sendBeacon = function (e, t) {
+                navigator.sendBeacon = _exportPageFn(function (e, t) {
                   try {
                     xn() &&
                       S.geoPatchBeacon &&
@@ -13138,9 +13179,9 @@ algoBlockChannels: "",
                       /^https?:/i.test(e) &&
                       Cn(e) &&
                       ((e = Sn(e)), "string" == typeof t && (t = Tn(t, e)));
-                  } catch (e) {}
+                  } catch (e2) {}
                   return fn(e, t);
-                };
+                });
               }
             })()
           : Pn(),
@@ -14347,23 +14388,27 @@ algoBlockChannels: "",
       keys: ["apiExplorer", "apiExplorerMutations"],
       apply(t) {
         if (S.apiExplorer)
-          ((e.YTPlus._api = {
-            get player() {
-              return ie.api();
-            },
-            call(e, ...t) {
-              if (!S.apiExplorerMutations)
-                throw new Error("Enable mutations in feature settings");
-              const a = ie.api();
-              if (!a || "function" != typeof a[e])
-                throw new Error("no such method");
-              return a[e](...t);
-            },
-          }),
+          ((e.YTPlus._api = {}),
+            _pageDefine(e.YTPlus._api, "player", {
+              configurable: true,
+              enumerable: true,
+              get: () => ie.api(),
+            }),
+            (() => {
+              const _call = function (method, ...args) {
+                if (!S.apiExplorerMutations)
+                  throw new Error("Enable mutations in feature settings");
+                const a = ie.api();
+                if (!a || "function" != typeof a[method])
+                  throw new Error("no such method");
+                return a[method](...args);
+              };
+              try { e.YTPlus._api.call = _exportPageFn(_call); } catch (_) {}
+            })(),
             Yt["api-explorer"].push(() => {
               try {
                 delete e.YTPlus._api;
-              } catch (e) {}
+              } catch (e2) {}
             }));
         else
           try {
@@ -14932,40 +14977,40 @@ algoBlockChannels: "",
             S.netMonitorPatchXHR &&
             ((Wn = XMLHttpRequest.prototype.open),
             (Un = XMLHttpRequest.prototype.send),
-            (XMLHttpRequest.prototype.open = function (e, t) {
+            (XMLHttpRequest.prototype.open = _exportPageFn(function (e2, t) {
               try {
                 ((this.__ytpNetURL = t), (this.__ytpNetHost = Xn(t)));
-              } catch (e) {}
+              } catch (e3) {}
               return Wn.apply(this, arguments);
-            }),
-            (XMLHttpRequest.prototype.send = function (e) {
+            })),
+            (XMLHttpRequest.prototype.send = _exportPageFn(function (e2) {
 
               if (!(S.netMonitorOn && !S.privacyShieldOn && S.netMonitorPatchXHR))
                 return Un.apply(this, arguments);
               const t = this.__ytpNetHost,
-                a = e ? Qn(e) : 0;
+                a = e2 ? Qn(e2) : 0;
               if (t && Zn(t)) {
-                const e = () => {
-                  let e = 0;
+                const cb = () => {
+                  let n = 0;
                   try {
-                    const t =
+                    const h =
                       this.getResponseHeader &&
                       this.getResponseHeader("content-length");
-                    (t && (e = parseInt(t, 10) || 0),
-                      !e &&
+                    (h && (n = parseInt(h, 10) || 0),
+                      !n &&
                         this.response &&
                         ("string" == typeof this.response
-                          ? (e = new Blob([this.response]).size)
+                          ? (n = new Blob([this.response]).size)
                           : this.response.byteLength
-                            ? (e = this.response.byteLength)
-                            : this.response.size && (e = this.response.size)));
-                  } catch (e) {}
-                  $n(t, e, a, this.__ytpNetURL);
+                            ? (n = this.response.byteLength)
+                            : this.response.size && (n = this.response.size)));
+                  } catch (e3) {}
+                  $n(t, n, a, this.__ytpNetURL);
                 };
-                this.addEventListener("loadend", e, { once: !0 });
+                this.addEventListener("loadend", cb, { once: !0 });
               }
               return Un.apply(this, arguments);
-            })),
+            }))),
           (function () {
             if (!Kn && S.netMonitorPatchBeacon && navigator.sendBeacon) {
               try {
@@ -14973,16 +15018,16 @@ algoBlockChannels: "",
               } catch (e) {
                 return;
               }
-              navigator.sendBeacon = function (e, t) {
+              navigator.sendBeacon = _exportPageFn(function (e2, t2) {
 
                 try {
                   S.netMonitorOn &&
                     !S.privacyShieldOn &&
                     S.netMonitorPatchBeacon &&
-                    $n(Xn(e), 0, Qn(t), e);
-                } catch (e) {}
-                return Kn(e, t);
-              };
+                    $n(Xn(e2), 0, Qn(t2), e2);
+                } catch (e3) {}
+                return Kn(e2, t2);
+              });
             }
           })(),
           (Vn.h = qn()),
@@ -27846,7 +27891,7 @@ const Nr = [
       try {
         const prevFetch = e.fetch;
         if (typeof prevFetch !== "function") return;
-        e.fetch = function (input, init) {
+        e.fetch = _exportPageFn(function (input, init) {
           let url = "";
           try {
             url =
@@ -27927,7 +27972,7 @@ const Nr = [
           } catch (err) {
             return prevFetch.apply(this, arguments);
           }
-        };
+        });
         try {
           e.fetch.__ytpWrapped = true;
         } catch (err) {}
@@ -27941,9 +27986,13 @@ const Nr = [
     function installInitialDataTrap() {
       try {
         const existing = Object.getOwnPropertyDescriptor(e, "ytInitialData");
-        if (existing && !existing.configurable) return; 
+        if (existing && !existing.configurable) return;
         let current = e.ytInitialData;
-        Object.defineProperty(e, "ytInitialData", {
+        // The page assigns window.ytInitialData during its inline boot
+        // script. A content-realm setter there is what threw
+        // "Permission denied to access object" and prevented YouTube from
+        // loading; install page-exported accessors instead.
+        _pageDefine(e, "ytInitialData", {
           configurable: true,
           enumerable: true,
           get() {
@@ -32117,10 +32166,12 @@ const Nr = [
       let myPatch = null;
       const patch = () => {
         if (patched) return; patched = true;
-        myPatch = function (...args) {
-          if (gateActive) { return Promise.resolve(); }
+        // Keep the exported reference: unpatch() compares prototype.play
+        // against this exact value.
+        myPatch = _exportPageFn(function (...args) {
+          if (gateActive) { return _pagePromise(); }
           return protoPlay.apply(this, args);
-        };
+        });
         HTMLMediaElement.prototype.play = myPatch;
       };
       // Only uninstall while we still own prototype.play: if a later gate
@@ -33160,7 +33211,11 @@ const Nr = [
         "[YT-zen] v" +
           ((typeof GM_info !== "undefined" && GM_info && GM_info.script && GM_info.script.version) || "?") +
           " | inject: " +
-          ((typeof GM_info !== "undefined" && GM_info && GM_info.injectInto) || "?"),
+          ((typeof GM_info !== "undefined" && GM_info && GM_info.injectInto) || "?") +
+          " | realm: " +
+          (typeof exportFunction === "function"
+            ? "content"
+            : (function () { try { return e === window ? "page" : "isolated"; } catch (_) { return "?"; } })()),
       );
     } catch (e) {}
     try {

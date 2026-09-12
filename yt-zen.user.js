@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YT-zen
 // @namespace    https://github.com/mheci/YT-zen
-// @version      3.18.6
+// @version      3.18.7
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      Unlicense
@@ -21,11 +21,9 @@
 // @grant        GM_xmlhttpRequest
 // @grant        GM_addStyle
 // @grant        GM_info
-// @grant        unsafeWindow
 // @connect      sponsor.ajay.app
 // @connect      www.youtube.com
 // @connect      s.youtube.com
-// @connect      self
 // @connect      googlevideo.com
 // @connect      ytimg.com
 // @connect      ggpht.com
@@ -42,8 +40,37 @@
 (() => {
   "use strict";
   const e = "undefined" != typeof unsafeWindow ? unsafeWindow : window;
-  if (e.__YTPLUS_LOADED__) return;
+  if (e.__YTZEN_LOADED__ || e.__YTPLUS_LOADED__) return;
+  e.__YTZEN_LOADED__ = !0;
   e.__YTPLUS_LOADED__ = !0;
+  // Firefox content-mode (Violentmonkey "@inject-into content") runs this
+  // script in an isolated compartment: handing a content-created function
+  // to a page object throws "Permission denied to access object" and can
+  // break YouTube's own boot scripts. Route callables through
+  // exportFunction when the manager exposes it; otherwise fall back to
+  // the raw function (page-world managers don't need the export).
+  const _exportPageFn = (fn) => {
+    try {
+      if ("function" == typeof exportFunction && "object" == typeof e && e && fn)
+        return exportFunction(fn, e);
+    } catch (_) {}
+    return fn;
+  };
+  // Native-call wrapper: a captured page native invoked with a mismatched
+  // compartment for `this`/args throws across the X-ray boundary. Fall
+  // back to the sandbox fetch so one poisoned call never surfaces as an
+  // uncaught error in YouTube's own request path.
+  const _safeCall = (fn, self, a, b) => {
+    try {
+      return fn.call(self, a, b);
+    } catch (err) {
+      try {
+        return fetch(a, b);
+      } catch (__) {
+        throw err;
+      }
+    }
+  };
 
   try {
     const e = ("undefined" != typeof location && location.search) || "",
@@ -105,9 +132,9 @@
     )
       try {
         e.trustedTypes.createPolicy("default", {
-          createHTML: (e) => e,
-          createScriptURL: (e) => e,
-          createScript: (e) => e,
+          createHTML: _exportPageFn((m) => m),
+          createScriptURL: _exportPageFn((m) => m),
+          createScript: _exportPageFn((m) => m),
         });
       } catch (e) {}
   } catch (e) {}
@@ -772,7 +799,7 @@
       try {
         if (e.trustedTypes && e.trustedTypes.createPolicy)
           return e.trustedTypes.createPolicy("ytplus#dashboard", {
-            createHTML: (e) => e,
+            createHTML: _exportPageFn((m) => m),
           });
       } catch (e) {}
       return null;
@@ -4213,6 +4240,7 @@ algoBlockChannels: "",
         n = setTimeout(() => a.abort(), t || 5e3);
       let r;
       try {
+        try { if (!/^https?:/i.test(String(e || ""))) { clearTimeout(n); return null; } } catch (_) { clearTimeout(n); return null; }
         r = await fetch(e, {
           mode: "cors",
           credentials: "omit",
@@ -8465,7 +8493,7 @@ algoBlockChannels: "",
       e.loop = !1;
     } catch (e) {}
     ((S.loopVideo = !1), (S.skipIntroOn = !1));
-    const o = function () {};
+    const o = _exportPageFn(function () {});
     if (t) {
       try {
         t.nextVideo = o;
@@ -8716,19 +8744,26 @@ algoBlockChannels: "",
             // and read back as PARTIALLY watched. BURST: all windows fire
             // at once, no staggering, no delays.
             const wN = DU <= 24 ? 2 : Math.min(DU > 7200 ? 45 : 90, Math.ceil(DU / 10));
+            // STAGGERED sender: firing up to ~90 watchtime beacons in the
+            // same task saturates the renderer's connection pool and can
+            // starve the player's own videoplayback requests (observed as
+            // CORS null-status failures). Windows now flush ~120ms apart.
             for (let wi = 0; wi < wN; wi++) {
               const st = Math.round(DU * (wi / wN) * 1000) / 1000;
               const et = Math.round(DU * ((wi + 1) / wN) * 1000) / 1000;
-              fire(track.watchtimeUrl, {
-                cmt: et, et: et, st: st, mt: et,
-                // rt must be plausible against the CLAIMED media time: a
-                // window claiming 579s of coverage with rt=10s (session
-                // age) is an implausible claim the backend can discard.
-                rt: (et + 1.5 + Math.random() * 2.5).toFixed(3),
-                lact: 150 + Math.floor(700 * Math.random()),
-                state: wi % 9 === 7 && wi < wN - 1 ? "paused" : "playing",
-              });
-              if (wi % 4 === 3) fire(track.qoeUrl, { cmt: et, rt: (et + 1 + Math.random() * 2).toFixed(3) });
+              const _st = st, _et = et, _wi = wi;
+              setTimeout(() => {
+                fire(track.watchtimeUrl, {
+                  cmt: _et, et: _et, st: _st, mt: _et,
+                  // rt must be plausible against the CLAIMED media time: a
+                  // window claiming 579s of coverage with rt=10s (session
+                  // age) is an implausible claim the backend can discard.
+                  rt: (_et + 1.5 + Math.random() * 2.5).toFixed(3),
+                  lact: 150 + Math.floor(700 * Math.random()),
+                  state: _wi % 9 === 7 && _wi < wN - 1 ? "paused" : "playing",
+                });
+                if (_wi % 4 === 3) fire(track.qoeUrl, { cmt: _et, rt: (_et + 1 + Math.random() * 2).toFixed(3) });
+              }, _wi * 120);
             }
             try {
               // /pagead remarketing pixels are third-party (ETP blocks them
@@ -8757,7 +8792,7 @@ algoBlockChannels: "",
                 ") for " + a,
             );
             try {
-              console.warn(
+              console.info(
                 "[YT-zen] fw account-history: burst " + fired +
                   " beacons (cpn " + (realCpn ? "real" : "MISSING") +
                   ", " + wN + " windows, gmx=" + (hasGmx ? "yes" : "no") +
@@ -8782,7 +8817,7 @@ algoBlockChannels: "",
                 })();
               pe("FW " + dbg, 4000, "info");
               u("fw diagnostic: " + dbg);
-              try { console.warn("[YT-zen] fw diagnostic: " + dbg); } catch (e) {}
+              try { console.info("[YT-zen] fw diagnostic: " + dbg); } catch (e) {}
             } catch (e) {}
           } catch (e) {
             h("fw account-history player fetch", e);
@@ -8984,13 +9019,15 @@ algoBlockChannels: "",
             "function" == typeof ie.thumbCandidates
               ? ie.thumbCandidates(a)
               : [ie.thumb(a, "hqdefault")];
-          for (const t of e.slice(0, 2))
+          for (const t of e.slice(0, 2)) {
+            try { if (!/^https?:/i.test(String(t || ""))) continue; } catch (_) { continue; }
             fetch(t, {
               method: "GET",
               credentials: "omit",
               mode: "no-cors",
               cache: "no-store",
             }).catch(() => {});
+          }
         } catch (e) {}
       }, 50),
       t)
@@ -9002,19 +9039,18 @@ algoBlockChannels: "",
         t.seekTo = r.apiSeekTo;
       } catch (e) {}
     }
-    !(function (e, t) {
+    !(function (vid, pos) {
       try {
         const a = new URL(location.href);
-        if (a.searchParams.get("v") !== e) return;
-        // `e` here is the video id string (parameter shadowing) — history
-        // must come from window or the call throws and gets swallowed.
-        (a.searchParams.set("t", String(Math.floor(t))),
-          (window.history || e.history).replaceState(
-            window.history ? window.history.state : null,
+        if (a.searchParams.get("v") !== vid) return;
+        if (!window.history || "function" != typeof window.history.replaceState) return;
+        (a.searchParams.set("t", String(Math.floor(pos))),
+          window.history.replaceState(
+            window.history.state,
             "",
             a.toString(),
           ));
-      } catch (e) {}
+      } catch (_) {}
     })(a, n);
     const m = () => {
       try { clearTimeout(_fwSafety); } catch (e) {}
@@ -13040,20 +13076,22 @@ algoBlockChannels: "",
             S.geoPatchFetch &&
             ((ln = !0),
             (mn = e.fetch),
-            (e.fetch = function (e, t) {
-              if (!xn() || !S.geoPatchFetch) return mn.call(this, e, t);
+            (e.fetch = _exportPageFn(function (e, t) {
+              if (!xn() || !S.geoPatchFetch) return _safeCall(mn, this, e, t);
               try {
-                if ("string" == typeof e && Cn(e)) {
+                var _gu = "string" == typeof e ? e : (e && e.url) || "";
+                if ("string" != typeof e || !/^https?:/i.test(_gu)) return _safeCall(mn, this, e, t);
+                if (Cn(e)) {
                   const a = Sn(e);
                   if (t && t.body && "string" == typeof t.body) {
                     const a = Tn(t.body, e);
                     a !== t.body && (t = Object.assign({}, t, { body: a }));
                   }
-                  return mn.call(this, a, t);
+                  return _safeCall(mn, this, a, t);
                 }
               } catch (e) {}
-              return mn.call(this, e, t);
-            }))
+              return _safeCall(mn, this, e, t);
+            })))
           : En(),
         S.geoPatchXHR
           ? !pn &&
@@ -13066,6 +13104,7 @@ algoBlockChannels: "",
                 xn() &&
                   S.geoPatchXHR &&
                   "string" == typeof arguments[1] &&
+                  /^https?:/i.test(arguments[1]) &&
                   Cn(arguments[1]) &&
                   ((arguments[1] = Sn(arguments[1])), (this.__ytpGeoSafe = !0));
               } catch (e) {}
@@ -13096,6 +13135,7 @@ algoBlockChannels: "",
                     xn() &&
                       S.geoPatchBeacon &&
                       "string" == typeof e &&
+                      /^https?:/i.test(e) &&
                       Cn(e) &&
                       ((e = Sn(e)), "string" == typeof t && (t = Tn(t, e)));
                   } catch (e) {}
@@ -14854,10 +14894,10 @@ algoBlockChannels: "",
           !zn &&
             S.netMonitorPatchFetch &&
             ((zn = e.fetch),
-            (e.fetch = function (e, t) {
+            (e.fetch = _exportPageFn(function (e, t) {
 
               if (!(S.netMonitorOn && !S.privacyShieldOn && S.netMonitorPatchFetch))
-                return zn.call(this, e, t);
+                return _safeCall(zn, this, e, t);
               let a,
                 n = "";
               try {
@@ -14865,7 +14905,7 @@ algoBlockChannels: "",
                   (n = Xn(a)));
               } catch (e) {}
               const r = t && t.body ? Qn(t.body) : e && e.body ? Qn(e.body) : 0,
-                o = zn.call(this, e, t);
+                o = _safeCall(zn, this, e, t);
               return (
                 n &&
                   Zn(n) &&
@@ -14887,7 +14927,7 @@ algoBlockChannels: "",
                     }),
                 o
               );
-            })),
+            }))),
           !Wn &&
             S.netMonitorPatchXHR &&
             ((Wn = XMLHttpRequest.prototype.open),
@@ -33116,7 +33156,7 @@ const Nr = [
     try {
       // Unconditional: lets any user verify the installed version and
       // inject mode in the console without enabling verbose logging.
-      console.warn(
+      console.info(
         "[YT-zen] v" +
           ((typeof GM_info !== "undefined" && GM_info && GM_info.script && GM_info.script.version) || "?") +
           " | inject: " +
@@ -33181,9 +33221,9 @@ const Nr = [
             // Path 3: exposable global for Violentmonkey content-mode where menu is page-bound
             try {
               if (typeof unsafeWindow !== "undefined" && unsafeWindow) {
-                unsafeWindow.__YTZEN_DASHBOARD__ = Uo;
+                unsafeWindow.__YTZEN_DASHBOARD__ = _exportPageFn(Uo);
                 unsafeWindow.__YTZEN_MENU_WRAPPERS__ = unsafeWindow.__YTZEN_MENU_WRAPPERS__ || {};
-                unsafeWindow.__YTZEN_MENU_WRAPPERS__[label] = _wrap;
+                unsafeWindow.__YTZEN_MENU_WRAPPERS__[label] = _exportPageFn(_wrap);
               }
             } catch (_) {}
             if (!_registered) try { m("menu not registered: " + label); } catch (_) {}

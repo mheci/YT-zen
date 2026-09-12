@@ -11,8 +11,8 @@
 // @match        https://m.youtube.com/*
 // @match        https://music.youtube.com/*
 // @run-at       document-start
-// @sandbox      JavaScript
-// @inject-into content
+// @sandbox      raw
+// @inject-into  page
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_deleteValue
@@ -21,9 +21,11 @@
 // @grant        GM_xmlhttpRequest
 // @grant        GM_addStyle
 // @grant        GM_info
+// @grant        unsafeWindow
 // @connect      sponsor.ajay.app
 // @connect      www.youtube.com
 // @connect      s.youtube.com
+// @connect      self
 // @connect      googlevideo.com
 // @connect      ytimg.com
 // @connect      ggpht.com
@@ -40,72 +42,52 @@
 (() => {
   "use strict";
   const e = "undefined" != typeof unsafeWindow ? unsafeWindow : window;
-  if (e.__YTZEN_LOADED__ || e.__YTPLUS_LOADED__) return;
-  e.__YTZEN_LOADED__ = !0;
+  if (e.__YTPLUS_LOADED__) return;
   e.__YTPLUS_LOADED__ = !0;
-  // Firefox content-mode (Violentmonkey "@inject-into content") runs this
-  // script in an isolated compartment: handing a content-created function
-  // to a page object throws "Permission denied to access object" and can
-  // break YouTube's own boot scripts. Route callables through
-  // exportFunction when the manager exposes it; otherwise fall back to
-  // the raw function (page-world managers don't need the export).
-  const _exportPageFn = (fn, opts) => {
-    try {
-      if ("function" == typeof exportFunction && "object" == typeof e && e && fn)
-        return exportFunction(fn, e, opts || undefined);
-    } catch (_) {}
-    return fn;
-  };
-  // Constructor callables (new X()) need allowConstruct when exported.
-  const _exportPageCtor = (fn) => _exportPageFn(fn, { allowConstruct: true });
-  // Clone a content-realm data object/array into the page realm (Xray
-  // read-access works without this, but cloning yields a plain page object
-  // that page code can iterate/mutate exactly like its own).
-  const _clonePage = (v) => {
-    try {
-      if ("function" == typeof cloneInto && v && "object" == typeof v)
-        return cloneInto(v, e, { cloneFunctions: true });
-    } catch (_) {}
-    return v;
-  };
-  // Install a property on a page object with page-callable get/set/value.
-  // A raw content-realm accessor on a page object throws "Permission denied
-  // to access object" the moment the page invokes it (this is what killed
-  // YouTube's boot at the ytInitialData assignment).
-  const _pageDefine = (obj, key, desc) => {
-    try {
-      const d = { configurable: desc.configurable !== false, enumerable: !!desc.enumerable };
-      if ("value" in desc) d.value = desc.value;
-      if ("function" == typeof desc.get) d.get = _exportPageFn(desc.get);
-      if ("function" == typeof desc.set) d.set = _exportPageFn(desc.set);
-      Object.defineProperty(obj, key, d);
-      return true;
-    } catch (_) { return false; }
-  };
-  // Promise resolved in the page realm: one returned from a wrapped
-  // HTMLMediaElement.play() must be page-realm or YouTube's player hits
-  // "Permission denied to access property 'then'".
-  const _pagePromise = (v) => {
-    try {
-      const w = (typeof wrappedJSObject !== "undefined" && wrappedJSObject) || e;
-      return (w.Promise || Promise).resolve(v);
-    } catch (_) { return Promise.resolve(v); }
-  };
-  // Native-call wrapper: a captured page native invoked with a mismatched
-  // compartment for `this`/args throws across the X-ray boundary. Fall
-  // back to the sandbox fetch so one poisoned call never surfaces as an
-  // uncaught error in YouTube's own request path.
-  const _safeCall = (fn, self, a, b) => {
-    try {
-      return fn.call(self, a, b);
-    } catch (err) {
+
+  // ── Realm bridge (Firefox Xray safety) ─────────────────────────────────
+  // This script replaces page globals (history, fetch, XMLHttpRequest,
+  // sendBeacon, HTMLMediaElement.play, ytInitialData). The primary config
+  // (@sandbox raw / @inject-into page) makes us run in the page realm, where
+  // these assignments are native. If a userscript manager *nevertheless*
+  // executes us in its content/userscript world (Firefox Xray vision),
+  // functions and accessors handed to the page MUST be exported first;
+  // otherwise the page's own JavaScript dies with
+  // "Permission denied to access object/property" and YouTube never boots.
+  const _xp = (() => {
+    const _w = e;
+    const _ef = typeof exportFunction === "function" ? exportFunction : null;
+    const _ci = typeof cloneInto === "function" ? cloneInto : null;
+    const fn = (f, opts) => {
+      try { return _ef ? _ef(f, _w, opts || undefined) : f; } catch (_) { return f; }
+    };
+    const ctor = (f) => {
+      try { return _ef ? _ef(f, _w, { allowConstruct: true }) : f; } catch (_) { return f; }
+    };
+    // Clone a data object/array INTO the page realm (page code reading a
+    // sandbox-created array through Xray gets a live wrapper; cloning gives
+    // it a plain page object).
+    const clone = (v) => {
+      try { return _ci && v && typeof v === "object" ? _ci(v, _w, { cloneFunctions: true }) : v; } catch (_) { return v; }
+    };
+    // Define an accessor/data property on a page object using page-callable
+    // getters/setters. Returns true on success.
+    const define = (obj, key, desc) => {
       try {
-        return fetch(a, b);
-      } catch (__) {
-        throw err;
-      }
-    }
-  };
+        const d = { configurable: desc.configurable !== false, enumerable: !!desc.enumerable };
+        if ("value" in desc) d.value = desc.value;
+        if (typeof desc.get === "function") d.get = fn(desc.get);
+        if (typeof desc.set === "function") d.set = fn(desc.set);
+        Object.defineProperty(obj, key, d);
+        return true;
+      } catch (_) { return false; }
+    };
+    return { fn, ctor, clone, define };
+  })();
+  // Page-realm Promise constructor. Promises handed back to page code
+  // (e.g. a wrapped HTMLMediaElement.play()) must come from the page realm
+  // or Firefox Xray rejects them with "Permission denied".
+  const _pPromise = e.Promise || Promise;
 
   try {
     const e = ("undefined" != typeof location && location.search) || "",
@@ -166,10 +148,11 @@
       !e.trustedTypes.defaultPolicy
     )
       try {
+        const _ttPassthrough = _xp.fn(function (s) { return s; });
         e.trustedTypes.createPolicy("default", {
-          createHTML: _exportPageFn((m) => m),
-          createScriptURL: _exportPageFn((m) => m),
-          createScript: _exportPageFn((m) => m),
+          createHTML: _ttPassthrough,
+          createScriptURL: _ttPassthrough,
+          createScript: _ttPassthrough,
         });
       } catch (e) {}
   } catch (e) {}
@@ -834,7 +817,7 @@
       try {
         if (e.trustedTypes && e.trustedTypes.createPolicy)
           return e.trustedTypes.createPolicy("ytplus#dashboard", {
-            createHTML: _exportPageFn((m) => m),
+            createHTML: (e) => e,
           });
       } catch (e) {}
       return null;
@@ -2013,6 +1996,7 @@ algoBlockChannels: "",
   //   finish/settled         -> exactly one "nav.changed" re-scan event
   // A bounded fallback timer commits navigations whose finish never arrives.
   let _zenEarlyNavArmed = false;
+
   let _zenHistPatched = false;
   let _zenNavPollTimer = 0;
   const _zenNav = {
@@ -2113,10 +2097,9 @@ algoBlockChannels: "",
       // and older desktop rollouts that navigate without yt-navigate events.
       // (Current desktop uses the events; the probe recorded no pushState.)
       try {
-        // YouTube's SPA invokes these from the page realm, so the wrappers
-        // must be exported across the Xray boundary.
         const _wrapHistory = function (orig, kind) {
-          return _exportPageFn(function () {
+          // Exported: YouTube's SPA calls this wrapper from the page realm.
+          return _xp.fn(function () {
             const r = orig.apply(this, arguments);
             try { if (location.href !== _zenNav.committedHref) _zenNavSignal(kind); } catch (er) {}
             return r;
@@ -4279,7 +4262,6 @@ algoBlockChannels: "",
         n = setTimeout(() => a.abort(), t || 5e3);
       let r;
       try {
-        try { if (!/^https?:/i.test(String(e || ""))) { clearTimeout(n); return null; } } catch (_) { clearTimeout(n); return null; }
         r = await fetch(e, {
           mode: "cors",
           credentials: "omit",
@@ -4345,7 +4327,7 @@ algoBlockChannels: "",
       Ke._gateInstalled = !0;
       try {
         const orig = HTMLMediaElement.prototype.play;
-        HTMLMediaElement.prototype.play = _exportPageFn(function () {
+        HTMLMediaElement.prototype.play = _xp.fn(function () {
           try {
             // Gate the MAIN watch player only. Channel hero panels, hover
             // previews and other inline players live outside #movie_player;
@@ -4361,7 +4343,9 @@ algoBlockChannels: "",
                 try {
                   this.pause && this.pause();
                 } catch (e2) {}
-                return _pagePromise();
+                // Page-realm promise: a content-world Promise handed back to
+                // YouTube's player trips the Xray "Permission denied" guard.
+                return _pPromise.resolve();
               }
             }
           } catch (e2) {}
@@ -4916,7 +4900,7 @@ algoBlockChannels: "",
       try {
         const _orig = window.__ytpRealPlay || HTMLMediaElement.prototype.play;
         window.__ytpRealPlay = _orig;
-        HTMLMediaElement.prototype.play = _exportPageFn(function () {
+        HTMLMediaElement.prototype.play = _xp.fn(function () {
           try {
             // Same scope guard as the session-restore gate above.
             if (this && this.closest && !this.closest("#movie_player"))
@@ -4928,7 +4912,7 @@ algoBlockChannels: "",
                 Ma.awaitingResumeVid = null;
               } else {
                 try { this.pause && this.pause(); } catch (e2) {}
-                return _pagePromise();
+                return _pPromise.resolve();
               }
             }
           } catch (e2) {}
@@ -4946,7 +4930,7 @@ algoBlockChannels: "",
           for (const k of ["playVideo", "playVideoAt"]) {
             if ("function" == typeof e[k]) {
               a[k] = e[k];
-              e[k] = _exportPageFn(function () {});
+              e[k] = _xp.fn(function () {});
             }
           }
         }
@@ -8532,7 +8516,9 @@ algoBlockChannels: "",
       e.loop = !1;
     } catch (e) {}
     ((S.loopVideo = !1), (S.skipIntroOn = !1));
-    const o = _exportPageFn(function () {});
+    // Exported no-op: in Firefox content/userscript world a sandbox function
+    // assigned to a player method would throw when YT internally calls it.
+    const o = _xp.fn(function () {});
     if (t) {
       try {
         t.nextVideo = o;
@@ -8783,26 +8769,19 @@ algoBlockChannels: "",
             // and read back as PARTIALLY watched. BURST: all windows fire
             // at once, no staggering, no delays.
             const wN = DU <= 24 ? 2 : Math.min(DU > 7200 ? 45 : 90, Math.ceil(DU / 10));
-            // STAGGERED sender: firing up to ~90 watchtime beacons in the
-            // same task saturates the renderer's connection pool and can
-            // starve the player's own videoplayback requests (observed as
-            // CORS null-status failures). Windows now flush ~120ms apart.
             for (let wi = 0; wi < wN; wi++) {
               const st = Math.round(DU * (wi / wN) * 1000) / 1000;
               const et = Math.round(DU * ((wi + 1) / wN) * 1000) / 1000;
-              const _st = st, _et = et, _wi = wi;
-              setTimeout(() => {
-                fire(track.watchtimeUrl, {
-                  cmt: _et, et: _et, st: _st, mt: _et,
-                  // rt must be plausible against the CLAIMED media time: a
-                  // window claiming 579s of coverage with rt=10s (session
-                  // age) is an implausible claim the backend can discard.
-                  rt: (_et + 1.5 + Math.random() * 2.5).toFixed(3),
-                  lact: 150 + Math.floor(700 * Math.random()),
-                  state: _wi % 9 === 7 && _wi < wN - 1 ? "paused" : "playing",
-                });
-                if (_wi % 4 === 3) fire(track.qoeUrl, { cmt: _et, rt: (_et + 1 + Math.random() * 2).toFixed(3) });
-              }, _wi * 120);
+              fire(track.watchtimeUrl, {
+                cmt: et, et: et, st: st, mt: et,
+                // rt must be plausible against the CLAIMED media time: a
+                // window claiming 579s of coverage with rt=10s (session
+                // age) is an implausible claim the backend can discard.
+                rt: (et + 1.5 + Math.random() * 2.5).toFixed(3),
+                lact: 150 + Math.floor(700 * Math.random()),
+                state: wi % 9 === 7 && wi < wN - 1 ? "paused" : "playing",
+              });
+              if (wi % 4 === 3) fire(track.qoeUrl, { cmt: et, rt: (et + 1 + Math.random() * 2).toFixed(3) });
             }
             try {
               // /pagead remarketing pixels are third-party (ETP blocks them
@@ -8831,7 +8810,7 @@ algoBlockChannels: "",
                 ") for " + a,
             );
             try {
-              console.info(
+              console.warn(
                 "[YT-zen] fw account-history: burst " + fired +
                   " beacons (cpn " + (realCpn ? "real" : "MISSING") +
                   ", " + wN + " windows, gmx=" + (hasGmx ? "yes" : "no") +
@@ -8856,7 +8835,7 @@ algoBlockChannels: "",
                 })();
               pe("FW " + dbg, 4000, "info");
               u("fw diagnostic: " + dbg);
-              try { console.info("[YT-zen] fw diagnostic: " + dbg); } catch (e) {}
+              try { console.warn("[YT-zen] fw diagnostic: " + dbg); } catch (e) {}
             } catch (e) {}
           } catch (e) {
             h("fw account-history player fetch", e);
@@ -9058,15 +9037,13 @@ algoBlockChannels: "",
             "function" == typeof ie.thumbCandidates
               ? ie.thumbCandidates(a)
               : [ie.thumb(a, "hqdefault")];
-          for (const t of e.slice(0, 2)) {
-            try { if (!/^https?:/i.test(String(t || ""))) continue; } catch (_) { continue; }
+          for (const t of e.slice(0, 2))
             fetch(t, {
               method: "GET",
               credentials: "omit",
               mode: "no-cors",
               cache: "no-store",
             }).catch(() => {});
-          }
         } catch (e) {}
       }, 50),
       t)
@@ -9078,18 +9055,19 @@ algoBlockChannels: "",
         t.seekTo = r.apiSeekTo;
       } catch (e) {}
     }
-    !(function (vid, pos) {
+    !(function (e, t) {
       try {
         const a = new URL(location.href);
-        if (a.searchParams.get("v") !== vid) return;
-        if (!window.history || "function" != typeof window.history.replaceState) return;
-        (a.searchParams.set("t", String(Math.floor(pos))),
-          window.history.replaceState(
-            window.history.state,
+        if (a.searchParams.get("v") !== e) return;
+        // `e` here is the video id string (parameter shadowing) — history
+        // must come from window or the call throws and gets swallowed.
+        (a.searchParams.set("t", String(Math.floor(t))),
+          (window.history || e.history).replaceState(
+            window.history ? window.history.state : null,
             "",
             a.toString(),
           ));
-      } catch (_) {}
+      } catch (e) {}
     })(a, n);
     const m = () => {
       try { clearTimeout(_fwSafety); } catch (e) {}
@@ -11294,6 +11272,7 @@ algoBlockChannels: "",
       id: "ambient-mode",
       name: "Ambient Glow",
       summary: "Ambient glow that matches the video's colors.",
+      hidden: !0,
       masterKey: "ambientMode",
       keys: ["ambientMode", "ambientBlur", "ambientOp"],
       apply(e) {
@@ -11379,6 +11358,7 @@ algoBlockChannels: "",
       name: t,
       summary: a,
       masterKey: n,
+      hidden: !0,
       keys: [n],
       apply(e) {
         S[n] && e.addStyle(r);
@@ -12746,13 +12726,13 @@ algoBlockChannels: "",
     } catch (_e1) {}
     try {
       if (hn) {
-        _pageDefine(navigator, "language", {
+        _xp.define(navigator, "language", {
           get: () => bn.language,
           configurable: !0,
           enumerable: !0,
         });
-        _pageDefine(navigator, "languages", {
-          get: () => _clonePage(bn.languages),
+        _xp.define(navigator, "languages", {
+          get: () => _xp.clone(bn.languages),
           configurable: !0,
           enumerable: !0,
         });
@@ -13074,17 +13054,17 @@ algoBlockChannels: "",
             bn.languages = navigator.languages;
           } catch (e) {}
           try {
-            (_pageDefine(navigator, "language", {
+            (_xp.define(navigator, "language", {
               get: () => (xn() ? kn() : bn.language || "en"),
               configurable: !0,
               enumerable: !0,
             }),
-              _pageDefine(navigator, "languages", {
+              _xp.define(navigator, "languages", {
                 get() {
-                  if (!xn()) return _clonePage(bn.languages || ["en"]);
+                  if (!xn()) return _xp.clone(bn.languages || ["en"]);
                   const e = kn(),
                     t = e.split("-")[0];
-                  return _clonePage(t === e ? [e] : [e, t]);
+                  return _xp.clone(t === e ? [e] : [e, t]);
                 },
                 configurable: !0,
                 enumerable: !0,
@@ -13093,18 +13073,18 @@ algoBlockChannels: "",
           try {
             const e2 = Intl.DateTimeFormat;
             if (e2 && !_geoDtfWrapped) {
-              const t = _exportPageCtor(function (t, a) {
+              const t = _xp.ctor(function (t, a) {
                 return (xn() && !t && (t = kn()), new e2(t, a));
               });
-              try { t.supportedLocalesOf = _exportPageFn(e2.supportedLocalesOf.bind(e2)); } catch (e3) {}
+              try { t.supportedLocalesOf = _xp.fn(e2.supportedLocalesOf.bind(e2)); } catch (e3) {}
               ((_origDtf = e2), (Intl.DateTimeFormat = t), (_geoDtfWrapped = !0));
             }
             const tf = Intl.NumberFormat;
             if (tf && !_geoNfWrapped) {
-              const ef = _exportPageCtor(function (e3, a) {
+              const ef = _xp.ctor(function (e3, a) {
                 return (xn() && !e3 && (e3 = kn()), new tf(e3, a));
               });
-              try { ef.supportedLocalesOf = _exportPageFn(tf.supportedLocalesOf.bind(tf)); } catch (e3) {}
+              try { ef.supportedLocalesOf = _xp.fn(tf.supportedLocalesOf.bind(tf)); } catch (e3) {}
               ((_origNf = tf), (Intl.NumberFormat = ef), (_geoNfWrapped = !0));
             }
           } catch (e) {}
@@ -13115,21 +13095,19 @@ algoBlockChannels: "",
             S.geoPatchFetch &&
             ((ln = !0),
             (mn = e.fetch),
-            (e.fetch = _exportPageFn(function (e, t) {
-              if (!xn() || !S.geoPatchFetch) return _safeCall(mn, this, e, t);
+            (e.fetch = _xp.fn(function (e, t) {
+              if (!xn() || !S.geoPatchFetch) return mn.call(this, e, t);
               try {
-                var _gu = "string" == typeof e ? e : (e && e.url) || "";
-                if ("string" != typeof e || !/^https?:/i.test(_gu)) return _safeCall(mn, this, e, t);
-                if (Cn(e)) {
+                if ("string" == typeof e && Cn(e)) {
                   const a = Sn(e);
                   if (t && t.body && "string" == typeof t.body) {
-                    const a = Tn(t.body, e);
-                    a !== t.body && (t = Object.assign({}, t, { body: a }));
+                    const a2 = Tn(t.body, e);
+                    a2 !== t.body && (t = Object.assign({}, t, { body: a2 }));
                   }
-                  return _safeCall(mn, this, a, t);
+                  return mn.call(this, a, t);
                 }
-              } catch (e) {}
-              return _safeCall(mn, this, e, t);
+              } catch (e2) {}
+              return mn.call(this, e, t);
             })))
           : En(),
         S.geoPatchXHR
@@ -13138,18 +13116,17 @@ algoBlockChannels: "",
             ((pn = !0),
             (yn = XMLHttpRequest.prototype.open),
             (gn = XMLHttpRequest.prototype.send),
-            (XMLHttpRequest.prototype.open = _exportPageFn(function () {
+            (XMLHttpRequest.prototype.open = _xp.fn(function () {
               try {
                 xn() &&
                   S.geoPatchXHR &&
                   "string" == typeof arguments[1] &&
-                  /^https?:/i.test(arguments[1]) &&
                   Cn(arguments[1]) &&
                   ((arguments[1] = Sn(arguments[1])), (this.__ytpGeoSafe = !0));
               } catch (e2) {}
               return yn.apply(this, arguments);
             })),
-            (XMLHttpRequest.prototype.send = _exportPageFn(function () {
+            (XMLHttpRequest.prototype.send = _xp.fn(function () {
               try {
                 xn() &&
                   this.__ytpGeoSafe &&
@@ -13169,12 +13146,11 @@ algoBlockChannels: "",
                 } catch (e) {
                   return void (un = !1);
                 }
-                navigator.sendBeacon = _exportPageFn(function (e, t) {
+                navigator.sendBeacon = _xp.fn(function (e, t) {
                   try {
                     xn() &&
                       S.geoPatchBeacon &&
                       "string" == typeof e &&
-                      /^https?:/i.test(e) &&
                       Cn(e) &&
                       ((e = Sn(e)), "string" == typeof t && (t = Tn(t, e)));
                   } catch (e2) {}
@@ -13292,6 +13268,7 @@ algoBlockChannels: "",
     },
   }),
     xa.register({
+      hidden: !0,
       id: "stats-overlay",
       name: "Playback Performance Overlay",
       summary: "Shows FPS, bitrate, resolution, buffer, and speed.",
@@ -13333,6 +13310,7 @@ algoBlockChannels: "",
       id: "diag-console",
       name: "Activity Monitor",
       summary: "Live console of what YT-zen is doing.",
+      hidden: !0,
       masterKey: "diagConsole",
       keys: ["diagConsole"],
       apply(e) {
@@ -13363,6 +13341,7 @@ algoBlockChannels: "",
       settings() {},
     }),
     xa.register({
+      hidden: !0,
       id: "perf-profiler",
       name: "Feature Performance Tracker",
       summary: "Watches how much work each feature costs.",
@@ -13381,6 +13360,7 @@ algoBlockChannels: "",
       },
     }),
     xa.register({
+      hidden: !0,
       id: "fps-counter",
       name: "Live FPS Counter",
       summary: "Small live FPS counter.",
@@ -13482,6 +13462,7 @@ algoBlockChannels: "",
       },
     }),
     xa.register({
+      hidden: !0,
       id: "buffer-health",
       name: "Buffer Health Monitor",
       summary: "Live buffer and rebuffer statistics.",
@@ -13620,6 +13601,7 @@ algoBlockChannels: "",
     }),
     
     xa.register({
+      hidden: !0,
       id: "dropped-frame-counter",
       name: "Dropped Frame Counter",
       summary: "Counts dropped frames to diagnose stutter.",
@@ -13799,6 +13781,7 @@ algoBlockChannels: "",
     }),
     xa.register({
       id: "remove-redirect-urls",
+      hidden: !0,
       name: "Skip YouTube /redirect URLs",
       summary: "Opens redirect links directly.",
       masterKey: "removeRedirectUrlsOn",
@@ -13844,6 +13827,7 @@ algoBlockChannels: "",
     }),
     xa.register({
       id: "shorten-share-url",
+      hidden: !0,
       name: "Shorten Share URLs",
       summary: "Copied links lose ?si= and ?feature= tracking.",
       masterKey: "shortenShareUrlOn",
@@ -13976,6 +13960,7 @@ algoBlockChannels: "",
     }),
 
     xa.register({
+      hidden: !0,
       id: "hide-top-live-games",
       name: "Hide Top Live Games",
       summary: "Removes gaming live carousels from feeds.",
@@ -14372,31 +14357,28 @@ algoBlockChannels: "",
       id: "api-explorer",
       name: "Developer Player Control",
       summary: "Expose the player to devtools for debugging.",
+      hidden: !0,
       masterKey: "apiExplorer",
       keys: ["apiExplorer", "apiExplorerMutations"],
       apply(t) {
         if (S.apiExplorer)
-          ((e.YTPlus._api = {}),
-            _pageDefine(e.YTPlus._api, "player", {
-              configurable: true,
-              enumerable: true,
-              get: () => ie.api(),
-            }),
-            (() => {
-              const _call = function (method, ...args) {
-                if (!S.apiExplorerMutations)
-                  throw new Error("Enable mutations in feature settings");
-                const a = ie.api();
-                if (!a || "function" != typeof a[method])
-                  throw new Error("no such method");
-                return a[method](...args);
-              };
-              try { e.YTPlus._api.call = _exportPageFn(_call); } catch (_) {}
-            })(),
+          ((e.YTPlus._api = {
+            get player() {
+              return ie.api();
+            },
+            call(e, ...t) {
+              if (!S.apiExplorerMutations)
+                throw new Error("Enable mutations in feature settings");
+              const a = ie.api();
+              if (!a || "function" != typeof a[e])
+                throw new Error("no such method");
+              return a[e](...t);
+            },
+          }),
             Yt["api-explorer"].push(() => {
               try {
                 delete e.YTPlus._api;
-              } catch (e2) {}
+              } catch (e) {}
             }));
         else
           try {
@@ -14927,31 +14909,31 @@ algoBlockChannels: "",
           !zn &&
             S.netMonitorPatchFetch &&
             ((zn = e.fetch),
-            (e.fetch = _exportPageFn(function (e, t) {
+            (e.fetch = _xp.fn(function (e, t) {
 
               if (!(S.netMonitorOn && !S.privacyShieldOn && S.netMonitorPatchFetch))
-                return _safeCall(zn, this, e, t);
+                return zn.call(this, e, t);
               let a,
                 n = "";
               try {
                 ((a = "string" == typeof e ? e : (e && e.url) || ""),
                   (n = Xn(a)));
-              } catch (e) {}
+              } catch (e2) {}
               const r = t && t.body ? Qn(t.body) : e && e.body ? Qn(e.body) : 0,
-                o = _safeCall(zn, this, e, t);
+                o = zn.call(this, e, t);
               return (
                 n &&
                   Zn(n) &&
                   o
-                    .then((e) => {
+                    .then((e3) => {
                       try {
-                        const t =
-                            e.headers &&
-                            e.headers.get &&
-                            e.headers.get("content-length"),
-                          o = (t && parseInt(t, 10)) || 0;
-                        $n(n, o, r, a);
-                      } catch (e) {
+                        const t2 =
+                            e3.headers &&
+                            e3.headers.get &&
+                            e3.headers.get("content-length"),
+                          o2 = (t2 && parseInt(t2, 10)) || 0;
+                        $n(n, o2, r, a);
+                      } catch (e3) {
                         $n(n, 0, r, a);
                       }
                     })
@@ -14965,13 +14947,13 @@ algoBlockChannels: "",
             S.netMonitorPatchXHR &&
             ((Wn = XMLHttpRequest.prototype.open),
             (Un = XMLHttpRequest.prototype.send),
-            (XMLHttpRequest.prototype.open = _exportPageFn(function (e2, t) {
+            (XMLHttpRequest.prototype.open = _xp.fn(function (e2, t) {
               try {
                 ((this.__ytpNetURL = t), (this.__ytpNetHost = Xn(t)));
               } catch (e3) {}
               return Wn.apply(this, arguments);
             })),
-            (XMLHttpRequest.prototype.send = _exportPageFn(function (e2) {
+            (XMLHttpRequest.prototype.send = _xp.fn(function (e2) {
 
               if (!(S.netMonitorOn && !S.privacyShieldOn && S.netMonitorPatchXHR))
                 return Un.apply(this, arguments);
@@ -15006,7 +14988,7 @@ algoBlockChannels: "",
               } catch (e) {
                 return;
               }
-              navigator.sendBeacon = _exportPageFn(function (e2, t2) {
+              navigator.sendBeacon = _xp.fn(function (e2, t2) {
 
                 try {
                   S.netMonitorOn &&
@@ -15280,6 +15262,7 @@ algoBlockChannels: "",
       id: "adaptive-throttle",
       name: "Adaptive Throttle",
       summary: "Saves battery: lighter processing on low power.",
+      hidden: !0,
       masterKey: "adaptiveThrottleOn",
       keys: ["adaptiveThrottleOn"],
       apply(e) {
@@ -15644,6 +15627,7 @@ algoBlockChannels: "",
     }),
     xa.register({
       id: "stop-button",
+      hidden: !0,
       name: "Stop Button",
       summary: "Adds a player Stop button that halts and unloads the video.",
       masterKey: "stopButtonOn",
@@ -15816,6 +15800,7 @@ algoBlockChannels: "",
       },
     }),
     xa.register({
+      hidden: !0,
       id: "disable-video-previews",
       name: "No Preview on Hover",
       summary: "Stops videos previewing when you hover thumbnails.",
@@ -15842,6 +15827,7 @@ algoBlockChannels: "",
     ),
     xa.register({
       id: "redirect-shorts",
+      hidden: !0,
       name: "Redirect Shorts to Player",
       summary: "Opens Shorts in the normal player.",
       masterKey: "redirectShortsOn",
@@ -16271,6 +16257,7 @@ algoBlockChannels: "",
   }),
     xa.register({
       id: "auto-resume-autopaused",
+      hidden: !0,
       name: "Auto Resume Auto-Paused",
       summary: "Resumes when you come back to the tab.",
       masterKey: "autoResumeAutoPausedOn",
@@ -16341,6 +16328,7 @@ algoBlockChannels: "",
     
     xa.register({
       id: "copy-timestamp-button",
+      hidden: !0,
       name: "Copy Timestamp Button",
       summary: "Copy a link to the exact moment you are on.",
       masterKey: "copyTimestampButtonOn",
@@ -16367,6 +16355,7 @@ algoBlockChannels: "",
     }),
     xa.register({
       id: "copy-video-info-button",
+      hidden: !0,
       name: "Copy Video Info Button",
       summary: "Copy title, channel, and a clean link with one click.",
       masterKey: "copyVideoInfoButtonOn",
@@ -16394,6 +16383,7 @@ algoBlockChannels: "",
     }),
     xa.register({
       id: "open-transcript-button",
+      hidden: !0,
       name: "Open Transcript Button",
       summary: "One-click button to open the transcript.",
       masterKey: "openTranscriptButtonOn",
@@ -16427,6 +16417,7 @@ algoBlockChannels: "",
     }),
     xa.register({
       id: "video-notes",
+      hidden: !0,
       name: "Video Notes",
       summary: "Private notes per video, stored locally.",
       masterKey: "videoNotesOn",
@@ -16447,6 +16438,7 @@ algoBlockChannels: "",
     }),
     xa.register({
       id: "channel-notes",
+      hidden: !0,
       name: "Channel Notes",
       summary: "Private notes per channel, shown on their page.",
       masterKey: "channelNotesOn",
@@ -16467,6 +16459,7 @@ algoBlockChannels: "",
     }),
     xa.register({
       id: "chapter-hotkeys",
+      hidden: !0,
       name: "Chapter Hotkeys",
       summary: "Jump chapters with the - and = keys.",
       masterKey: "chapterHotkeysOn",
@@ -16476,6 +16469,7 @@ algoBlockChannels: "",
     }),
     xa.register({
       id: "chapter-buttons",
+      hidden: !0,
       name: "Chapter Buttons",
       summary: "Previous/next chapter buttons in the player.",
       masterKey: "chapterButtonsOn",
@@ -16504,6 +16498,7 @@ algoBlockChannels: "",
     
     xa.register({
       id: "number-search-results",
+      hidden: !0,
       name: "Number Feed Results",
       summary: "Numbers the videos in search results and grids.",
       masterKey: "numberSearchResultsOn",
@@ -16517,6 +16512,7 @@ algoBlockChannels: "",
     }),
     xa.register({
       id: "dense-video-grid",
+      hidden: !0,
       name: "Dense Video Grid",
       summary: "Fits more thumbnails per row on big screens.",
       masterKey: "denseVideoGridOn",
@@ -16609,6 +16605,7 @@ ytd-video-renderer{margin:2px 0!important}
     }),
     xa.register({
       id: "hide-live-content",
+      hidden: !0,
       name: "Hide Live Content",
       summary: "Hides live streams from feeds and search.",
       masterKey: "hideLiveContentOn",
@@ -16620,6 +16617,7 @@ ytd-video-renderer{margin:2px 0!important}
     }),
     xa.register({
       id: "hide-premieres",
+      hidden: !0,
       name: "Hide Premieres",
       summary: "Hides upcoming premiere cards.",
       masterKey: "hidePremieresOn",
@@ -16631,6 +16629,7 @@ ytd-video-renderer{margin:2px 0!important}
     }),
     xa.register({
       id: "playlist-autoscroll",
+      hidden: !0,
       name: "Playlist Autoscroll Current",
       summary: "Keeps the playing video centered in the playlist.",
       masterKey: "playlistAutoscrollOn",
@@ -16649,6 +16648,7 @@ ytd-video-renderer{margin:2px 0!important}
     }),
     xa.register({
       id: "compact-playlist",
+      hidden: !0,
       name: "Compact Playlist",
       summary: "Fits more items in the playlist drawer.",
       masterKey: "compactPlaylistOn",
@@ -16663,6 +16663,7 @@ ytd-video-renderer{margin:2px 0!important}
     }),
     xa.register({
       id: "shorts-auto-mute",
+      hidden: !0,
       name: "Shorts Auto Mute",
       summary: "Shorts always start muted.",
       masterKey: "shortsAutoMuteOn",
@@ -16689,6 +16690,7 @@ ytd-video-renderer{margin:2px 0!important}
     }),
     xa.register({
       id: "shorts-hide-comments",
+      hidden: !0,
       name: "Shorts Hide Comments Panel",
       summary: "Removes the comments drawer on Shorts.",
       masterKey: "shortsHideCommentsOn",
@@ -16703,6 +16705,7 @@ ytd-video-renderer{margin:2px 0!important}
     }),
     xa.register({
       id: "collapse-long-comments",
+      hidden: !0,
       name: "Collapse Long Comments",
       summary: "Collapses very long comments behind an Expand button.",
       masterKey: "collapseLongCommentsOn",
@@ -16753,6 +16756,7 @@ ytd-video-renderer{margin:2px 0!important}
     }),
     xa.register({
       id: "highlight-creator-comments",
+      hidden: !0,
       name: "Highlight Creator Comments",
       summary: "Highlights replies from the video's creator.",
       masterKey: "highlightCreatorCommentsOn",
@@ -16767,6 +16771,7 @@ ytd-video-renderer{margin:2px 0!important}
     }),
     xa.register({
       id: "highlight-timestamp-links",
+      hidden: !0,
       name: "Highlight Timestamp Links",
       summary: "Makes timestamp links stand out.",
       masterKey: "highlightTimestampLinksOn",
@@ -23804,6 +23809,7 @@ const Nr = [
 
   xa.register({
       id: "block-yt-ai",
+      hidden: !0,
       name: "Hide YouTube AI Features",
       summary: "Hides YouTube's AI buttons and summaries.",
       masterKey: "blockYTAIOn",
@@ -26672,17 +26678,6 @@ const Nr = [
             c = !0;
             try {
               e.settings(d);
-              // Features with no panel of their own (CSS-only toggles and
-              // members otherwise reachable solely through an AIO card)
-              // still need a working enable switch on their own card.
-              if (
-                !r &&
-                "string" == typeof e.masterKey &&
-                "boolean" == typeof s[e.masterKey] &&
-                !d.querySelector('[data-key="' + e.masterKey + '"]')
-              ) {
-                d.insertBefore(Io("Enable", e.masterKey), d.firstChild);
-              }
             } catch (t) {
               m("settings " + e.id, t);
             }
@@ -27866,7 +27861,7 @@ const Nr = [
       try {
         const prevFetch = e.fetch;
         if (typeof prevFetch !== "function") return;
-        e.fetch = _exportPageFn(function (input, init) {
+        e.fetch = _xp.fn(function (input, init) {
           let url = "";
           try {
             url =
@@ -27958,16 +27953,21 @@ const Nr = [
       }
     }
 
+    let _initialDataTrapInstalled = false;
     function installInitialDataTrap() {
+      // Only the opt-in Shorts / auto-dub filters need this accessor.
+      // It must still be present at document-start to catch the first
+      // inline payload, hence the early (feature-gated) return. In
+      // Firefox's content/userscript world the accessor MUST be page-
+      // exported (_xp.define); a raw sandbox accessor made YouTube's boot
+      // script die with "Permission denied to access object".
+      if (_initialDataTrapInstalled) return;
+      if (!S.hideShorts && !S.hideAutoDubbedOn) return;
       try {
         const existing = Object.getOwnPropertyDescriptor(e, "ytInitialData");
         if (existing && !existing.configurable) return;
         let current = e.ytInitialData;
-        // The page assigns window.ytInitialData during its inline boot
-        // script. A content-realm setter there is what threw
-        // "Permission denied to access object" and prevented YouTube from
-        // loading; install page-exported accessors instead.
-        _pageDefine(e, "ytInitialData", {
+        const ok = _xp.define(e, "ytInitialData", {
           configurable: true,
           enumerable: true,
           get() {
@@ -27992,8 +27992,12 @@ const Nr = [
             current = v;
           },
         });
+        _initialDataTrapInstalled = !!ok;
       } catch (err) {}
     }
+    // Install at document-start so the first inline payload is covered;
+    // no-ops (and installs nothing) unless the opt-in features are enabled.
+    // The accessors are page-exported via _xp.define, so this is Xray-safe.
     installInitialDataTrap();
 
     const SHORTS_SEL_SAFE = [
@@ -28259,6 +28263,7 @@ const Nr = [
 
         ctx.addStyle(SHORTS_CSS);
 
+        try { installInitialDataTrap(); } catch (err) {}
         shortsRedirect();
         ctx.onNav(() => setTimeout(shortsRedirect, 80));
 
@@ -28283,12 +28288,14 @@ const Nr = [
 
     xa.register({
       id: "hide-auto-dubbed",
+      hidden: !0,
       name: "Hide Auto-Dubbed Videos",
       summary: "Filters auto-dubbed videos; prefers original audio.",
       masterKey: "hideAutoDubbedOn",
       keys: ["hideAutoDubbedOn", "hideAutoDubbedPreferOriginal"],
       apply(ctx) {
         if (!S.hideAutoDubbedOn) return;
+        try { installInitialDataTrap(); } catch (err) {}
         ensureApi();
 
         try {
@@ -32142,8 +32149,8 @@ const Nr = [
         if (patched) return; patched = true;
         // Keep the exported reference: unpatch() compares prototype.play
         // against this exact value.
-        myPatch = _exportPageFn(function (...args) {
-          if (gateActive) { return _pagePromise(); }
+        myPatch = _xp.fn(function (...args) {
+          if (gateActive) { return _pPromise.resolve(); }
           return protoPlay.apply(this, args);
         });
         HTMLMediaElement.prototype.play = myPatch;
@@ -33181,7 +33188,7 @@ const Nr = [
     try {
       // Unconditional: lets any user verify the installed version and
       // inject mode in the console without enabling verbose logging.
-      console.info(
+      console.warn(
         "[YT-zen] v" +
           ((typeof GM_info !== "undefined" && GM_info && GM_info.script && GM_info.script.version) || "?") +
           " | inject: " +
@@ -33250,9 +33257,9 @@ const Nr = [
             // Path 3: exposable global for Violentmonkey content-mode where menu is page-bound
             try {
               if (typeof unsafeWindow !== "undefined" && unsafeWindow) {
-                unsafeWindow.__YTZEN_DASHBOARD__ = _exportPageFn(Uo);
+                unsafeWindow.__YTZEN_DASHBOARD__ = Uo;
                 unsafeWindow.__YTZEN_MENU_WRAPPERS__ = unsafeWindow.__YTZEN_MENU_WRAPPERS__ || {};
-                unsafeWindow.__YTZEN_MENU_WRAPPERS__[label] = _exportPageFn(_wrap);
+                unsafeWindow.__YTZEN_MENU_WRAPPERS__[label] = _wrap;
               }
             } catch (_) {}
             if (!_registered) try { m("menu not registered: " + label); } catch (_) {}

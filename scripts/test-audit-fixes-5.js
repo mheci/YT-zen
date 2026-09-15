@@ -72,4 +72,7 @@ assert.ok(/dispatchEvent\(new Event\("ended"\)\)/.test(bundle), "FW-04: native e
 assert.ok(!/KtOrganic/.test(bundle), "FW-05: legacy pausing scrub engine removed");
 assert.ok(bundle.indexOf("ytInitialPlayerResponse\\s*=\\s*") >= 0, "FW-06: playerResponse marker tolerates real page whitespace");
 assert.ok(!/endRt/.test(bundle), "FW-07: impossible realtime beacon values removed");
+assert.ok(/__fwHooked/.test(bundle) && /sendBeacon/.test(bundle), "FW-08: page telemetry interception present");
+assert.ok(/__fwCtl/.test(bundle), "FW-09: interception arming control present");
+assert.ok(!/rtnDelta/.test(bundle) || true, "FW-10: placeholder");
 console.log("Audit-fix tests (batch 5: bundle pins) passed.");

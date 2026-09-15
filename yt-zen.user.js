@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YT-zen
 // @namespace    https://github.com/mheci/YT-zen
-// @version      1.1.4
+// @version      1.1.5
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      Unlicense
@@ -8272,6 +8272,59 @@ algoBlockChannels: "",
       );
     } catch (e) {}
   }
+  function _fwPageWin() {
+    try { if (typeof unsafeWindow !== "undefined" && unsafeWindow && unsafeWindow !== window) return unsafeWindow; } catch (e) {}
+    try { if (window && window.wrappedJSObject) return window.wrappedJSObject; } catch (e) {}
+    return window;
+  }
+  function _fwExport(fn) { try { if (typeof exportFunction === "function") return exportFunction(fn); } catch (e) {} return fn; }
+  function _fwArm(len) {
+    try { const pw = _fwPageWin(); pw.__fwCtl = { len: Math.round(len * 1000) / 1000, armed: true, until: Date.now() + 90000 }; } catch (e) {}
+  }
+  function _fwInstallHooks() {
+    try {
+      const pw = _fwPageWin();
+      if (!pw || pw.__fwHooked) return;
+      pw.__fwHooked = 1;
+      const armed = () => { try { const c = pw.__fwCtl; return !!(c && c.armed && Date.now() < c.until); } catch (e) { return false; } };
+      const getLen = () => { try { return (pw.__fwCtl && pw.__fwCtl.len) || 0; } catch (e) { return 0; } };
+      const isT = (u) => typeof u === "string" && u.indexOf("/api/stats/watchtime") >= 0;
+      const rw = (u) => {
+        try {
+          const L = getLen(); if (!L) return u;
+          const i = u.indexOf("?"); if (i < 0) return u;
+          let qs = u.slice(i + 1);
+          const set = (k, v) => { const re = new RegExp("([?&])" + k + "=[^&]*"); if (re.test(qs)) qs = qs.replace(re, "$1" + k + "=" + v); else qs += "&" + k + "=" + v; };
+          set("et", L); set("cmt", L); set("mt", L); set("st", Math.max(0, L - 1));
+          if (/[?&]state=/.test(qs)) set("state", "ended"); else qs += "&state=ended";
+          return u.slice(0, i + 1) + qs;
+        } catch (e) { return u; }
+      };
+      try {
+        const nav = pw.navigator;
+        if (nav && nav.sendBeacon) {
+          const ob = _fwExport(nav.sendBeacon.bind(nav));
+          nav.sendBeacon = _fwExport(function (u, d) { try { if (armed() && isT(u)) u = rw(u); } catch (e) {} return ob(u, d); });
+        }
+      } catch (e) {}
+      try {
+        if (pw.fetch) {
+          const of = _fwExport(pw.fetch.bind(pw));
+          pw.fetch = _fwExport(function (u, o) { try { if (armed()) { if (typeof u === "string" && isT(u)) u = rw(u); else if (u && u.url && isT(u.url)) u = rw(u.url); } } catch (e) {} return of(u, o); });
+        }
+      } catch (e) {}
+      try {
+        const X = pw.XMLHttpRequest;
+        if (X && X.prototype) {
+          const oo = _fwExport(X.prototype.open);
+          const os = _fwExport(X.prototype.send);
+          X.prototype.open = _fwExport(function (m, u) { try { this.__fwM = m; this.__fwU = u; } catch (e) {} return oo.apply(this, arguments); });
+          X.prototype.send = _fwExport(function () { try { if (armed() && this.__fwU && isT(this.__fwU)) { const nu = rw(this.__fwU); oo.call(this, this.__fwM || "GET", nu, true); } } catch (e) {} return os.apply(this, arguments); });
+        }
+      } catch (e) {}
+    } catch (e) {}
+  }
+  _fwInstallHooks();
   function Ft(t, a) {
     let n = t && t.duration;
     if (n && isFinite(n) && n > 0.5) return n;
@@ -8344,70 +8397,6 @@ algoBlockChannels: "",
     }, 12000);
     try { _fwSafety.unref && _fwSafety.unref(); } catch (_) {}
 
-    try {
-      if (!_fwTpl) {
-        const w = typeof unsafeWindow !== "undefined" ? unsafeWindow : window;
-        const pts =
-          w &&
-          w.ytInitialPlayerResponse &&
-          w.ytInitialPlayerResponse.playbackTracking;
-        _fwTplSet(
-          (pts &&
-            pts.videostatsWatchtimeUrl &&
-            pts.videostatsWatchtimeUrl.baseUrl) ||
-            (pts &&
-              pts.videostatsPlaybackUrl &&
-              pts.videostatsPlaybackUrl.baseUrl),
-        );
-      }
-    } catch (_) {}
-
-    const r = {
-      loop: e.loop,
-      playbackRate: e.playbackRate,
-      apiPlayVideo: t ? t.playVideo : null,
-      apiPlayVideoAt: t ? t.playVideoAt : null,
-      apiSeekTo: t ? t.seekTo : null,
-      apiNextVideo: t ? t.nextVideo : null,
-      apiLoadVideoByPlayerVars: t ? t.loadVideoByPlayerVars : null,
-      apiCueVideoById: t ? t.cueVideoById : null,
-      apiLoadVideoById: t ? t.loadVideoById : null,
-      apiStopVideo: t ? t.stopVideo : null,
-      apiAdvanceToNextItem: t ? t.advanceToNextItem : null,
-      apiNextVideoOnAutoplay: t ? t.nextVideoOnAutoplay : null,
-      loopCfg: S.loopVideo,
-      skipIntroCfg: S.skipIntroOn,
-    };
-
-    try {
-      e.loop = !1;
-    } catch (e) {}
-    ((S.loopVideo = !1), (S.skipIntroOn = !1));
-
-    const o = _xp.fn(function () {});
-    if (t) {
-      try {
-        t.nextVideo = o;
-      } catch (e) {}
-      try {
-        t.loadVideoByPlayerVars = o;
-      } catch (e) {}
-      try {
-        t.cueVideoById = o;
-      } catch (e) {}
-      try {
-        t.loadVideoById = o;
-      } catch (e) {}
-      try {
-        t.stopVideo = o;
-      } catch (e) {}
-      try {
-        t.advanceToNextItem && (t.advanceToNextItem = o);
-      } catch (e) {}
-      try {
-        t.nextVideoOnAutoplay && (t.nextVideoOnAutoplay = o);
-      } catch (e) {}
-    }
 
     if (!1 !== S.forceWatchedLocalHistory) {
       Promise.resolve().then(() => {
@@ -8583,6 +8572,7 @@ algoBlockChannels: "",
     const t0 = _t();
     let cur0 = 0;
     try { cur0 = vEl && isFinite(vEl.currentTime) && vEl.currentTime > 0 ? Math.round(vEl.currentTime * 1000) / 1000 : 0; } catch (_) {}
+    _fwArm(DU);
     try {
       if (vEl && !document.querySelector(".ad-showing,.ad-interrupting")) {
         try {
@@ -8657,284 +8647,10 @@ algoBlockChannels: "",
 
     if (!1 !== S.forceWatchedAccountHistory) {
       Promise.resolve().then(() => {
-        _fwAdvanced(a, n).catch((er) => { try { h("fw advanced", er); } catch (_) {} });
+        _fwAdvanced(a, n).then(() => { try { jt = !1; } catch (_) {} }, (er) => { try { h("fw advanced", er); } catch (_) {} try { jt = !1; } catch (_) {} });
       });
     }
-    const i = (function () {
-        try {
-          const e = ie.api();
-          if (e) {
-            if ("function" == typeof e.getVideoStats) {
-              const t = e.getVideoStats();
-              if (t && t.cpn) return t.cpn;
-            }
-            if ("function" == typeof e.getDebugText)
-              try {
-                const t = JSON.parse(e.getDebugText());
-                if (t && t.cpn) return t.cpn;
-              } catch (e) {}
-            if ("function" == typeof e.getPlayerResponse) {
-              const t = e.getPlayerResponse();
-              if (t && t.playerConfig && t.playerConfig.cpn)
-                return t.playerConfig.cpn;
-            }
-          }
-        } catch (e) {}
-        try {
-
-          const w = typeof unsafeWindow !== "undefined" ? unsafeWindow : window;
-          const c = w && w.ytInitialPlayerResponse && w.ytInitialPlayerResponse.playerConfig && w.ytInitialPlayerResponse.playerConfig.cpn;
-          if (c) return c;
-        } catch (e) {}
-        return Tt();
-      })(),
-      d = [Tt(), Tt()],
-      c = [i].concat(d),
-      s = Tt();
-    (u(
-      "fw " +
-        a +
-        " dur=" +
-        n +
-        " cpn=" +
-        i.slice(0, 6) +
-        " phantom=" +
-        d.length,
-    ),
-      (async () => {
-        try {
-          !(function (e, t, a, n) {
-            try {
-              Dt(
-                "https://www.youtube.com/api/stats/playback?" +
-                  Ht(
-                    e,
-                    t,
-                    0,
-                    "playing",
-                    a,
-                    Object.assign({ fmt: "243", rtnDelta: 0 }, n || {}),
-                  ).join("&"),
-              );
-            } catch (e) {}
-          })(a, n, i, { plid: s });
-        } catch (e) {}
-        try {
-          !(function (e, t) {
-            try {
-              const a = _t();
-              Dt(
-                "https://www.youtube.com/api/stats/delayplay?" +
-                  [
-                    "ns=yt",
-                    "el=detailpage",
-                    "cpn=" + encodeURIComponent(t),
-                    "docid=" + encodeURIComponent(e),
-                    "ver=2",
-                    "ei=" + encodeURIComponent(a.ei),
-                    "c=WEB",
-                    "cver=" + encodeURIComponent(a.ver),
-                    "cos=Windows",
-                    "cosver=10.0",
-                    "cplatform=DESKTOP",
-                    "hl=" + encodeURIComponent(a.hl),
-                    "cr=" + encodeURIComponent(a.gl),
-                    "delay=" + (50 + Math.floor(200 * Math.random())),
-                    "vis=" +
-                      (a.visitorData ? encodeURIComponent(a.visitorData) : ""),
-                  ].join("&"),
-              );
-            } catch (e) {}
-          })(a, i);
-        } catch (e) {}
-        try {
-          !(function (e, t, a, n) {
-            try {
-              Dt(
-                "https://www.youtube.com/api/stats/atr?" +
-                  Ht(e, t, 0, "atr", n, { fmt: "140", rtnDelta: 0 }).join("&"),
-              );
-            } catch (e) {}
-          })(a, n, 0, i);
-        } catch (e) {}
-      })());
-    const l = (function (e) {
-      const t = [];
-      let a = 0;
-      const n = Math.max(15, e - 1);
-      for (; a < n; ) {
-        const e = Math.min(n - a, n > 600 ? Math.ceil(n / 55) + Math.floor(3 * Math.random()) : 4 + Math.floor(4 * Math.random())),
-          r = Math.min(n, a + e),
-          o =
-            Math.random() < 0.08 && t.length > 2 && r < n - 8
-              ? "paused"
-              : "playing";
-        (t.push({
-          from: a,
-          to: r,
-          state: o,
-          rtnDelta: e,
-          lact: Math.floor(2500 * Math.random() + 100),
-        }),
-          (a = r));
-      }
-      return (
-        t.push({
-          from: n,
-          to: e,
-          state: "ended",
-          rtnDelta: Math.max(1, e - n),
-          lact: 50,
-        }),
-        t
-      );
-    })(n);
-    if (
-      ((async () => {
-        for (let e = 0; e < l.length; e++) {
-          const t = l[e];
-          for (const e of c)
-            try {
-              qt(a, n, Math.floor(t.to), t.state, e, {
-                rtnDelta: t.rtnDelta,
-                lact: t.lact,
-                plid: s,
-                volume: 100,
-                subscribed: !1,
-                rt: Math.round(t.to + 2 + Math.random() * 3),
-              }, !0);
-            } catch (e) {}
-        }
-      })(),
-      (() => {
-        for (const e of c) {
-          try {
-            qt(a, n, Math.floor(n), "paused", e, { rtnDelta: 0, lact: 100, plid: s, rt: Math.round(n + 2 + Math.random() * 3) });
-          } catch (e) {}
-          try {
-            qt(a, n, Math.floor(n), "ended", e, { rtnDelta: 0, lact: 0, plid: s, rt: Math.round(n + 2 + Math.random() * 3) });
-          } catch (e) {}
-        }
-        try {
-          qt(a, n, Math.floor(n), "ended", i, { rtnDelta: 0, lact: 0, plid: s, rt: Math.round(n + 2 + Math.random() * 3) });
-        } catch (e) {}
-        try {
-          Vt(a, n, n, i, "streamingstats");
-        } catch (e) {}
-        try {
-          Vt(a, n, n, i, "qoe");
-        } catch (e) {}
-      })(),
-      Promise.allSettled([
-        At(a, i),
-        Et(a, i),
-        Bt(a, i),
-        Pt(a, i, n),
-        It(a, i, n),
-        Rt(a, i),
-        Nt(a, i),
-        At(a, d[0]),
-        Bt(a, d[0]),
-        Bt(a, d[1]),
-      ]).then((e) => {
-        const t = e.filter(
-          (e) => "fulfilled" === e.status && e.value && e.value.ok,
-        ).length;
-        u("fw InnerTube: " + t + "/" + e.length + " endpoints OK");
-      }),
-      setTimeout(() => {
-        Promise.allSettled([Bt(a, i), It(a, i, n)]).catch(() => {});
-      }, 1100),
-      setTimeout(() => {
-        try {
-          const e =
-            "function" == typeof ie.thumbCandidates
-              ? ie.thumbCandidates(a)
-              : [ie.thumb(a, "hqdefault")];
-          for (const t of e.slice(0, 2))
-            fetch(t, {
-              method: "GET",
-              credentials: "omit",
-              mode: "no-cors",
-              cache: "no-store",
-            }).catch(() => {});
-        } catch (e) {}
-      }, 50),
-      t)
-    ) {
-      try {
-        t.playVideo = r.apiPlayVideo;
-      } catch (e) {}
-      try {
-        t.seekTo = r.apiSeekTo;
-      } catch (e) {}
-    }
-    !(function (e, t) {
-      try {
-        const a = new URL(location.href);
-        if (a.searchParams.get("v") !== e) return;
-
-        (a.searchParams.set("t", String(Math.floor(t))),
-          (window.history || e.history).replaceState(
-            window.history ? window.history.state : null,
-            "",
-            a.toString(),
-          ));
-      } catch (e) {}
-    })(a, n);
-    const m = () => {
-      try { clearTimeout(_fwSafety); } catch (e) {}
-      if ((Wt.delete(a), t)) {
-        try {
-          r.apiPlayVideo && (t.playVideo = r.apiPlayVideo);
-        } catch (e) {}
-        try {
-          r.apiPlayVideoAt && (t.playVideoAt = r.apiPlayVideoAt);
-        } catch (e) {}
-        try {
-          r.apiSeekTo && (t.seekTo = r.apiSeekTo);
-        } catch (e) {}
-        try {
-          r.apiNextVideo && (t.nextVideo = r.apiNextVideo);
-        } catch (e) {}
-        try {
-          r.apiLoadVideoByPlayerVars &&
-            (t.loadVideoByPlayerVars = r.apiLoadVideoByPlayerVars);
-        } catch (e) {}
-        try {
-          r.apiCueVideoById && (t.cueVideoById = r.apiCueVideoById);
-        } catch (e) {}
-        try {
-          r.apiLoadVideoById && (t.loadVideoById = r.apiLoadVideoById);
-        } catch (e) {}
-        try {
-          r.apiStopVideo && (t.stopVideo = r.apiStopVideo);
-        } catch (e) {}
-        try {
-          r.apiAdvanceToNextItem &&
-            (t.advanceToNextItem = r.apiAdvanceToNextItem);
-        } catch (e) {}
-        try {
-          r.apiNextVideoOnAutoplay &&
-            (t.nextVideoOnAutoplay = r.apiNextVideoOnAutoplay);
-        } catch (e) {}
-      }
-      try {
-        e.loop = r.loop;
-      } catch (e) {}
-      try {
-        e.playbackRate = r.playbackRate;
-      } catch (e) {}
-      ((S.loopVideo = r.loopCfg), (S.skipIntroOn = r.skipIntroCfg), (jt = !1));
-    };
-    (Wt.set(a, m),
-      setTimeout(m, 2500),
-      setTimeout(() => {
-        if (jt)
-          try {
-            m();
-          } catch (e) {}
-      }, 6e3));
+    jt = !1;
   }
   const Yt = {};
   let Gt = 0;

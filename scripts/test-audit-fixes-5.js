@@ -71,4 +71,5 @@ assert.ok(/script:not\(\[src\]\)/.test(bundle), "FW-03: world-independent player
 assert.ok(/dispatchEvent\(new Event\("ended"\)\)/.test(bundle), "FW-04: native ended event forced for end screen");
 assert.ok(!/KtOrganic/.test(bundle), "FW-05: legacy pausing scrub engine removed");
 assert.ok(bundle.indexOf("ytInitialPlayerResponse\\s*=\\s*") >= 0, "FW-06: playerResponse marker tolerates real page whitespace");
+assert.ok(!/endRt/.test(bundle), "FW-07: impossible realtime beacon values removed");
 console.log("Audit-fix tests (batch 5: bundle pins) passed.");

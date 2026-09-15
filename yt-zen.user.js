@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YT-zen
 // @namespace    https://github.com/mheci/YT-zen
-// @version      1.1.3
+// @version      1.1.4
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      Unlicense
@@ -8577,11 +8577,12 @@ algoBlockChannels: "",
     const dur = (track && track.lengthSec > 0 ? track.lengthSec : 0) ||
       (vEl && isFinite(vEl.duration) && vEl.duration > 0 ? vEl.duration : 0) || durFallback || 0;
     if (!dur || !isFinite(dur) || dur <= 0) { try { pe("Force Watched: no finite duration (live?)", 2600, "info"); } catch (e) {} return stats; }
-    const cpn = page.cpn || Tt();
+    const cpn = Tt();
     const DU = Math.round(dur * 1000) / 1000;
-    const fwEndSt = Math.max(0, Math.round((DU - Math.min(5, DU / 2)) * 1000) / 1000);
     const UA = _fwUA();
     const t0 = _t();
+    let cur0 = 0;
+    try { cur0 = vEl && isFinite(vEl.currentTime) && vEl.currentTime > 0 ? Math.round(vEl.currentTime * 1000) / 1000 : 0; } catch (_) {}
     try {
       if (vEl && !document.querySelector(".ad-showing,.ad-interrupting")) {
         try {
@@ -8619,33 +8620,21 @@ algoBlockChannels: "",
       } catch (e) {}
     };
     const rtNow = () => { try { return (performance.now() / 1000).toFixed(3); } catch (_) { return String(Math.max(1, Math.floor(DU))); } };
-    const endRt = () => (DU + 1.5 + Math.random() * 2.5).toFixed(3);
     for (let attempt = 1; attempt <= 4 && !stats.verified; attempt++) {
       stats.attempts = attempt;
+      const rtBase = cur0 + 1 + Math.random();
       fire(track.playbackUrl, { cmt: 0, rt: rtNow(), lact: 1200 + Math.floor(900 * Math.random()) });
       fire(track.atrUrl, { cmt: 0, rt: rtNow(), lact: 700 });
       fire(track.delayplayUrl, {});
-      const wN = Math.max(2, Math.min(24, Math.ceil(DU / 10)));
-      for (let wi = 0; wi < wN; wi++) {
-        const st = Math.round(DU * (wi / wN) * 1000) / 1000;
-        const et = Math.round(DU * ((wi + 1) / wN) * 1000) / 1000;
-        fire(track.watchtimeUrl, {
-          cmt: et, et: et, st: st, mt: et,
-          rt: (et + 1.5 + Math.random() * 2.5).toFixed(3),
-          lact: 150 + Math.floor(700 * Math.random()),
-          state: wi % 9 === 7 && wi < wN - 1 ? "paused" : "playing",
-        });
-        if (wi % 4 === 3) fire(track.qoeUrl, { cmt: et, rt: (et + 1 + Math.random() * 2).toFixed(3) });
-      }
+      fire(track.watchtimeUrl, { cmt: cur0, et: cur0, st: 0, mt: cur0, rt: rtBase.toFixed(3), lact: 400, state: "playing" });
+      fire(track.qoeUrl, { cmt: cur0, rt: rtNow() });
+      fire(track.watchtimeUrl, { cmt: DU, et: DU, st: Math.max(0, DU - 1), mt: DU, rt: (rtBase + 1).toFixed(3), lact: 300, state: "playing" });
+      fire(track.engagedviewUrl, { cmt: DU, et: DU, st: Math.max(0, DU - 1), rt: (rtBase + 1.5).toFixed(3), state: "playing" });
       try { for (const eu of track.extraUrls || []) fire(eu, { cmt: DU, rt: rtNow() }); } catch (e) {}
-      fire(track.engagedviewUrl, { cmt: DU, et: DU, st: 0, rt: (DU + 1 + Math.random() * 2).toFixed(3), state: "playing" });
       fire(track.ptrackingUrl, {});
       fire(track.wtfUrl, {});
       fire(track.qoeUrl, { cmt: DU, rt: rtNow() });
-      fire(track.watchtimeUrl, { cmt: DU, et: DU, st: fwEndSt, mt: DU, rt: endRt(), lact: 30, state: "ended" });
-      fire(track.watchtimeUrl, { cmt: DU, et: DU, st: fwEndSt, mt: DU, rt: endRt(), lact: 20, state: "ended" });
-      fire(track.watchtimeUrl, { cmt: DU, et: DU, st: fwEndSt, mt: DU, rt: endRt(), lact: 21, state: "paused" });
-      fire(track.watchtimeUrl, { cmt: DU, et: DU, st: fwEndSt, mt: DU, rt: endRt(), lact: 11, state: "paused" });
+      fire(track.watchtimeUrl, { cmt: DU, et: DU, st: Math.max(0, DU - 1), mt: DU, rt: (rtBase + 2).toFixed(3), lact: 30, state: "ended" });
       fire(track.qoeUrl, { cmt: DU, rt: rtNow() });
       const has = await _fwHistoryHas(videoId, page);
       if (has === null) { stats.verified = "skipped"; break; }

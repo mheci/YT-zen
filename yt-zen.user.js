@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YT-zen
 // @namespace    https://github.com/mheci/YT-zen
-// @version      1.1.0
+// @version      1.1.1
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      Unlicense
@@ -8722,6 +8722,16 @@ algoBlockChannels: "",
     const fwEndSt = Math.max(0, Math.round((DU - Math.min(5, DU / 2)) * 1000) / 1000);
     const UA = _fwUA();
     const t0 = _t();
+    try {
+      if (vEl && !document.querySelector(".ad-showing,.ad-interrupting")) {
+        try {
+          const target = (isFinite(vEl.duration) && vEl.duration > 0) ? vEl.duration : DU;
+          vEl.currentTime = Math.max(0, target - 0.001);
+          try { vEl.pause(); } catch (_) {}
+          try { vEl.dispatchEvent(new Event("pause")); } catch (_) {}
+        } catch (_) {}
+      }
+    } catch (e) {}
     const clientBlock = {
       c: "WEB", cver: page.ver, cbr: UA.browser, cbrver: UA.bver, cos: UA.os, cosver: UA.osver || "10.0",
       hl: page.hl, cr: page.gl, mos: 0, fmt: _fwVfmt() || 243,
@@ -8746,7 +8756,7 @@ algoBlockChannels: "",
     };
     const rtNow = () => { try { return (performance.now() / 1000).toFixed(3); } catch (_) { return String(Math.max(1, Math.floor(DU))); } };
     const endRt = () => (DU + 1.5 + Math.random() * 2.5).toFixed(3);
-    for (let attempt = 1; attempt <= 3 && !stats.verified; attempt++) {
+    for (let attempt = 1; attempt <= 4 && !stats.verified; attempt++) {
       stats.attempts = attempt;
       fire(track.playbackUrl, { cmt: 0, rt: rtNow(), lact: 1200 + Math.floor(900 * Math.random()) });
       fire(track.atrUrl, { cmt: 0, rt: rtNow(), lact: 700 });
@@ -8774,17 +8784,12 @@ algoBlockChannels: "",
       fire(track.watchtimeUrl, { cmt: DU, et: DU, st: fwEndSt, mt: DU, rt: endRt(), lact: 21, state: "paused" });
       fire(track.watchtimeUrl, { cmt: DU, et: DU, st: fwEndSt, mt: DU, rt: endRt(), lact: 11, state: "paused" });
       fire(track.qoeUrl, { cmt: DU, rt: rtNow() });
-      try {
-        if (vEl && isFinite(vEl.duration) && vEl.duration > 0 && !document.querySelector(".ad-showing,.ad-interrupting")) {
-          vEl.currentTime = Math.max(0, vEl.duration - 0.3);
-        }
-      } catch (e) {}
       const has = await _fwHistoryHas(videoId, page);
       if (has === null) { stats.verified = "skipped"; break; }
       if (has === true) { stats.verified = true; break; }
-      if (attempt < 3) {
-        try { pe("Force Watched: not in history yet, retry " + attempt + "/3", 2000, "info"); } catch (e) {}
-        await new Promise((r) => setTimeout(r, 3500 * attempt));
+      if (attempt < 4) {
+        try { pe("Force Watched: not in history yet, retry " + attempt + "/4", 2000, "info"); } catch (e) {}
+        await new Promise((r) => setTimeout(r, 3000 * attempt));
       }
     }
     try {

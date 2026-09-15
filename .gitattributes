@@ -1,0 +1,5 @@
+# The userscript bundle and meta file are produced by scripts/build-userscript.js,
+# which always writes CRLF line endings. Pin checkout to CRLF so the CI
+# bundle-drift check (git diff --exit-code) compares like-for-like on Linux.
+yt-zen.user.js text eol=crlf
+yt-zen.meta.js text eol=crlf

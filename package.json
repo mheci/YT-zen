@@ -1,0 +1,22 @@
+{
+  "name": "yt-zen",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Userscript-first YouTube customization with a resilient SponsorBlock integration",
+  "license": "Unlicense",
+  "scripts": {
+    "build": "node scripts/build-userscript.js",
+    "check": "node scripts/check.js && node scripts/check-release.js && node scripts/check-xray.js",
+    "audit:dashboard": "node scripts/audit-dashboard.cjs",
+    "test:unit": "node scripts/test-unit.js && node scripts/test-sponsorblock-parity.js && node scripts/test-audit-fixes.js && node scripts/test-audit-fixes-2.js && node scripts/test-audit-fixes-3.js && node scripts/test-audit-fixes-4.js && node scripts/test-audit-fixes-5.js",
+    "test": "npm run build && npm run check && npm run audit:dashboard && npm run test:unit && npm run test:zen && npm run test:boot",
+    "test:boot": "node scripts/harness-boot.js",
+    "test:zen": "node scripts/test-zen.js"
+  },
+  "engines": {
+    "node": "^20.19.0 || ^22.13.0 || >=24.0.0"
+  },
+  "devDependencies": {
+    "jsdom": "^24.1.3"
+  }
+}

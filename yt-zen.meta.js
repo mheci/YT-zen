@@ -1,0 +1,35 @@
+// ==UserScript==
+// @name         YT-zen
+// @namespace    https://github.com/mheci/YT-zen
+// @version      1.0.0
+// @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
+// @author       mheci
+// @license      Unlicense
+// @homepageURL  https://github.com/mheci/YT-zen
+// @supportURL   https://github.com/mheci/YT-zen/issues
+// @match        https://www.youtube.com/*
+// @match        https://m.youtube.com/*
+// @match        https://music.youtube.com/*
+// @run-at       document-start
+// @sandbox      JavaScript
+// @inject-into content
+// @grant        GM_setValue
+// @grant        GM_getValue
+// @grant        GM_deleteValue
+// @grant        GM_listValues
+// @grant        GM_registerMenuCommand
+// @grant        GM_xmlhttpRequest
+// @grant        GM_addStyle
+// @grant        GM_info
+// @connect      sponsor.ajay.app
+// @connect      www.youtube.com
+// @connect      s.youtube.com
+// @connect      self
+// @connect      github.com
+// @require      https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js
+// @require      https://cdn.jsdelivr.net/npm/culori@3.2.0/bundled/culori.min.js
+// @icon         https://raw.githubusercontent.com/mheci/YT-zen/main/icon.png
+// @noframes
+// @updateURL    https://github.com/mheci/YT-zen/releases/latest/download/yt-zen.meta.js
+// @downloadURL  https://github.com/mheci/YT-zen/releases/latest/download/yt-zen.user.js
+// ==/UserScript==

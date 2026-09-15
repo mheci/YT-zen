@@ -1,0 +1,52 @@
+name: Stable release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Validate and publish release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Deterministic gate
+        run: npm test
+      - name: Verify bundle matches sources
+        run: git diff --exit-code -- yt-zen.user.js
+      - name: SponsorBlock smoke test
+        run: node scripts/test-sponsorblock.js JQb9eGeclQw
+      - name: Verify tag matches package version
+        shell: bash
+        run: |
+          expected="v$(node -p 'require("./package.json").version')"
+          test "$GITHUB_REF_NAME" = "$expected"
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="YT-zen ${GITHUB_REF_NAME#v}"
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release edit "$GITHUB_REF_NAME" --title "$title" --verify-tag
+            gh release upload "$GITHUB_REF_NAME" yt-zen.user.js yt-zen.meta.js --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              --title "$title" \
+              --generate-notes \
+              yt-zen.user.js \
+              yt-zen.meta.js
+          fi

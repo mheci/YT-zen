@@ -1,0 +1,53 @@
+name: Build Userscript
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Deterministic gate
+        run: npm test
+
+      - name: Verify bundle matches sources
+        run: git diff --exit-code -- yt-zen.user.js
+
+      - name: Extract version
+        id: version
+        run: |
+          VERSION=$(grep -oP '// @version\s+\K[0-9.]+' yt-zen.user.js)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Building userscript version: $VERSION"
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p dist
+          cp yt-zen.user.js dist/yt-zen.user.js
+          cp yt-zen.meta.js dist/yt-zen.meta.js
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: yt-zen-userscript-v${{ steps.version.outputs.version }}
+          path: |
+            dist/yt-zen.user.js
+            dist/yt-zen.meta.js

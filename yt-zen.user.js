@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YT-zen
 // @namespace    https://github.com/mheci/YT-zen
-// @version      1.1.1
+// @version      1.1.2
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      Unlicense
@@ -8333,152 +8333,6 @@ algoBlockChannels: "",
     }, 50);
   }
 
-  async function KtOrganic(e, t) {
-    const fwLog = (m) => { try { (window.__fwLog = window.__fwLog || []).slice(-39); (window.__fwLog = window.__fwLog || []).push(Math.round(performance.now()) + " " + m); } catch (_) {} };
-    try {
-      const __vid = ie.videoId && ie.videoId();
-      const __now = Date.now();
-      if (window.__fwLastVid === __vid && __now - (window.__fwLastTs||0) < 8000) { pe("Already marked this video.", 1400, "info"); return false; }
-      window.__fwLastVid = __vid; window.__fwLastTs = __now;
-    } catch(_) {}
-    const wasMuted = e.muted, wasRate = e.playbackRate;
-    let wasTime = 0, wasPaused = true;
-    try { wasTime = e.currentTime; } catch(_){}
-    try { wasPaused = e.paused; } catch(_){}
-    let done = false, d = t, cur = -1, scrubs = 0;
-    try {
-
-      let autonavOff = false;
-      try {
-        const btn = document.querySelector(".ytp-autonav-toggle-button");
-        if (btn && btn.getAttribute("aria-checked") === "true") {
-          btn.click();
-          autonavOff = true;
-        }
-      } catch (_) {}
-
-      try {
-        const bar = document.querySelector(".ytp-progress-bar");
-        const r2 = bar && bar.getBoundingClientRect();
-        if (bar && r2 && r2.width) {
-          const o2 = {
-            bubbles: true, cancelable: true, button: 0, buttons: 1,
-            clientX: r2.left + r2.width * 0.995, clientY: r2.top + r2.height / 2,
-          };
-          bar.dispatchEvent(new MouseEvent("mousedown", o2));
-          document.dispatchEvent(new MouseEvent("mousemove", o2));
-          document.dispatchEvent(new MouseEvent("mouseup", o2));
-          scrubs = 1;
-        }
-      } catch (_) {}
-      try { d = e.duration || t; } catch (_) {}
-
-      await new Promise((r) => setTimeout(r, 260));
-      try { cur = e.currentTime; } catch(_){}
-      const nearEndAfterScrub = isFinite(cur) && isFinite(d) && d - cur <= Math.max(2.5, d * 0.012);
-      if (!nearEndAfterScrub) {
-        let tailBuffered = false;
-        try {
-          if (e.buffered && e.buffered.length) {
-            for (let i = 0; i < e.buffered.length; i++) {
-              if (e.buffered.end(i) >= d - 1.6) { tailBuffered = true; break; }
-            }
-          } else {
-            tailBuffered = true;
-          }
-        } catch(_){ tailBuffered = true; }
-        if (tailBuffered) {
-
-          try { e.currentTime = Math.max(0, d - 0.9); } catch (_) {}
-          await Promise.race([
-            new Promise((res) => {
-              let settled = false;
-              const h = () => { if (!settled) { settled = true; try{e.removeEventListener("seeked", h);}catch(_){} res(); } };
-              try { e.addEventListener("seeked", h, {once:true}); } catch(_){ res(); return; }
-              setTimeout(() => { if (!settled) { settled = true; try{e.removeEventListener("seeked", h);}catch(_){} res(); } }, 650);
-            }),
-            new Promise((res) => setTimeout(res, 700))
-          ]);
-          try { e.pause(); } catch (_) {}
-          await new Promise((r) => setTimeout(r, 140));
-        } else {
-
-          fwLog("tail not buffered d=" + d.toFixed(0) + " buffered=" + (()=>{try{let s="";for(let i=0;i<e.buffered.length;i++) s+= "["+e.buffered.start(i).toFixed(1)+"-"+e.buffered.end(i).toFixed(1)+"]"; return s||"none";}catch(_){return "?";}})() + " sprint tail");
-          try { e.muted = true; } catch(_){}
-          try { e.playbackRate = 16; } catch(_){}
-          try { e.currentTime = Math.max(0, d - 3); } catch(_){}
-          try { const pr = e.play(); if (pr && pr.catch) pr.catch(()=>{}); } catch(_){}
-
-          const sprintDeadline = Date.now() + 4200;
-          while (Date.now() < sprintDeadline) {
-            await new Promise((r)=>setTimeout(r, 90));
-            try { cur = e.currentTime; } catch(_){}
-            if (isFinite(cur) && d - cur <= 0.9) break;
-            try { if (e.ended) break; } catch(_){}
-            try { if (e.seeking || e.readyState < 2) continue; } catch(_){}
-
-            try { if (e.readyState < 3 && Date.now() > sprintDeadline - 1500) break; } catch(_){}
-          }
-          try { e.pause(); } catch(_){}
-          await new Promise((r)=>setTimeout(r, 180));
-
-          try { if (!e.ended) e.currentTime = Math.max(0, d - 0.6); } catch(_){}
-          await new Promise((r)=>setTimeout(r, 120));
-          try { e.pause(); } catch(_){}
-        }
-      } else {
-        fwLog("scrub already near end cur=" + (isFinite(cur)?cur.toFixed(1):"?") + " skip pin");
-        try { e.pause(); } catch (_) {}
-        await new Promise((r) => setTimeout(r, 140));
-      }
-      try { e.playbackRate = wasRate; } catch (_) {}
-      try { e.muted = wasMuted; } catch (_) {}
-      try { if (typeof jt !== "undefined") jt = !1; } catch (_) {}
-      try { cur = e.currentTime; } catch (_) {}
-      done = (function () { try { return e.ended; } catch (_) { return false; } })() || d - cur <= Math.max(2.5, d * 0.012);
-      const stillSeeking = (()=>{ try{return e.seeking;}catch(_){return false;}})();
-      const waiting = (()=>{ try{return e.readyState < 2 || (e.seeking && !e.ended);}catch(_){return false;}})();
-      if ((!done || stillSeeking || waiting) && !nearEndAfterScrub) {
-
-        const curAfter = (()=>{ try{return e.currentTime;}catch(_){return cur;}})();
-        const nearEndNow = isFinite(curAfter) && isFinite(d) && d - curAfter <= 3.5;
-        if (!nearEndNow) {
-          try { e.currentTime = wasTime; } catch(_){}
-          try { if (wasPaused) e.pause(); else { const pr=e.play(); if(pr&&pr.catch) pr.catch(()=>{}); } } catch(_){}
-          await new Promise((r)=>setTimeout(r, 90));
-          try { cur = e.currentTime; } catch(_){}
-          fwLog("reverted spinner cur=" + (isFinite(cur)?cur.toFixed(1):"?") + " was=" + wasTime.toFixed(1) + " waiting=" + waiting + " seeking=" + stillSeeking);
-        } else {
-          fwLog("stay at tail cur=" + (isFinite(curAfter)?curAfter.toFixed(1):"?") + " done=" + done);
-        }
-
-        done = true;
-      }
-      fwLog("scrub scrubs=" + scrubs + " t=" + (isFinite(cur) ? cur.toFixed(1) : "?") + "/" + d.toFixed(0));
-      fwLog("settle done=" + done + " t=" + (isFinite(cur) ? cur.toFixed(2) : "?") + "/" + d.toFixed(0) + " wasPaused=" + wasPaused);
-    } catch (_) {}
-    try {
-      if (done) {
-        pe("Marked as fully watched.", 2200, "success");
-      } else {
-        pe("Watchtime signals sent — verifying…", 1800, "info");
-        let __tries = 0;
-        const __vid2 = ie.videoId && ie.videoId();
-        const __iv = setInterval(() => {
-          __tries++;
-          try {
-            const cur = e.currentTime;
-            const dur = e.duration || d;
-            const nearEnd = dur - cur <= Math.max(2.5, dur * 0.015);
-            if (nearEnd) { clearInterval(__iv); pe("Verified near end — " + cur.toFixed(1) + " / " + dur.toFixed(0) + "s", 1600, "success"); }
-            else if (__tries > 6) { clearInterval(__iv); pe("Signals sent (verify in History in a few seconds).", 2200, "info"); }
-          } catch(_) { if (__tries > 6) clearInterval(__iv); }
-        }, 250);
-        setTimeout(() => { try { clearInterval(__iv); } catch(_){} }, 2200);
-      }
-    } catch(_) { try { pe(done ? "Marked as fully watched." : "Watchtime signals sent.", 2200, done ? "success" : "info"); } catch(_){} }
-    return done;
-  }
   function Kt(e, t, a, n) {
     if (_isLiveStream()) {
       return void pe("Live streams can't be marked as watched.", 2000, "info");
@@ -8508,7 +8362,6 @@ algoBlockChannels: "",
       }
     } catch (_) {}
 
-    pe("Fast-forwarding to the end…", 1400, "info");
     const r = {
       loop: e.loop,
       playbackRate: e.playbackRate,
@@ -8526,7 +8379,6 @@ algoBlockChannels: "",
       skipIntroCfg: S.skipIntroOn,
     };
 
-    try { KtOrganic(e, n, r).catch(() => {}); } catch (_) {}
     try {
       e.loop = !1;
     } catch (e) {}
@@ -8726,9 +8578,13 @@ algoBlockChannels: "",
       if (vEl && !document.querySelector(".ad-showing,.ad-interrupting")) {
         try {
           const target = (isFinite(vEl.duration) && vEl.duration > 0) ? vEl.duration : DU;
-          vEl.currentTime = Math.max(0, target - 0.001);
-          try { vEl.pause(); } catch (_) {}
-          try { vEl.dispatchEvent(new Event("pause")); } catch (_) {}
+          try { vEl.currentTime = target; } catch (_) { try { vEl.currentTime = Math.max(0, target - 0.001); } catch (e3) {} }
+          try { vEl.dispatchEvent(new Event("timeupdate")); } catch (_) {}
+          try { vEl.dispatchEvent(new Event("ended")); } catch (_) {}
+          try {
+            const pEl = document.getElementById("movie_player");
+            if (pEl && typeof pEl.seekTo === "function") { try { pEl.seekTo(target, true); } catch (_) {} }
+          } catch (_) {}
         } catch (_) {}
       }
     } catch (e) {}
@@ -8772,7 +8628,6 @@ algoBlockChannels: "",
           state: wi % 9 === 7 && wi < wN - 1 ? "paused" : "playing",
         });
         if (wi % 4 === 3) fire(track.qoeUrl, { cmt: et, rt: (et + 1 + Math.random() * 2).toFixed(3) });
-        await new Promise((r) => setTimeout(r, 80 + Math.floor(60 * Math.random())));
       }
       try { for (const eu of track.extraUrls || []) fire(eu, { cmt: DU, rt: rtNow() }); } catch (e) {}
       fire(track.engagedviewUrl, { cmt: DU, et: DU, st: 0, rt: (DU + 1 + Math.random() * 2).toFixed(3), state: "playing" });

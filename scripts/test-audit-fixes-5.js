@@ -68,4 +68,6 @@ assert.ok(/"\|v3";/.test(bundle), "THEME-04: theme css memo at v3");
 assert.ok(/async function _fwAdvanced/.test(bundle), "FW-01: closed-loop Force Watched engine present");
 assert.ok(/SAPISIDHASH/.test(bundle) && /FEhistory/.test(bundle), "FW-02: authenticated history verification present");
 assert.ok(/script:not\(\[src\]\)/.test(bundle), "FW-03: world-independent player data extraction present");
+assert.ok(/dispatchEvent\(new Event\("ended"\)\)/.test(bundle), "FW-04: native ended event forced for end screen");
+assert.ok(!/KtOrganic/.test(bundle), "FW-05: legacy pausing scrub engine removed");
 console.log("Audit-fix tests (batch 5: bundle pins) passed.");

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YT-zen
 // @namespace    https://github.com/mheci/YT-zen
-// @version      1.1.2
+// @version      1.1.3
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      Unlicense
@@ -8426,9 +8426,17 @@ algoBlockChannels: "",
     }
 
   function _fwExtractJson(text, marker) {
-    const at = text.indexOf(marker);
-    if (at < 0) return null;
-    let i = at + marker.length;
+    let start;
+    if (marker instanceof RegExp) {
+      const m = text.match(marker);
+      if (!m) return null;
+      start = m.index + m[0].length;
+    } else {
+      const at = text.indexOf(marker);
+      if (at < 0) return null;
+      start = at + marker.length;
+    }
+    let i = start;
     while (i < text.length && text[i] !== "{") i++;
     if (i >= text.length) return null;
     let depth = 0, inStr = false, esc = false;
@@ -8461,7 +8469,7 @@ algoBlockChannels: "",
         if (!out.ei) { const m = txt.match(/"EVENT_ID":"([^"]+)"/); if (m) out.ei = m[1]; }
         if (!out.sts) { const m = txt.match(/"STS":(\d+)/); if (m) out.sts = parseInt(m[1], 10) || 0; }
         if (!out.pr && txt.indexOf("ytInitialPlayerResponse") >= 0) {
-          const pr = _fwExtractJson(txt, "ytInitialPlayerResponse=");
+          const pr = _fwExtractJson(txt, /ytInitialPlayerResponse\s*=\s*/);
           if (pr && pr.videoDetails) {
             out.pr = pr;
             out.cpn = (pr.playerConfig && pr.playerConfig.cpn) || "";

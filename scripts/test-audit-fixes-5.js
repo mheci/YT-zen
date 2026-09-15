@@ -70,4 +70,5 @@ assert.ok(/SAPISIDHASH/.test(bundle) && /FEhistory/.test(bundle), "FW-02: authen
 assert.ok(/script:not\(\[src\]\)/.test(bundle), "FW-03: world-independent player data extraction present");
 assert.ok(/dispatchEvent\(new Event\("ended"\)\)/.test(bundle), "FW-04: native ended event forced for end screen");
 assert.ok(!/KtOrganic/.test(bundle), "FW-05: legacy pausing scrub engine removed");
+assert.ok(bundle.indexOf("ytInitialPlayerResponse\\s*=\\s*") >= 0, "FW-06: playerResponse marker tolerates real page whitespace");
 console.log("Audit-fix tests (batch 5: bundle pins) passed.");

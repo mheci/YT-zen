@@ -32,7 +32,7 @@ for (const required of [
   "privacy-path-repeated",
   "clearInFlightForVideo",
   "videoID=",
-  "viewedVideoSponsorTime?UUID=",
+  "viewedSponsorSegment?UUID=",
   "normalizeSegments",
 ]) {
   if (!bundle.includes(required)) throw new Error(`Bundle is missing required production guard: ${required}`);

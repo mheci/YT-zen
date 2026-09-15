@@ -327,7 +327,7 @@ let keepAlive;
   let viewCalls = 0;
   context.he = async (url, opts) => {
     viewCalls++;
-    if (!String(url).includes("/api/viewedVideoSponsorTime")) throw new Error("unexpected url");
+    if (!String(url).includes("/api/viewedSponsorSegment")) throw new Error("unexpected url");
     await new Promise((r) => setTimeout(r, 20));
     return { ok: true, status: 200, headers: { get: () => null }, text: async () => "", json: async () => null };
   };

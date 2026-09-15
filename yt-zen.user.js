@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YT-zen
 // @namespace    https://github.com/mheci/YT-zen
-// @version      1.0.0
+// @version      1.0.1
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      Unlicense
@@ -998,7 +998,7 @@ algoBlockChannels: "",
         adSpeed: !1,
         hideBannerAds: !1,
         sponsorblockOn: !0,
-        sbPrivacy: !1,
+        sbPrivacy: !0,
         sbToast: !0,
         sbToastDur: 2200,
         sbSeekbar: !0,
@@ -5794,7 +5794,7 @@ algoBlockChannels: "",
         } catch (_) { return ""; }
       };
 
-      const hashPrefix = async (videoId) => {
+      const hashFull = async (videoId) => {
 
         try {
           if (!crypto || !crypto.subtle || typeof crypto.subtle.digest !== "function") return null;
@@ -5803,11 +5803,15 @@ algoBlockChannels: "",
           );
           return Array.from(new Uint8Array(buffer))
             .map(b => b.toString(16).padStart(2, "0"))
-            .join("")
-            .slice(0, 4);
+            .join("");
         } catch (_) {
           return null;
         }
+      };
+
+      const hashPrefix = async (videoId) => {
+        const full = await hashFull(videoId);
+        return full ? full.slice(0, 4) : null;
       };
 
       const actionTypeForCategory = (categoryId) => {
@@ -5835,8 +5839,10 @@ algoBlockChannels: "",
       const buildFetchPlans = async (videoId, usePrivacy, categories, actionTypes) => {
         const base = Settings.getServerUrl();
         let prefix = null;
+        let fullHash = null;
         if (usePrivacy) {
-          prefix = await hashPrefix(videoId);
+          fullHash = await hashFull(videoId);
+          prefix = fullHash ? fullHash.slice(0, PRIVACY_HASH_LENGTH) : null;
           if (!prefix) {
 
             try { if (typeof u === "function") u("SB privacy lookup skipped: SHA-256 unavailable"); } catch (_) {}
@@ -5869,6 +5875,7 @@ algoBlockChannels: "",
             base + "/api/skipSegments/" + prefix + "?" + createParams(null, categories, actionTypes, "repeated").toString(),
             true
           );
+          plans.forEach((plan) => { plan.fullHash = fullHash; });
         }
         return plans;
       };
@@ -5911,12 +5918,17 @@ algoBlockChannels: "",
         };
       };
 
-      const extractSegmentArray = (payload, videoId) => {
+      const extractSegmentArray = (payload, videoId, fullHash) => {
         if (Array.isArray(payload)) {
           if (!payload.length) return { segments: [], matched: true, prefixed: false, valid: true };
           const prefixed = payload.some((entry) => entry && Array.isArray(entry.segments));
           if (prefixed) {
-            const hit = payload.find((entry) => entry && entry.videoID === videoId && Array.isArray(entry.segments));
+            const wantHash = fullHash ? String(fullHash).toLowerCase() : null;
+            const hit = payload.find((entry) =>
+              entry && Array.isArray(entry.segments) && (
+                (wantHash && typeof entry.hash === "string" && entry.hash.toLowerCase() === wantHash) ||
+                (entry.videoID === videoId)
+              ));
             return { segments: hit ? hit.segments : [], matched: !!hit, prefixed: true, valid: true };
           }
           return { segments: payload, matched: true, prefixed: false, valid: true };
@@ -5932,8 +5944,8 @@ algoBlockChannels: "",
         return { segments: [], matched: false, prefixed: false, valid: false };
       };
 
-      const normalizeSegments = (payload, videoId) => {
-        const extracted = extractSegmentArray(payload, videoId);
+      const normalizeSegments = (payload, videoId, fullHash) => {
+        const extracted = extractSegmentArray(payload, videoId, fullHash);
         const normalized = [];
         const seen = new Set();
         for (let idx = 0; idx < extracted.segments.length; idx++) {
@@ -6046,7 +6058,7 @@ algoBlockChannels: "",
           if (idx > 0) Metrics.recordApiFallback();
           try {
             const { response, body } = await requestJson(plan.url, abortSignal);
-            const normalized = normalizeSegments(body, videoId);
+            const normalized = normalizeSegments(body, videoId, plan.fullHash || null);
             if (!normalized.valid) {
               const malformed = new Error("SponsorBlock response was not a segment array");
               malformed.status = response.status;
@@ -6263,7 +6275,7 @@ algoBlockChannels: "",
         try {
           Metrics.recordViewedReport();
           return await requestAction(
-            base + "/api/viewedVideoSponsorTime?UUID=" + encodeURIComponent(uuid) + "&videoID=" + encodeURIComponent(videoId),
+            base + "/api/viewedSponsorSegment?UUID=" + encodeURIComponent(uuid),
             { method: "POST" }
           );
         } finally {

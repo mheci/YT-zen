@@ -207,3 +207,12 @@ function makeContext({ withSubtle }) {
   console.error("AUDIT-FIX TEST FAILURE:", err && err.stack ? err.stack : err);
   process.exit(1);
 });
+
+(() => {
+  const bundleText = fs.readFileSync(path.join(root, "yt-zen.user.js"), "utf8");
+  assert.ok(/viewedSponsorSegment\?UUID=/.test(bundleText), "SB-08: view counter uses UUID-only endpoint");
+  assert.ok(!/viewedVideoSponsorTime/.test(bundleText), "SB-08: legacy leaking endpoint removed");
+  assert.ok(/entry\.hash\.toLowerCase\(\) === wantHash/.test(bundleText), "SB-09: privacy responses matched by SHA-256 hash");
+  assert.ok(/sbPrivacy: !0/.test(bundleText), "SB-10: privacy lookups default on");
+  console.log("Audit-fix tests (batch 3b: SB privacy pins) passed.");
+})();

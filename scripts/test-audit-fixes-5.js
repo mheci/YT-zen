@@ -33,10 +33,10 @@ assert.ok(/forceWatchedLocalHistory: !1/.test(bundle), "ZE-01: local history def
 assert.ok(!/setTimeout\(_flag, 9000\)/.test(bundle), "ZE-01: 9s auto-acknowledge removed");
 
 assert.ok(
-  /_h === "www\.youtube\.com" \|\| _h === "youtube\.com" \|\| _h === "s\.youtube\.com"/.test(bundle),
+  /_p\.hostname === "www\.youtube\.com" \|\| _p\.hostname === "youtube\.com" \|\| _p\.hostname === "s\.youtube\.com"/.test(bundle),
   "PT-06: beacon origin pin present"
 );
-assert.ok(/_p\.protocol !== "https:"/.test(bundle), "PT-06: https-only beacon guard");
+assert.ok(/\/\^https:\/i\.test\(sUrl\)/.test(bundle) || /_p\.protocol !== "https:"/.test(bundle), "PT-06: https-only beacon guard");
 
 const connects = (text) => (text.match(/@connect\s+(\S+)/g) || []).map((s) => s.split(/\s+/)[1]);
 assert.deepStrictEqual(
@@ -65,4 +65,7 @@ assert.ok(/ytd-topbar-logo-renderer/.test(bundle) && /#masthead #buttons yt-icon
 assert.ok(/"color-scheme:" \+ \("dark" === e\.mode/.test(bundle),
   "THEME-03: color-scheme token per mode");
 assert.ok(/"\|v3";/.test(bundle), "THEME-04: theme css memo at v3");
+assert.ok(/async function _fwAdvanced/.test(bundle), "FW-01: closed-loop Force Watched engine present");
+assert.ok(/SAPISIDHASH/.test(bundle) && /FEhistory/.test(bundle), "FW-02: authenticated history verification present");
+assert.ok(/script:not\(\[src\]\)/.test(bundle), "FW-03: world-independent player data extraction present");
 console.log("Audit-fix tests (batch 5: bundle pins) passed.");

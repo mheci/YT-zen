@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YT-zen
 // @namespace    https://github.com/mheci/YT-zen
-// @version      1.0.1
+// @version      1.1.0
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      Unlicense
@@ -8573,270 +8573,234 @@ algoBlockChannels: "",
       });
     }
 
+  function _fwExtractJson(text, marker) {
+    const at = text.indexOf(marker);
+    if (at < 0) return null;
+    let i = at + marker.length;
+    while (i < text.length && text[i] !== "{") i++;
+    if (i >= text.length) return null;
+    let depth = 0, inStr = false, esc = false;
+    for (let j = i; j < text.length; j++) {
+      const ch = text[j];
+      if (inStr) {
+        if (esc) esc = false;
+        else if (ch === "\\") esc = true;
+        else if (ch === '"') inStr = false;
+      } else if (ch === '"') inStr = true;
+      else if (ch === "{") depth++;
+      else if (ch === "}") {
+        depth--;
+        if (depth === 0) { try { return JSON.parse(text.slice(i, j + 1)); } catch (_) { return null; } }
+      }
+    }
+    return null;
+  }
+
+  function _fwParsePage() {
+    const out = { apiKey: "", ver: "", hl: "en", gl: "US", visitor: "", ei: "", sts: 0, pr: null, cpn: "" };
+    try {
+      const scripts = document.querySelectorAll("script:not([src])");
+      for (let sIdx = 0; sIdx < scripts.length && sIdx < 60; sIdx++) {
+        const txt = scripts[sIdx].textContent || "";
+        if (!txt || txt.length < 40) continue;
+        if (!out.apiKey) { const m = txt.match(/"INNERTUBE_API_KEY":"([^"]+)"/); if (m) out.apiKey = m[1]; }
+        if (!out.ver) { const m = txt.match(/"INNERTUBE_CLIENT_VERSION":"([^"]+)"/); if (m) out.ver = m[1]; }
+        if (!out.visitor) { const m = txt.match(/"VISITOR_DATA":"([^"]+)"/); if (m) out.visitor = m[1]; }
+        if (!out.ei) { const m = txt.match(/"EVENT_ID":"([^"]+)"/); if (m) out.ei = m[1]; }
+        if (!out.sts) { const m = txt.match(/"STS":(\d+)/); if (m) out.sts = parseInt(m[1], 10) || 0; }
+        if (!out.pr && txt.indexOf("ytInitialPlayerResponse") >= 0) {
+          const pr = _fwExtractJson(txt, "ytInitialPlayerResponse=");
+          if (pr && pr.videoDetails) {
+            out.pr = pr;
+            out.cpn = (pr.playerConfig && pr.playerConfig.cpn) || "";
+            if (!out.apiKey) { const m2 = txt.match(/"INNERTUBE_API_KEY":"([^"]+)"/); if (m2) out.apiKey = m2[1]; }
+          }
+        }
+        if (out.apiKey && out.ver && out.pr) break;
+      }
+    } catch (e) {}
+    try {
+      const t = _t();
+      if (!out.ver) out.ver = t.ver || "2.20250101.00.00";
+      if (!out.hl) out.hl = t.hl;
+      if (!out.gl) out.gl = t.gl;
+      if (!out.visitor) out.visitor = t.visitorData;
+      if (!out.ei) out.ei = t.ei;
+    } catch (e) {}
+    return out;
+  }
+
+  async function _fwSapisidHeader() {
+    try {
+      const m = String(document.cookie || "").match(/(?:^|;\s*)SAPISID=([^;]+)/);
+      if (!m) return null;
+      const ts = Math.floor(Date.now() / 1000);
+      const data = ts + " " + m[1] + " https://www.youtube.com";
+      const buf = await crypto.subtle.digest("SHA-1", new TextEncoder().encode(data));
+      const hex = Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+      return "SAPISIDHASH " + ts + "_" + hex;
+    } catch (e) { return null; }
+  }
+
+  function _fwInnerTube(page, endpoint, payload, auth) {
+    return new Promise((resolve) => {
+      try {
+        if (!page.apiKey || typeof GM_xmlhttpRequest !== "function") return resolve(null);
+        const headers = {
+          "Content-Type": "application/json",
+          "X-YouTube-Client-Name": "1",
+          "X-YouTube-Client-Version": page.ver,
+        };
+        if (page.visitor) headers["X-Goog-Visitor-Id"] = page.visitor;
+        if (auth) headers["Authorization"] = auth;
+        GM_xmlhttpRequest({
+          method: "POST",
+          url: "https://www.youtube.com/youtubei/v1/" + endpoint + "?key=" + encodeURIComponent(page.apiKey) + "&prettyPrint=false",
+          headers: headers,
+          data: JSON.stringify(payload),
+          timeout: 9000,
+          onload: (r) => { try { resolve({ status: r.status, json: JSON.parse(r.responseText) }); } catch (_) { resolve({ status: r.status, json: null }); } },
+          onerror: () => resolve(null),
+          ontimeout: () => resolve(null),
+        });
+      } catch (e) { resolve(null); }
+    });
+  }
+
+  async function _fwHistoryHas(videoId, page) {
+    const auth = await _fwSapisidHeader();
+    if (!auth) return null;
+    const resp = await _fwInnerTube(page, "browse", {
+      context: { client: { clientName: "WEB", clientVersion: page.ver, hl: page.hl, gl: page.gl } },
+      browseId: "FEhistory",
+    }, auth);
+    if (!resp || !resp.json) return false;
+    try { return JSON.stringify(resp.json).indexOf('"videoId":"' + videoId + '"') >= 0; } catch (e) { return false; }
+  }
+
+  async function _fwAdvanced(videoId, durFallback) {
+    const stats = { attempts: 0, verified: false, beacons: 0, transport: "gmx" };
+    if (typeof GM_xmlhttpRequest !== "function") { try { pe("Force Watched: GM transport unavailable", 2600, "error"); } catch (e) {} return stats; }
+    const page = _fwParsePage();
+    const buildTrack = (r, d) => ({
+      playbackUrl: r.videostatsPlaybackUrl && r.videostatsPlaybackUrl.baseUrl,
+      watchtimeUrl: r.videostatsWatchtimeUrl && r.videostatsWatchtimeUrl.baseUrl,
+      atrUrl: r.atrUrl && r.atrUrl.baseUrl,
+      qoeUrl: r.qoeUrl && r.qoeUrl.baseUrl,
+      ptrackingUrl: r.ptrackingUrl && r.ptrackingUrl.baseUrl,
+      delayplayUrl: r.videostatsDelayplayUrl && r.videostatsDelayplayUrl.baseUrl,
+      engagedviewUrl: r.videostatsEngagedviewUrl && r.videostatsEngagedviewUrl.baseUrl,
+      wtfUrl: r.videostatsWtfUrl && r.videostatsWtfUrl.baseUrl,
+      lengthSec: d,
+      extraUrls: (function () {
+        const seen = { videostatsPlaybackUrl: 1, videostatsWatchtimeUrl: 1, atrUrl: 1, qoeUrl: 1, ptrackingUrl: 1, videostatsDelayplayUrl: 1, videostatsEngagedviewUrl: 1, videostatsWtfUrl: 1 };
+        const outArr = [];
+        try { for (const [k, v] of Object.entries(r)) if (v && v.baseUrl && !seen[k]) outArr.push(String(v.baseUrl)); } catch (e) {}
+        return outArr;
+      })(),
+    });
+    let track = null;
+    if (page.pr && page.pr.playbackTracking) {
+      track = buildTrack(page.pr.playbackTracking, parseInt((page.pr.videoDetails || {}).lengthSeconds || "0", 10) || 0);
+    }
+    if (!track || !track.watchtimeUrl) {
+      const auth = await _fwSapisidHeader();
+      const resp = await _fwInnerTube(page, "player", {
+        context: { client: { clientName: "WEB", clientVersion: page.ver, hl: page.hl, gl: page.gl } },
+        videoId: videoId, contentCheckOk: true, racyCheckOk: true,
+      }, auth);
+      if (resp && resp.json && resp.json.playbackTracking) {
+        track = buildTrack(resp.json.playbackTracking, parseInt((resp.json.videoDetails || {}).lengthSeconds || "0", 10) || 0);
+      }
+    }
+    const vEl = ie.el();
+    const dur = (track && track.lengthSec > 0 ? track.lengthSec : 0) ||
+      (vEl && isFinite(vEl.duration) && vEl.duration > 0 ? vEl.duration : 0) || durFallback || 0;
+    if (!dur || !isFinite(dur) || dur <= 0) { try { pe("Force Watched: no finite duration (live?)", 2600, "info"); } catch (e) {} return stats; }
+    const cpn = page.cpn || Tt();
+    const DU = Math.round(dur * 1000) / 1000;
+    const fwEndSt = Math.max(0, Math.round((DU - Math.min(5, DU / 2)) * 1000) / 1000);
+    const UA = _fwUA();
+    const t0 = _t();
+    const clientBlock = {
+      c: "WEB", cver: page.ver, cbr: UA.browser, cbrver: UA.bver, cos: UA.os, cosver: UA.osver || "10.0",
+      hl: page.hl, cr: page.gl, mos: 0, fmt: _fwVfmt() || 243,
+      volume: (function () { try { return Math.round((ie.el().volume || 1) * 100); } catch (e) { return 100; } })(),
+      muted: (function () { try { return ie.el().muted ? 1 : 0; } catch (e) { return 0; } })(),
+    };
+    const fire = (u2, params) => {
+      try {
+        let sUrl = String(u2 || "");
+        if (!sUrl || !/^https:/i.test(sUrl)) return;
+        try {
+          const _p = new URL(sUrl, location.href);
+          if (!(_p.hostname === "www.youtube.com" || _p.hostname === "youtube.com" || _p.hostname === "s.youtube.com")) return;
+        } catch (_) { return; }
+        sUrl = Za(sUrl, "cpn", cpn);
+        const o2 = Object.assign({}, clientBlock, params || {});
+        for (const k of ["cmt", "et", "st", "mt", "rt", "lact", "state", "c", "cver", "cbr", "cbrver", "cos", "cosver", "hl", "cr", "mos", "fmt", "volume", "muted"])
+          if (null != o2[k]) sUrl = Za(sUrl, k, o2[k]);
+        GM_xmlhttpRequest({ method: "GET", url: sUrl, timeout: 8000 });
+        stats.beacons++;
+      } catch (e) {}
+    };
+    const rtNow = () => { try { return (performance.now() / 1000).toFixed(3); } catch (_) { return String(Math.max(1, Math.floor(DU))); } };
+    const endRt = () => (DU + 1.5 + Math.random() * 2.5).toFixed(3);
+    for (let attempt = 1; attempt <= 3 && !stats.verified; attempt++) {
+      stats.attempts = attempt;
+      fire(track.playbackUrl, { cmt: 0, rt: rtNow(), lact: 1200 + Math.floor(900 * Math.random()) });
+      fire(track.atrUrl, { cmt: 0, rt: rtNow(), lact: 700 });
+      fire(track.delayplayUrl, {});
+      const wN = Math.max(2, Math.min(24, Math.ceil(DU / 10)));
+      for (let wi = 0; wi < wN; wi++) {
+        const st = Math.round(DU * (wi / wN) * 1000) / 1000;
+        const et = Math.round(DU * ((wi + 1) / wN) * 1000) / 1000;
+        fire(track.watchtimeUrl, {
+          cmt: et, et: et, st: st, mt: et,
+          rt: (et + 1.5 + Math.random() * 2.5).toFixed(3),
+          lact: 150 + Math.floor(700 * Math.random()),
+          state: wi % 9 === 7 && wi < wN - 1 ? "paused" : "playing",
+        });
+        if (wi % 4 === 3) fire(track.qoeUrl, { cmt: et, rt: (et + 1 + Math.random() * 2).toFixed(3) });
+        await new Promise((r) => setTimeout(r, 80 + Math.floor(60 * Math.random())));
+      }
+      try { for (const eu of track.extraUrls || []) fire(eu, { cmt: DU, rt: rtNow() }); } catch (e) {}
+      fire(track.engagedviewUrl, { cmt: DU, et: DU, st: 0, rt: (DU + 1 + Math.random() * 2).toFixed(3), state: "playing" });
+      fire(track.ptrackingUrl, {});
+      fire(track.wtfUrl, {});
+      fire(track.qoeUrl, { cmt: DU, rt: rtNow() });
+      fire(track.watchtimeUrl, { cmt: DU, et: DU, st: fwEndSt, mt: DU, rt: endRt(), lact: 30, state: "ended" });
+      fire(track.watchtimeUrl, { cmt: DU, et: DU, st: fwEndSt, mt: DU, rt: endRt(), lact: 20, state: "ended" });
+      fire(track.watchtimeUrl, { cmt: DU, et: DU, st: fwEndSt, mt: DU, rt: endRt(), lact: 21, state: "paused" });
+      fire(track.watchtimeUrl, { cmt: DU, et: DU, st: fwEndSt, mt: DU, rt: endRt(), lact: 11, state: "paused" });
+      fire(track.qoeUrl, { cmt: DU, rt: rtNow() });
+      try {
+        if (vEl && isFinite(vEl.duration) && vEl.duration > 0 && !document.querySelector(".ad-showing,.ad-interrupting")) {
+          vEl.currentTime = Math.max(0, vEl.duration - 0.3);
+        }
+      } catch (e) {}
+      const has = await _fwHistoryHas(videoId, page);
+      if (has === null) { stats.verified = "skipped"; break; }
+      if (has === true) { stats.verified = true; break; }
+      if (attempt < 3) {
+        try { pe("Force Watched: not in history yet, retry " + attempt + "/3", 2000, "info"); } catch (e) {}
+        await new Promise((r) => setTimeout(r, 3500 * attempt));
+      }
+    }
+    try {
+      pe(stats.verified === true
+        ? "Force Watched: verified in account history"
+        : stats.verified === "skipped"
+          ? "Force Watched: campaign complete (signed-out, verification skipped)"
+          : "Force Watched: campaign complete, history check pending", 3400, stats.verified === true ? "success" : "info");
+    } catch (e) {}
+    try { u("fw advanced " + JSON.stringify(stats) + " for " + videoId + " (ei " + (t0.ei || "none") + ")"); } catch (e) {}
+    return stats;
+  }
+
     if (!1 !== S.forceWatchedAccountHistory) {
       Promise.resolve().then(() => {
-        (async () => {
-          try {
-            const track = await (async function (e) {
-              const make = (r, d) => ({
-                playbackUrl: r.videostatsPlaybackUrl && r.videostatsPlaybackUrl.baseUrl,
-                watchtimeUrl: r.videostatsWatchtimeUrl && r.videostatsWatchtimeUrl.baseUrl,
-                atrUrl: r.atrUrl && r.atrUrl.baseUrl,
-                qoeUrl: r.qoeUrl && r.qoeUrl.baseUrl,
-                ptrackingUrl: r.ptrackingUrl && r.ptrackingUrl.baseUrl,
-                delayplayUrl: r.videostatsDelayplayUrl && r.videostatsDelayplayUrl.baseUrl,
-                engagedviewUrl: r.videostatsEngagedviewUrl && r.videostatsEngagedviewUrl.baseUrl,
-                wtfUrl: r.videostatsWtfUrl && r.videostatsWtfUrl.baseUrl,
-                lengthSec: d,
-                extraUrls: (function () {
-                  const seen = {
-                    videostatsPlaybackUrl: 1,
-                    videostatsWatchtimeUrl: 1,
-                    atrUrl: 1,
-                    qoeUrl: 1,
-                    ptrackingUrl: 1,
-                    videostatsDelayplayUrl: 1,
-                    videostatsEngagedviewUrl: 1,
-                    videostatsWtfUrl: 1,
-                  };
-                  const out = [];
-                  try {
-                    for (const [k, v] of Object.entries(r))
-                      if (v && v.baseUrl && !seen[k]) out.push(String(v.baseUrl));
-                  } catch (e) {}
-                  return out;
-                })(),
-              });
-
-              try {
-                let pr = null;
-                try {
-                  const w =
-                    typeof unsafeWindow !== "undefined" ? unsafeWindow : window;
-                  pr = (w && w.ytInitialPlayerResponse) || window.ytInitialPlayerResponse || null;
-                } catch (e) {}
-                if (!pr) {
-                  try {
-                    const p = ie.api();
-                    if (p && "function" == typeof p.getPlayerResponse)
-                      pr = p.getPlayerResponse();
-                  } catch (e) {}
-                }
-                if (pr && pr.playbackTracking) {
-                  const vd = pr.videoDetails || {};
-                  try {
-                    _fwTplSet(
-                      (pr.playbackTracking.videostatsWatchtimeUrl &&
-                        pr.playbackTracking.videostatsWatchtimeUrl.baseUrl) ||
-                        (pr.playbackTracking.videostatsPlaybackUrl &&
-                          pr.playbackTracking.videostatsPlaybackUrl.baseUrl),
-                    );
-                  } catch (e) {}
-                  return make(
-                    pr.playbackTracking,
-                    parseInt(vd.lengthSeconds || "0", 10) || 0,
-                  );
-                }
-              } catch (e) {}
-              try {
-                const t = Mt(),
-                  a = await Ot(
-                    "player",
-                    {
-                      context: t,
-                      videoId: e,
-                      contentCheckOk: !0,
-                      racyCheckOk: !0,
-                      playbackContext: {
-                        contentPlaybackContext: {
-                          signatureTimestamp: Lt(),
-                          referer: "https://www.youtube.com/watch?v=" + e,
-                          currentUrl: "/watch?v=" + e,
-                          autoplay: !1,
-                          autoCaptionsDefaultOn: !1,
-                          html5Preference: "HTML5_PREF_WANTS",
-                          lactMilliseconds: "1000",
-                          vis: 0,
-                        },
-                      },
-                    },
-                    { parseJson: !0, timeout: 8e3 },
-                  );
-                if (a && a.ok && a.json) {
-                  const n = a.json,
-                    r = n.playbackTracking || {},
-                    o = n.playabilityStatus && n.playabilityStatus.status;
-                  if (!o || "OK" === o || "LIVE_STREAM_OFFLINE" === o) {
-                    const i = n.videoDetails || {};
-                    return make(r, parseInt(i.lengthSeconds || "0", 10) || 0);
-                  }
-                }
-              } catch (e) {}
-              return null;
-            })(a);
-            if (!track || (!track.playbackUrl && !track.watchtimeUrl)) {
-              pe("FW tpl=none — signed qt campaign only", 4000, "info");
-              u("fw diagnostic: tpl=none — template channel unavailable, qt campaign carries the press");
-              return;
-            }
-            const dur = track.lengthSec > 0 ? track.lengthSec : n;
-
-            const realCpn = (function () {
-              try {
-                const w =
-                  typeof unsafeWindow !== "undefined" ? unsafeWindow : window;
-                const c =
-                  w &&
-                  w.ytInitialPlayerResponse &&
-                  w.ytInitialPlayerResponse.playerConfig &&
-                  w.ytInitialPlayerResponse.playerConfig.cpn;
-                if (c) return String(c);
-              } catch (e) {}
-              try {
-                if (typeof i === "string" && i) return i;
-              } catch (e) {}
-              return "";
-            })();
-            const rtNow = () => {
-              try {
-                return (performance.now() / 1000).toFixed(3);
-              } catch (_) {}
-              return String(Math.max(1, Math.floor(dur)));
-            };
-            let fired = 0;
-            const DU = Math.round(dur * 1000) / 1000;
-            const fwEndSt = Math.max(0, Math.round((DU - Math.min(5, DU / 2)) * 1000) / 1000);
-            const isPix = (u2) => /\/pagead\//.test(String(u2 || ""));
-
-            const clientBlock = (function () {
-              const t = _t(),
-                U2 = _fwUA();
-              return {
-                c: "WEB",
-                cver: t.ver,
-                cbr: U2.browser,
-                cbrver: U2.bver,
-                cos: U2.os,
-                cosver: U2.osver || "10.0",
-                hl: t.hl,
-                cr: t.gl,
-                mos: 0,
-                fmt: _fwVfmt() || 243,
-                volume: (function () {
-                  try { return Math.round((ie.el().volume || 1) * 100); } catch (e) { return 100; }
-                })(),
-                muted: (function () {
-                  try { return ie.el().muted ? 1 : 0; } catch (e) { return 0; }
-                })(),
-              };
-            })();
-
-            const fire = (u2, params, gmx) => {
-              try {
-                let s = String(u2 || "");
-                if (!s || !/^https?:/i.test(s)) return;
-
-                try {
-                  const _p = new URL(s, location.href);
-                  const _h = _p.hostname;
-                  if (
-                    _p.protocol !== "https:" ||
-                    !(_h === "www.youtube.com" || _h === "youtube.com" || _h === "s.youtube.com")
-                  ) return;
-                } catch (_) { return; }
-                if (realCpn) s = Za(s, "cpn", realCpn);
-                const o2 = Object.assign({}, isPix(u2) ? {} : clientBlock, params || {});
-                for (const k of ["cmt", "et", "st", "mt", "rt", "lact", "state", "c", "cver", "cbr", "cbrver", "cos", "cosver", "hl", "cr", "mos", "fmt", "volume", "muted"])
-                  if (null != o2[k]) s = Za(s, k, o2[k]);
-                let ok = false;
-                try { ok = navigator.sendBeacon && navigator.sendBeacon(s); } catch (e) {}
-                if (!ok) {
-                  try {
-                    fetch(s, { method: "GET", credentials: "include", mode: "no-cors", keepalive: !0, cache: "no-store" }).catch(() => {});
-                  } catch (e) {}
-                }
-
-                if (gmx) {
-                  try {
-                    if (typeof GM_xmlhttpRequest === "function")
-                      GM_xmlhttpRequest({ method: "GET", url: s, timeout: 8e3 });
-                  } catch (e) {}
-                }
-                fired++;
-              } catch (e) {}
-            };
-
-            fire(track.playbackUrl, { cmt: 0, rt: rtNow(), lact: 1200 + Math.floor(900 * Math.random()) });
-            fire(track.atrUrl, { cmt: 0, rt: rtNow(), lact: 700 });
-            fire(track.delayplayUrl, {});
-
-            const wN = DU <= 24 ? 2 : Math.min(DU > 7200 ? 45 : 90, Math.ceil(DU / 10));
-            for (let wi = 0; wi < wN; wi++) {
-              const st = Math.round(DU * (wi / wN) * 1000) / 1000;
-              const et = Math.round(DU * ((wi + 1) / wN) * 1000) / 1000;
-              fire(track.watchtimeUrl, {
-                cmt: et, et: et, st: st, mt: et,
-
-                rt: (et + 1.5 + Math.random() * 2.5).toFixed(3),
-                lact: 150 + Math.floor(700 * Math.random()),
-                state: wi % 9 === 7 && wi < wN - 1 ? "paused" : "playing",
-              });
-              if (wi % 4 === 3) fire(track.qoeUrl, { cmt: et, rt: (et + 1 + Math.random() * 2).toFixed(3) });
-            }
-            try {
-
-              for (const eu of track.extraUrls || [])
-                if (!isPix(eu)) fire(eu, { cmt: DU, rt: rtNow() });
-            } catch (e) {}
-            fire(track.engagedviewUrl, { cmt: DU, et: DU, st: 0, rt: (DU + 1 + Math.random() * 2).toFixed(3), state: "playing" });
-            fire(track.ptrackingUrl, {});
-            fire(track.wtfUrl, {});
-            fire(track.qoeUrl, { cmt: DU, rt: rtNow() });
-
-            const endRt = () => (DU + 1.5 + Math.random() * 2.5).toFixed(3);
-            fire(track.watchtimeUrl, { cmt: DU, et: DU, st: fwEndSt, mt: DU, rt: endRt(), lact: 30, state: "ended" }, !0);
-            fire(track.watchtimeUrl, { cmt: DU, et: DU, st: fwEndSt, mt: DU, rt: endRt(), lact: 20, state: "ended" }, !0);
-            fire(track.watchtimeUrl, { cmt: DU, et: DU, st: fwEndSt, mt: DU, rt: endRt(), lact: 21, state: "paused" }, !0);
-            fire(track.watchtimeUrl, { cmt: DU, et: DU, st: fwEndSt, mt: DU, rt: endRt(), lact: 11, state: "paused" }, !0);
-            fire(track.qoeUrl, { cmt: DU, rt: rtNow() }, !0);
-            const hasGmx = typeof GM_xmlhttpRequest === "function";
-            u(
-              "fw account-history: burst " + fired +
-                " beacons (cpn " + (realCpn ? "real" : "MISSING") +
-                ", " + wN + " windows, gmx=" + (hasGmx ? "yes" : "no") +
-                ") for " + a,
-            );
-            try {
-              console.warn(
-                "[YT-zen] fw account-history: burst " + fired +
-                  " beacons (cpn " + (realCpn ? "real" : "MISSING") +
-                  ", " + wN + " windows, gmx=" + (hasGmx ? "yes" : "no") +
-                  ") for " + a,
-              );
-            } catch (e) {}
-
-            try {
-              const dbg =
-                "tpl=" + (track.watchtimeUrl ? "ok" : "none") +
-                " cpn=" + (realCpn ? "real" : "phantom") +
-                " beacons=" + fired +
-                " windows=" + wN +
-                " gmx=" + (hasGmx ? "yes" : "no") +
-                " player=" + (function () {
-                  try {
-                    const v = ie.el();
-                    const d2 = v && v.duration || 0;
-                    return d2 ? Math.round((v.currentTime / d2) * 100) + "%" : "?";
-                  } catch (e) { return "?"; }
-                })();
-              pe("FW " + dbg, 4000, "info");
-              u("fw diagnostic: " + dbg);
-              try { console.warn("[YT-zen] fw diagnostic: " + dbg); } catch (e) {}
-            } catch (e) {}
-          } catch (e) {
-            h("fw account-history player fetch", e);
-          }
-        })();
+        _fwAdvanced(a, n).catch((er) => { try { h("fw advanced", er); } catch (_) {} });
       });
     }
     const i = (function () {
@@ -11115,7 +11079,7 @@ algoBlockChannels: "",
     xa.register({
       id: "force-watched",
       name: "Force Watched (Shift+W)",
-      summary: "Mark video as watched with Shift+W.",
+      summary: "Instantly completes the video and verifies it in your account history (Shift+W).",
       masterKey: "forceWatchedOn",
       keys: [
         "forceWatchedOn",
